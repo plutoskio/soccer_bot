@@ -1,0 +1,12 @@
+{
+  "football_data_uk": {
+    "seasons": ["1617", "1718", "1819", "1920", "2021", "2122", "2223", "2324", "2425", "2526"],
+    "divisions": ["E0", "SP1", "D1", "I1", "F1"],
+    "minimum_interval_seconds": 0.2
+  },
+  "understat": {
+    "seasons": ["2014", "2015", "2016", "2017", "2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025"],
+    "leagues": ["EPL", "La liga", "Bundesliga", "Serie A", "Ligue 1"],
+    "minimum_interval_seconds": 0.6
+  }
+}

@@ -1,0 +1,89 @@
+from __future__ import annotations
+
+import gzip
+import json
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from soccer_bot.config import load_env
+from soccer_bot.database import Warehouse, stable_id
+from soccer_bot.http import HttpResponse
+from soccer_bot.raw_store import RawArtifactStore
+
+
+class ConfigTests(unittest.TestCase):
+    def test_load_env_handles_comments_and_quoted_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".env"
+            path.write_text("# secret\nAPI_FOOTBALL_KEY='abc123'\n", encoding="utf-8")
+            self.assertEqual(load_env(path)["API_FOOTBALL_KEY"], "abc123")
+
+
+class RawArtifactStoreTests(unittest.TestCase):
+    def test_stores_compressed_body_and_redacts_unlisted_headers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = RawArtifactStore(root)
+            response = HttpResponse(
+                url="https://example.test/fixtures?date=2026-07-02",
+                status=200,
+                headers={"content-type": "application/json", "authorization": "secret"},
+                body=b'{"response": []}',
+            )
+            artifact = store.store(
+                source="test",
+                resource="fixtures",
+                response=response,
+                request_params={"date": "2026-07-02"},
+            )
+            with gzip.open(artifact.data_path, "rb") as handle:
+                self.assertEqual(handle.read(), response.body)
+            metadata = json.loads(artifact.metadata_path.read_text(encoding="utf-8"))
+            self.assertNotIn("authorization", metadata["response_headers"])
+            self.assertEqual(metadata["http_status"], 200)
+
+    def test_identical_bodies_are_physically_deduplicated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = RawArtifactStore(Path(directory))
+            response = HttpResponse("https://example.test", 200, {}, b"{}")
+            first = store.store(source="test", resource="one", response=response)
+            second = store.store(source="test", resource="one", response=response)
+            self.assertFalse(first.duplicate)
+            self.assertTrue(second.duplicate)
+            self.assertEqual(first.data_path, second.data_path)
+
+
+class WarehouseTests(unittest.TestCase):
+    def test_stable_ids_are_deterministic(self):
+        self.assertEqual(stable_id("team", "Spain"), stable_id("team", "Spain"))
+        self.assertNotEqual(stable_id("team", "Spain"), stable_id("team", "Austria"))
+
+    def test_configured_team_aliases_share_an_internal_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            warehouse = Warehouse(
+                Path(directory) / "test.duckdb",
+                ROOT / "migrations",
+                ROOT / "config" / "entity_aliases.json",
+            )
+            try:
+                warehouse.migrate()
+                warehouse.register_sources()
+                abbreviated = warehouse.resolve_team(
+                    "football_data_uk", "Man City", "Man City", team_type="club"
+                )
+                full = warehouse.resolve_team(
+                    "understat", "88", "Manchester City", team_type="club"
+                )
+                self.assertEqual(abbreviated, full)
+            finally:
+                warehouse.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

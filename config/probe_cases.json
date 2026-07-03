@@ -1,0 +1,30 @@
+{
+  "api_football": {
+    "dates": ["2026-07-01", "2026-07-02", "2026-07-03"],
+    "fixture_ids": [1562586, 1567311],
+    "timezone": "Europe/Luxembourg",
+    "max_detail_fixtures": 2,
+    "max_calls": 20,
+    "minimum_interval_seconds": 6.2
+  },
+  "polymarket": {
+    "events_per_tag": 50,
+    "event_tag_ids": ["100350", "102232"],
+    "search_queries": ["Spain Austria", "USA Bosnia Herzegovina"],
+    "max_calls": 12
+  },
+  "statsbomb": {
+    "competition_name": "FIFA World Cup",
+    "season_name": "2022"
+  },
+  "football_data_uk": {
+    "csv_paths": [
+      "/mmz4281/2526/E0.csv",
+      "/mmz4281/2425/E0.csv"
+    ]
+  },
+  "understat": {
+    "league": "EPL",
+    "season": "2025"
+  }
+}
