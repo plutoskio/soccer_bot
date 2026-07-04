@@ -13,6 +13,7 @@ from .database import (
     Warehouse,
     json_text,
     metadata_artifact_id,
+    normalized_name,
     optional_float,
     optional_int,
     stable_id,
@@ -62,6 +63,63 @@ def parse_json_list(value) -> list:
     return []
 
 
+def parse_api_passes(passes: dict) -> tuple[int | None, int | None, float | None]:
+    """Normalize API-Football's two historical pass-accuracy representations.
+
+    Current payloads use a completed-pass count (for example 16 of 20), while
+    older payloads use a percentage string (for example ``"80%"``).
+    """
+    total = optional_int(passes.get("total"))
+    raw_accuracy = passes.get("accuracy")
+    if raw_accuracy is None:
+        return total, None, None
+
+    is_percentage = isinstance(raw_accuracy, str) and raw_accuracy.strip().endswith("%")
+    cleaned = raw_accuracy.strip().removesuffix("%") if isinstance(raw_accuracy, str) else raw_accuracy
+    accuracy_value = optional_float(cleaned)
+    if accuracy_value is None:
+        return total, None, None
+
+    # A numeric value larger than total cannot be a completed-pass count.
+    if is_percentage or (total is not None and accuracy_value > total and accuracy_value <= 100):
+        percentage = accuracy_value
+        accurate = round(total * percentage / 100) if total is not None else None
+        return total, accurate, percentage
+
+    accurate = int(accuracy_value)
+    percentage = 100.0 * accurate / total if total else None
+    return total, accurate, percentage
+
+
+def compatible_api_player_names(first: str, second: str) -> bool:
+    """Match a full and abbreviated provider name only in strong cases."""
+    first_tokens = normalized_name(first).split()
+    second_tokens = normalized_name(second).split()
+    if not first_tokens or not second_tokens:
+        return False
+    if first_tokens == second_tokens:
+        return True
+    if sorted(first_tokens) == sorted(second_tokens):
+        return True
+    left, right = first_tokens[0], second_tokens[0]
+    same_initial = left[0] == right[0]
+    if same_initial and first_tokens[-1] == second_tokens[-1]:
+        return True
+    return bool(
+        len(first_tokens) == len(second_tokens)
+        and first_tokens[1:] == second_tokens[1:]
+        and (
+            (len(left) == 1 and right.startswith(left))
+            or (len(right) == 1 and left.startswith(right))
+        )
+    )
+
+
+def api_player_identity_key(source_player_id: object, name: str) -> str:
+    """Disambiguate provider IDs that API-Football reuses for different people."""
+    return f"{source_player_id}|{normalized_name(name)}"
+
+
 class RawCatalog:
     def __init__(self, root: Path, warehouse: Warehouse) -> None:
         self.root = root
@@ -74,25 +132,7 @@ class RawCatalog:
             self.items.append(metadata)
 
     def load_database_catalog(self) -> None:
-        rows = []
-        for item in self.items:
-            rows.append(
-                [
-                    item["_raw_artifact_id"],
-                    item["source"],
-                    item["resource"],
-                    parse_datetime(item["retrieved_at"]),
-                    item.get("request_url"),
-                    json_text(item.get("request_parameters", {})),
-                    item.get("http_status"),
-                    json_text(item.get("response_headers", {})),
-                    item["content_sha256"],
-                    item.get("uncompressed_bytes"),
-                    item["data_path"],
-                    str(item["_metadata_path"]),
-                    bool(item.get("duplicate_content")),
-                ]
-            )
+        rows = [self.database_row(item) for item in self.items]
         if rows:
             self.warehouse.connection.executemany(
                 """
@@ -109,6 +149,42 @@ class RawCatalog:
                 """,
                 rows,
             )
+
+    @staticmethod
+    def database_row(item: dict) -> list:
+        return [
+            item["_raw_artifact_id"],
+            item["source"],
+            item["resource"],
+            parse_datetime(item["retrieved_at"]),
+            item.get("request_url"),
+            json_text(item.get("request_parameters", {})),
+            item.get("http_status"),
+            json_text(item.get("response_headers", {})),
+            item["content_sha256"],
+            item.get("uncompressed_bytes"),
+            item["data_path"],
+            str(item["_metadata_path"]),
+            bool(item.get("duplicate_content")),
+        ]
+
+    @classmethod
+    def register_item(cls, warehouse: Warehouse, item: dict) -> None:
+        warehouse.connection.execute(
+            """
+            INSERT INTO raw_artifact (
+                raw_artifact_id, source_code, resource_name, retrieved_at,
+                request_url, request_parameters, http_status, response_headers,
+                content_sha256, uncompressed_bytes, data_path, metadata_path,
+                duplicate_content
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (raw_artifact_id) DO UPDATE SET
+                http_status = excluded.http_status,
+                response_headers = excluded.response_headers,
+                duplicate_content = excluded.duplicate_content
+            """,
+            cls.database_row(item),
+        )
 
     def iter(
         self,
@@ -612,179 +688,391 @@ class WarehouseLoader:
 
     def load_api_football(self) -> None:
         source = "api_football"
-        for resource in ("fixtures_by_date", "fixture_by_id"):
+        for resource in (
+            "fixtures_by_date",
+            "fixture_by_id",
+            "fixture_details_batch",
+            "pro_validation_fixture_batch",
+            "historical_coverage_sample",
+            "historical_backfill_batch",
+        ):
             for item in self.catalog.iter(source, resource):
-                payload = self.catalog.read_json(item)
-                for match in payload.get("response", []):
-                    self._load_api_fixture(match, item)
+                self.load_api_football_payload(self.catalog.read_json(item), item, resource)
 
         for item in self.catalog.iter(source, "fixture_lineups"):
-            payload = self.catalog.read_json(item)
-            fixture_source_id = item.get("request_parameters", {}).get("fixture")
-            fixture_id = self.warehouse.mapped_id(source, "fixture", fixture_source_id)
-            if not fixture_id:
-                continue
-            retrieved_at = parse_datetime(item["retrieved_at"])
-            for team in payload.get("response", []):
-                team_data = team.get("team", {})
-                team_id = self.warehouse.resolve_team(
-                    source, team_data.get("id"), team_data.get("name", "Unknown"), team_type="national"
-                )
-                snapshot_id = stable_id("lineup", source, fixture_source_id, team_data.get("id"), item["content_sha256"])
-                self.connection.execute(
-                    """
-                    INSERT OR REPLACE INTO lineup_snapshot VALUES
-                    (?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?)
-                    """,
-                    [
-                        snapshot_id, fixture_id, team_id, source, item["_raw_artifact_id"],
-                        team.get("formation"), retrieved_at, retrieved_at,
-                        bool(team.get("startXI")) and len(team.get("startXI", [])) == 11,
-                    ],
-                )
-                for role, key in (("starter", "startXI"), ("substitute", "substitutes")):
-                    for entry in team.get(key, []):
-                        player = entry.get("player", {})
-                        player_id = self.warehouse.resolve_player(
-                            source, player.get("id"), player.get("name", "Unknown"),
-                            primary_position=player.get("pos")
-                        )
-                        self.connection.execute(
-                            """
-                            INSERT OR REPLACE INTO lineup_player VALUES
-                            (?, ?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            [
-                                snapshot_id, player_id, role, player.get("pos"), player.get("grid"),
-                                optional_int(player.get("number")), False, player.get("pos") == "G",
-                            ],
-                        )
+            self.load_api_football_payload(self.catalog.read_json(item), item, "fixture_lineups")
 
         for item in self.catalog.iter(source, "fixture_events"):
-            payload = self.catalog.read_json(item)
-            fixture_source_id = item.get("request_parameters", {}).get("fixture")
-            fixture_id = self.warehouse.mapped_id(source, "fixture", fixture_source_id)
-            if not fixture_id:
-                continue
-            retrieved_at = parse_datetime(item["retrieved_at"])
-            for index, event in enumerate(payload.get("response", [])):
-                team = event.get("team") or {}
-                player = event.get("player") or {}
-                assist = event.get("assist") or {}
-                team_id = self.warehouse.resolve_team(
-                    source, team.get("id"), team.get("name", "Unknown"), team_type="national"
-                ) if team.get("id") else None
-                player_id = self.warehouse.resolve_player(
-                    source, player.get("id"), player.get("name", "Unknown")
-                ) if player.get("id") else None
-                assist_id = self.warehouse.resolve_player(
-                    source, assist.get("id"), assist.get("name", "Unknown")
-                ) if assist.get("id") else None
-                source_event_id = f"{fixture_source_id}|{index}|{event.get('time', {}).get('elapsed')}|{event.get('type')}|{player.get('id')}"
-                self.connection.execute(
-                    """
-                    INSERT OR REPLACE INTO match_event VALUES
-                    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    [
-                        stable_id("event", source, source_event_id), fixture_id, team_id, player_id,
-                        assist_id, source, source_event_id, item["_raw_artifact_id"],
-                        event.get("type", "Unknown"), event.get("detail"), None,
-                        optional_int(event.get("time", {}).get("elapsed")),
-                        optional_int(event.get("time", {}).get("extra")), None,
-                        None, None, None, None, None, json_text(event), retrieved_at,
-                    ],
-                )
+            self.load_api_football_payload(self.catalog.read_json(item), item, "fixture_events")
 
         for item in self.catalog.iter(source, "fixture_players"):
-            payload = self.catalog.read_json(item)
-            fixture_source_id = item.get("request_parameters", {}).get("fixture")
-            fixture_id = self.warehouse.mapped_id(source, "fixture", fixture_source_id)
-            if not fixture_id:
-                continue
-            retrieved_at = parse_datetime(item["retrieved_at"])
-            for team_record in payload.get("response", []):
-                team = team_record.get("team", {})
-                team_id = self.warehouse.resolve_team(
-                    source, team.get("id"), team.get("name", "Unknown"), team_type="national"
-                )
-                for record in team_record.get("players", []):
-                    player = record.get("player", {})
-                    statistics = (record.get("statistics") or [{}])[0]
-                    games = statistics.get("games", {})
-                    goals = statistics.get("goals", {})
-                    shots = statistics.get("shots", {})
-                    passes = statistics.get("passes", {})
-                    cards = statistics.get("cards", {})
-                    penalty = statistics.get("penalty", {})
-                    player_id = self.warehouse.resolve_player(
-                        source, player.get("id"), player.get("name", "Unknown"),
-                        primary_position=games.get("position")
-                    )
-                    started = not bool(games.get("substitute"))
-                    observation_id = stable_id("player_stat", source, fixture_source_id, player.get("id"))
-                    self.connection.execute(
-                        """
-                        INSERT OR REPLACE INTO player_match_stat_observation VALUES
-                        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        [
-                            observation_id, fixture_id, team_id, player_id, source,
-                            item["_raw_artifact_id"], optional_int(games.get("minutes")), started,
-                            games.get("position"), optional_int(goals.get("total")) or 0,
-                            optional_int(goals.get("assists")) or 0, optional_int(shots.get("total")),
-                            optional_int(shots.get("on")), optional_int(passes.get("key")),
-                            optional_int(passes.get("total")), optional_int(passes.get("accuracy")),
-                            optional_int(cards.get("yellow")), optional_int(cards.get("red")),
-                            optional_int(penalty.get("scored")), json_text(statistics), retrieved_at,
-                        ],
-                    )
-                    self.connection.execute(
-                        """
-                        INSERT OR REPLACE INTO appearance VALUES
-                        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        [
-                            stable_id("appearance", source, fixture_source_id, player.get("id")),
-                            fixture_id, team_id, player_id, source, item["_raw_artifact_id"],
-                            started, optional_int(games.get("minutes")), games.get("position"),
-                            optional_int(games.get("number")), optional_float(games.get("rating")), retrieved_at,
-                        ],
-                    )
+            self.load_api_football_payload(self.catalog.read_json(item), item, "fixture_players")
 
         for item in self.catalog.iter(source, "fixture_statistics"):
-            payload = self.catalog.read_json(item)
-            fixture_source_id = item.get("request_parameters", {}).get("fixture")
-            fixture_id = self.warehouse.mapped_id(source, "fixture", fixture_source_id)
-            if not fixture_id:
-                continue
-            retrieved_at = parse_datetime(item["retrieved_at"])
-            for team_record in payload.get("response", []):
-                team = team_record.get("team", {})
-                team_id = self.warehouse.resolve_team(
-                    source, team.get("id"), team.get("name", "Unknown"), team_type="national"
+            self.load_api_football_payload(self.catalog.read_json(item), item, "fixture_statistics")
+
+    def load_api_football_payload(self, payload: object, item: dict, resource: str) -> None:
+        """Normalize one API-Football response without rescanning the raw archive."""
+        if not isinstance(payload, dict):
+            return
+        response = payload.get("response")
+        if not isinstance(response, list):
+            return
+        if resource in {
+            "fixtures_by_date",
+            "fixture_by_id",
+            "fixture_details_batch",
+            "pro_validation_fixture_batch",
+            "historical_coverage_sample",
+            "historical_backfill_batch",
+        }:
+            for match in response:
+                if not isinstance(match, dict):
+                    continue
+                fixture_id = self._load_api_fixture(match, item)
+                fixture_source_id = match.get("fixture", {}).get("id")
+                if resource in {
+                    "fixture_by_id",
+                    "fixture_details_batch",
+                    "pro_validation_fixture_batch",
+                    "historical_coverage_sample",
+                    "historical_backfill_batch",
+                }:
+                    self._load_api_players(match.get("players", []), fixture_source_id, fixture_id, item)
+                    self._load_api_lineups(match.get("lineups", []), fixture_source_id, fixture_id, item)
+                    self._load_api_events(match.get("events", []), fixture_source_id, fixture_id, item)
+                    self._load_api_statistics(match.get("statistics", []), fixture_source_id, fixture_id, item)
+            return
+
+        fixture_source_id = item.get("request_parameters", {}).get("fixture")
+        fixture_id = self.warehouse.mapped_id("api_football", "fixture", fixture_source_id)
+        if not fixture_id:
+            return
+        loaders = {
+            "fixture_lineups": self._load_api_lineups,
+            "fixture_events": self._load_api_events,
+            "fixture_players": self._load_api_players,
+            "fixture_statistics": self._load_api_statistics,
+        }
+        loader = loaders.get(resource)
+        if loader:
+            loader(response, fixture_source_id, fixture_id, item)
+
+    def _api_fixture_team_type(self, fixture_id: str) -> str:
+        row = self.connection.execute(
+            """
+            SELECT c.competition_type
+            FROM fixture f LEFT JOIN competition c USING (competition_id)
+            WHERE f.fixture_id = ?
+            """,
+            [fixture_id],
+        ).fetchone()
+        return "national" if row and row[0] == "international_tournament" else "club"
+
+    def _load_api_lineups(self, records: object, fixture_source_id: object, fixture_id: str, item: dict) -> None:
+        if not isinstance(records, list):
+            return
+        source = "api_football"
+        team_type = self._api_fixture_team_type(fixture_id)
+        retrieved_at = parse_datetime(item["retrieved_at"])
+        for team in records:
+            team_data = team.get("team", {})
+            team_id = self.warehouse.resolve_team(
+                source, team_data.get("id"), team_data.get("name", "Unknown"), team_type=team_type
+            )
+            snapshot_id = stable_id(
+                "lineup", source, fixture_source_id, team_data.get("id"), item["content_sha256"]
+            )
+            starters = team.get("startXI") or []
+            self.connection.execute(
+                """INSERT OR REPLACE INTO lineup_snapshot VALUES
+                (?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?)""",
+                [snapshot_id, fixture_id, team_id, source, item["_raw_artifact_id"],
+                 team.get("formation"), retrieved_at, retrieved_at, len(starters) == 11],
+            )
+            # Reprocessing a corrected snapshot must replace, not append to,
+            # its player membership.
+            self.connection.execute(
+                "DELETE FROM lineup_player WHERE lineup_snapshot_id=?", [snapshot_id]
+            )
+            assigned_lineup_players: set[str] = set()
+            for role, key in (("starter", "startXI"), ("substitute", "substitutes")):
+                for entry in team.get(key) or []:
+                    player = entry.get("player", {})
+                    player_id = self._resolve_api_lineup_player(
+                        fixture_source_id=fixture_source_id,
+                        fixture_id=fixture_id,
+                        team_id=team_id,
+                        source_player_id=player.get("id"),
+                        name=player.get("name", "Unknown"),
+                        primary_position=player.get("pos"),
+                        excluded_player_ids=assigned_lineup_players,
+                    )
+                    assigned_lineup_players.add(player_id)
+                    self.connection.execute(
+                        "INSERT OR REPLACE INTO lineup_player VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        [snapshot_id, player_id, role, player.get("pos"), player.get("grid"),
+                         optional_int(player.get("number")), False, player.get("pos") == "G"],
+                    )
+
+    def _load_api_events(self, records: object, fixture_source_id: object, fixture_id: str, item: dict) -> None:
+        if not isinstance(records, list):
+            return
+        source = "api_football"
+        team_type = self._api_fixture_team_type(fixture_id)
+        retrieved_at = parse_datetime(item["retrieved_at"])
+        occurrences: dict[tuple, int] = {}
+        for event in records:
+            team = event.get("team") or {}
+            player = event.get("player") or {}
+            assist = event.get("assist") or {}
+            team_id = self.warehouse.resolve_team(
+                source, team.get("id"), team.get("name", "Unknown"), team_type=team_type
+            ) if team.get("id") else None
+            player_id = self._resolve_api_event_player(
+                fixture_id=fixture_id, team_id=team_id,
+                source_player_id=player.get("id"), name=player.get("name", "Unknown"),
+            ) if player.get("id") else None
+            assist_id = self._resolve_api_event_player(
+                fixture_id=fixture_id, team_id=team_id,
+                source_player_id=assist.get("id"), name=assist.get("name", "Unknown"),
+            ) if assist.get("id") else None
+            event_key = (
+                fixture_source_id,
+                event.get("time", {}).get("elapsed"),
+                event.get("time", {}).get("extra"),
+                team.get("id"),
+                player.get("id"),
+                normalized_name(player.get("name", "")),
+                event.get("type"),
+            )
+            occurrence = occurrences.get(event_key, 0)
+            occurrences[event_key] = occurrence + 1
+            source_event_id = (
+                f"{fixture_source_id}|{event.get('time', {}).get('elapsed')}|"
+                f"{event.get('time', {}).get('extra')}|{team.get('id')}|"
+                f"{player.get('id')}|{normalized_name(player.get('name', ''))}|"
+                f"{event.get('type')}|{occurrence}"
+            )
+            self.connection.execute(
+                "INSERT OR REPLACE INTO match_event VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [stable_id("event", source, source_event_id), fixture_id, team_id, player_id,
+                 assist_id, source, source_event_id, item["_raw_artifact_id"],
+                 event.get("type", "Unknown"), event.get("detail"), None,
+                 optional_int(event.get("time", {}).get("elapsed")),
+                 optional_int(event.get("time", {}).get("extra")), None,
+                 None, None, None, None, None, json_text(event), retrieved_at],
+            )
+
+    def _load_api_players(self, records: object, fixture_source_id: object, fixture_id: str, item: dict) -> None:
+        if not isinstance(records, list):
+            return
+        source = "api_football"
+        team_type = self._api_fixture_team_type(fixture_id)
+        retrieved_at = parse_datetime(item["retrieved_at"])
+        for team_record in records:
+            team = team_record.get("team", {})
+            team_id = self.warehouse.resolve_team(
+                source, team.get("id"), team.get("name", "Unknown"), team_type=team_type
+            )
+            for record in team_record.get("players") or []:
+                player = record.get("player", {})
+                statistics = (record.get("statistics") or [{}])[0]
+                games = statistics.get("games", {})
+                goals = statistics.get("goals", {})
+                shots = statistics.get("shots", {})
+                passes = statistics.get("passes", {})
+                cards = statistics.get("cards", {})
+                penalty = statistics.get("penalty", {})
+                tackles = statistics.get("tackles", {})
+                duels = statistics.get("duels", {})
+                dribbles = statistics.get("dribbles", {})
+                fouls = statistics.get("fouls", {})
+                player_name = player.get("name", "Unknown")
+                player_id = self.warehouse.resolve_player(
+                    source, api_player_identity_key(player.get("id"), player_name), player_name,
+                    primary_position=games.get("position"),
                 )
-                stats = {entry.get("type"): entry.get("value") for entry in team_record.get("statistics", [])}
+                started = not bool(games.get("substitute"))
+                total_passes, accurate_passes, pass_accuracy_pct = parse_api_passes(passes)
                 self.connection.execute(
                     """
-                    INSERT OR REPLACE INTO team_match_stat_observation (
-                        observation_id, fixture_id, team_id, source_code, raw_artifact_id,
-                        period, shots, shots_on_target, xg, possession_pct, corners, fouls,
-                        yellow_cards, red_cards, passes, accurate_passes, statistics, retrieved_at
-                    ) VALUES (?, ?, ?, ?, ?, 'regulation', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT OR REPLACE INTO player_match_stat_observation (
+                        observation_id, fixture_id, team_id, player_id, source_code,
+                        raw_artifact_id, minutes_played, started, position_code, goals,
+                        assists, shots, shots_on_target, key_passes, passes, accurate_passes,
+                        yellow_cards, red_cards, penalties_scored, statistics, retrieved_at,
+                        xg, xa, npxg, pass_accuracy_pct, rating, captain, shirt_number,
+                        goals_conceded, goalkeeper_saves, tackles, tackle_blocks,
+                        interceptions, duels, duels_won, dribbles_attempted,
+                        dribbles_successful, dribbled_past, fouls_drawn, fouls_committed,
+                        yellow_red_cards, penalties_won, penalties_committed,
+                        penalties_missed, penalties_saved
+                    ) VALUES (
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?
+                    )
                     """,
-                    [
-                        stable_id("team_stat", source, fixture_source_id, team.get("id")), fixture_id,
-                        team_id, source, item["_raw_artifact_id"], optional_int(stats.get("Total Shots")),
-                        optional_int(stats.get("Shots on Goal")), optional_float(stats.get("expected_goals")),
-                        optional_float(stats.get("Ball Possession")), optional_int(stats.get("Corner Kicks")),
-                        optional_int(stats.get("Fouls")), optional_int(stats.get("Yellow Cards")),
-                        optional_int(stats.get("Red Cards")), optional_int(stats.get("Total passes")),
-                        optional_int(stats.get("Passes accurate")), json_text(stats), retrieved_at,
-                    ],
+                    [stable_id("player_stat", source, fixture_source_id,
+                               api_player_identity_key(player.get("id"), player_name)),
+                     fixture_id, team_id, player_id, source, item["_raw_artifact_id"],
+                     optional_int(games.get("minutes")), started, games.get("position"),
+                     optional_int(goals.get("total")) or 0, optional_int(goals.get("assists")) or 0,
+                     optional_int(shots.get("total")), optional_int(shots.get("on")),
+                     optional_int(passes.get("key")), total_passes,
+                     accurate_passes, optional_int(cards.get("yellow")),
+                     optional_int(cards.get("red")), optional_int(penalty.get("scored")),
+                     json_text(statistics), retrieved_at, pass_accuracy_pct,
+                     optional_float(games.get("rating")), games.get("captain"),
+                     optional_int(games.get("number")), optional_int(goals.get("conceded")),
+                     optional_int(goals.get("saves")), optional_int(tackles.get("total")),
+                     optional_int(tackles.get("blocks")), optional_int(tackles.get("interceptions")),
+                     optional_int(duels.get("total")), optional_int(duels.get("won")),
+                     optional_int(dribbles.get("attempts")), optional_int(dribbles.get("success")),
+                     optional_int(dribbles.get("past")), optional_int(fouls.get("drawn")),
+                     optional_int(fouls.get("committed")), optional_int(cards.get("yellowred")),
+                     optional_int(penalty.get("won")), optional_int(penalty.get("commited")),
+                     optional_int(penalty.get("missed")), optional_int(penalty.get("saved"))],
+                )
+                self.connection.execute(
+                    "INSERT OR REPLACE INTO appearance VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [stable_id("appearance", source, fixture_source_id,
+                               api_player_identity_key(player.get("id"), player_name)),
+                     fixture_id, team_id, player_id, source, item["_raw_artifact_id"], started,
+                     optional_int(games.get("minutes")), games.get("position"),
+                     optional_int(games.get("number")), optional_float(games.get("rating")), retrieved_at],
                 )
 
-    def _load_api_fixture(self, match: dict, item: dict) -> None:
+    def _resolve_api_lineup_player(
+        self,
+        *,
+        fixture_source_id: object,
+        fixture_id: str,
+        team_id: str,
+        source_player_id: object,
+        name: str,
+        primary_position: str | None,
+        excluded_player_ids: set[str] | None = None,
+    ) -> str:
+        compatible = self._api_stat_player_candidates(
+            fixture_id, team_id, name, source_player_id,
+            excluded_player_ids=excluded_player_ids,
+        )
+        if len(compatible) == 1:
+            return compatible[0]
+        # API-Football lineup IDs are not globally reliable: the same value can
+        # identify a different person in the player-stat block. Namespacing the
+        # fallback by both ID and normalized name avoids contaminating the
+        # authoritative player-stat identity map.
+        lineup_source_id = f"{source_player_id}|{normalized_name(name)}"
+        return self.warehouse.resolve_player(
+            "api_football_lineup", lineup_source_id, name,
+            primary_position=primary_position,
+        )
+
+    def _resolve_api_event_player(
+        self,
+        *,
+        fixture_id: str,
+        team_id: str | None,
+        source_player_id: object,
+        name: str,
+    ) -> str:
+        mapped = self.warehouse.mapped_id(
+            "api_football", "player", api_player_identity_key(source_player_id, name)
+        )
+        if mapped:
+            mapped_name = self.connection.execute(
+                "SELECT full_name FROM player WHERE player_id=?", [mapped]
+            ).fetchone()
+            if mapped_name and compatible_api_player_names(name, mapped_name[0]):
+                return mapped
+        compatible = self._api_stat_player_candidates(
+            fixture_id, team_id, name, source_player_id
+        )
+        if len(compatible) == 1:
+            return compatible[0]
+        event_source_id = f"{source_player_id}|{normalized_name(name)}"
+        return self.warehouse.resolve_player(
+            "api_football_event", event_source_id, name
+        )
+
+    def _api_stat_player_candidates(
+        self,
+        fixture_id: str,
+        team_id: str | None,
+        name: str,
+        source_player_id: object,
+        excluded_player_ids: set[str] | None = None,
+    ) -> list[str]:
+        candidates = self.connection.execute(
+            """
+            SELECT DISTINCT p.player_id, p.full_name, m.source_entity_id,
+                            s.minutes_played
+            FROM player_match_stat_observation s
+            JOIN player p USING (player_id)
+            JOIN source_entity_map m
+              ON m.internal_entity_id=p.player_id
+             AND m.source_code='api_football' AND m.entity_type='player'
+            WHERE s.fixture_id=? AND s.team_id=? AND s.source_code='api_football'
+            """,
+            [fixture_id, team_id],
+        ).fetchall()
+        excluded = excluded_player_ids or set()
+        candidates = [row for row in candidates if row[0] not in excluded]
+        target_name = normalized_name(name)
+        exact = {
+            player_id for player_id, stat_name, _, _ in candidates
+            if normalized_name(stat_name) == target_name
+        }
+        if len(exact) == 1:
+            return list(exact)
+        compatible = [
+            player_id for player_id, stat_name, _, _ in candidates
+            if compatible_api_player_names(name, stat_name)
+        ]
+        if len(set(compatible)) == 1:
+            return list(set(compatible))
+        same_id_participant = {
+            player_id for player_id, _, candidate_source_id, minutes in candidates
+            if str(candidate_source_id).split("|", 1)[0] == str(source_player_id)
+            and minutes is not None and int(minutes) > 0
+        }
+        if len(same_id_participant) == 1:
+            return list(same_id_participant)
+        return []
+
+    def _load_api_statistics(self, records: object, fixture_source_id: object, fixture_id: str, item: dict) -> None:
+        if not isinstance(records, list):
+            return
+        source = "api_football"
+        team_type = self._api_fixture_team_type(fixture_id)
+        retrieved_at = parse_datetime(item["retrieved_at"])
+        for team_record in records:
+            team = team_record.get("team", {})
+            team_id = self.warehouse.resolve_team(
+                source, team.get("id"), team.get("name", "Unknown"), team_type=team_type
+            )
+            stats = {entry.get("type"): entry.get("value") for entry in team_record.get("statistics", [])}
+            self.connection.execute(
+                """
+                INSERT OR REPLACE INTO team_match_stat_observation (
+                    observation_id, fixture_id, team_id, source_code, raw_artifact_id,
+                    period, shots, shots_on_target, xg, possession_pct, corners, fouls,
+                    yellow_cards, red_cards, passes, accurate_passes, statistics, retrieved_at
+                ) VALUES (?, ?, ?, ?, ?, 'regulation', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [stable_id("team_stat", source, fixture_source_id, team.get("id")), fixture_id,
+                 team_id, source, item["_raw_artifact_id"], optional_int(stats.get("Total Shots")),
+                 optional_int(stats.get("Shots on Goal")), optional_float(stats.get("expected_goals")),
+                 optional_float(stats.get("Ball Possession")), optional_int(stats.get("Corner Kicks")),
+                 optional_int(stats.get("Fouls")), optional_int(stats.get("Yellow Cards")),
+                 optional_int(stats.get("Red Cards")), optional_int(stats.get("Total passes")),
+                 optional_int(stats.get("Passes accurate")), json_text(stats), retrieved_at],
+            )
+
+    def _load_api_fixture(self, match: dict, item: dict) -> str:
         source = "api_football"
         league = match.get("league", {})
         teams = match.get("teams", {})
@@ -844,55 +1132,36 @@ class WarehouseLoader:
                     optional_int(score.get("penalty", {}).get("away")), "final",
                 ],
             )
+        return fixture_id
 
     def load_polymarket(self) -> None:
         for source, resource in (("polymarket_gamma", "soccer_events"), ("polymarket_gamma", "fixture_search")):
             for item in self.catalog.iter(source, resource):
-                payload = self.catalog.read_json(item)
-                events = payload.get("events", []) if isinstance(payload, dict) else payload
-                if not isinstance(events, list):
-                    continue
-                for event in events:
-                    self._load_polymarket_event(event, item)
+                self.load_polymarket_payload(resource, self.catalog.read_json(item), item)
 
-        for item in self.catalog.iter("polymarket_clob", "order_book", unique_content=False):
-            payload = self.catalog.read_json(item)
-            token_id = str(item.get("request_parameters", {}).get("token_id", payload.get("asset_id", "")))
-            outcome = self.connection.execute(
-                "SELECT outcome_id FROM prediction_market_outcome WHERE source_token_id = ? LIMIT 1",
-                [token_id],
-            ).fetchone()
-            observed_at = self._unix_timestamp(payload.get("timestamp")) or parse_datetime(item["retrieved_at"])
-            bids = payload.get("bids", [])
-            asks = payload.get("asks", [])
-            best_bid = max((optional_float(level.get("price")) for level in bids), default=None)
-            best_ask = min((optional_float(level.get("price")) for level in asks), default=None)
-            snapshot_id = stable_id("orderbook", token_id, observed_at, item["content_sha256"])
-            self.connection.execute(
-                """
-                INSERT OR REPLACE INTO orderbook_snapshot VALUES
-                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    snapshot_id, outcome[0] if outcome else None, token_id, payload.get("market"),
-                    observed_at, parse_datetime(item["retrieved_at"]), best_bid, best_ask,
-                    optional_float(payload.get("tick_size")), optional_float(payload.get("min_order_size")),
-                    item["_raw_artifact_id"],
-                ],
-            )
-            for side, levels in (("bid", bids), ("ask", asks)):
-                for index, level in enumerate(levels):
-                    price = optional_float(level.get("price"))
-                    size = optional_float(level.get("size"))
-                    if price is None or size is None:
-                        continue
-                    self.connection.execute(
-                        "INSERT OR REPLACE INTO orderbook_level VALUES (?, ?, ?, ?, ?)",
-                        [snapshot_id, side, index, price, size],
-                    )
+        for resource in ("order_book", "order_books_batch"):
+            for item in self.catalog.iter("polymarket_clob", resource, unique_content=False):
+                self.load_polymarket_payload(resource, self.catalog.read_json(item), item)
 
         for item in self.catalog.iter("polymarket_clob", "price_history", unique_content=False):
-            payload = self.catalog.read_json(item)
+            self.load_polymarket_payload("price_history", self.catalog.read_json(item), item)
+
+    def load_polymarket_payload(self, resource: str, payload: object, item: dict) -> None:
+        """Normalize one Gamma or CLOB response without rescanning prior artifacts."""
+        if resource in {"soccer_events", "fixture_search"}:
+            events = payload.get("events", []) if isinstance(payload, dict) else payload
+            if isinstance(events, list):
+                for event in events:
+                    if isinstance(event, dict):
+                        self._load_polymarket_event(event, item)
+            return
+        if resource in {"order_book", "order_books_batch"}:
+            books = payload if isinstance(payload, list) else [payload]
+            for book in books:
+                if isinstance(book, dict):
+                    self._load_polymarket_order_book(book, item)
+            return
+        if resource == "price_history" and isinstance(payload, dict):
             token_id = str(item.get("request_parameters", {}).get("market", ""))
             for point in payload.get("history", []):
                 timestamp = self._unix_timestamp(point.get("t"))
@@ -901,6 +1170,42 @@ class WarehouseLoader:
                     self.connection.execute(
                         "INSERT OR REPLACE INTO market_price_history VALUES (?, ?, ?, ?)",
                         [token_id, timestamp, price, item["_raw_artifact_id"]],
+                    )
+
+    def _load_polymarket_order_book(self, payload: dict, item: dict) -> None:
+        token_id = str(
+            payload.get("asset_id")
+            or item.get("request_parameters", {}).get("token_id", "")
+        )
+        if not token_id:
+            return
+        outcome = self.connection.execute(
+            "SELECT outcome_id FROM prediction_market_outcome WHERE source_token_id = ? LIMIT 1",
+            [token_id],
+        ).fetchone()
+        observed_at = self._unix_timestamp(payload.get("timestamp")) or parse_datetime(item["retrieved_at"])
+        bids = payload.get("bids") or []
+        asks = payload.get("asks") or []
+        bid_prices = [optional_float(level.get("price")) for level in bids]
+        ask_prices = [optional_float(level.get("price")) for level in asks]
+        best_bid = max((price for price in bid_prices if price is not None), default=None)
+        best_ask = min((price for price in ask_prices if price is not None), default=None)
+        snapshot_id = stable_id("orderbook", token_id, observed_at, item["content_sha256"])
+        self.connection.execute(
+            "INSERT OR REPLACE INTO orderbook_snapshot VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [snapshot_id, outcome[0] if outcome else None, token_id, payload.get("market"),
+             observed_at, parse_datetime(item["retrieved_at"]), best_bid, best_ask,
+             optional_float(payload.get("tick_size")), optional_float(payload.get("min_order_size")),
+             item["_raw_artifact_id"]],
+        )
+        for side, levels in (("bid", bids), ("ask", asks)):
+            for index, level in enumerate(levels):
+                price = optional_float(level.get("price"))
+                size = optional_float(level.get("size"))
+                if price is not None and size is not None:
+                    self.connection.execute(
+                        "INSERT OR REPLACE INTO orderbook_level VALUES (?, ?, ?, ?, ?)",
+                        [snapshot_id, side, index, price, size],
                     )
 
     def _load_polymarket_event(self, event: dict, item: dict) -> None:

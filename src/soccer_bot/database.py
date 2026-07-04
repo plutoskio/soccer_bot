@@ -21,6 +21,7 @@ def stable_id(kind: str, *parts: object) -> str:
 
 
 def normalized_name(value: str) -> str:
+    value = str(value or "")
     value = unicodedata.normalize("NFKD", value)
     value = "".join(character for character in value if not unicodedata.combining(character))
     value = value.casefold().replace("&", " and ")
@@ -115,6 +116,8 @@ class Warehouse:
     def register_sources(self) -> None:
         rows = [
             ("api_football", "API-Football", "api", "https://v3.football.api-sports.io"),
+            ("api_football_lineup", "API-Football lineup identities", "derived", None),
+            ("api_football_event", "API-Football event identities", "derived", None),
             ("statsbomb_open", "StatsBomb Open Data", "dataset", "https://github.com/statsbomb/open-data"),
             ("football_data_uk", "Football-Data.co.uk", "dataset", "https://www.football-data.co.uk"),
             ("understat", "Understat", "scraped_json", "https://understat.com"),
@@ -346,10 +349,15 @@ class Warehouse:
         if mapped:
             return mapped
         norm = normalized_name(name)
-        existing = self.connection.execute(
-            "SELECT player_id FROM player WHERE normalized_name = ? LIMIT 1", [norm]
-        ).fetchone()
-        internal_id = existing[0] if existing else stable_id("player", norm, nationality_code)
+        # Provider player IDs are authoritative identities. Display names are
+        # not: feeds frequently abbreviate them (for example "M. Sylla") and
+        # many unrelated players share the same normalized name. Cross-source
+        # linkage must therefore be explicit rather than inferred by name.
+        internal_id = stable_id(
+            "player", source_code,
+            source_id if source_id is not None else norm,
+            nationality_code if source_id is None else None,
+        )
         self.connection.execute(
             """
             INSERT INTO player (player_id, full_name, normalized_name, nationality_code, primary_position)
@@ -361,7 +369,11 @@ class Warehouse:
             """,
             [internal_id, name, norm, nationality_code, primary_position],
         )
-        self._map_entity(source_code, "player", source_id, internal_id, name)
+        if source_id is not None:
+            self._map_entity(
+                source_code, "player", source_id, internal_id, name,
+                match_method="provider_source_id", confidence=1.0,
+            )
         return internal_id
 
     def resolve_fixture(
@@ -451,18 +463,26 @@ class Warehouse:
         source_id: object,
         internal_id: str,
         source_name: str | None,
+        *,
+        match_method: str = "normalized_name_or_context",
+        confidence: float = 0.8,
+        review_status: str = "automatic",
     ) -> None:
         self.connection.execute(
             """
             INSERT INTO source_entity_map (
                 source_code, entity_type, source_entity_id, internal_entity_id,
                 source_name, match_method, confidence, review_status
-            ) VALUES (?, ?, ?, ?, ?, 'normalized_name_or_context', 0.8, 'automatic')
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (source_code, entity_type, source_entity_id) DO UPDATE SET
                 internal_entity_id = excluded.internal_entity_id,
-                source_name = coalesce(excluded.source_name, source_entity_map.source_name)
+                source_name = coalesce(excluded.source_name, source_entity_map.source_name),
+                match_method = excluded.match_method,
+                confidence = excluded.confidence,
+                review_status = excluded.review_status
             """,
-            [source_code, entity_type, str(source_id), internal_id, source_name],
+            [source_code, entity_type, str(source_id), internal_id, source_name,
+             match_method, confidence, review_status],
         )
 
 

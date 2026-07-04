@@ -6,6 +6,54 @@ Related document: [DATA_SOURCE_AUDIT.md](./DATA_SOURCE_AUDIT.md)
 
 Validation report: [reports/SOURCE_VALIDATION_REPORT.md](./reports/SOURCE_VALIDATION_REPORT.md)
 
+## Start here: what this database is
+
+This database is the data foundation for the future soccer prediction system. It is not a prediction model. Its current job is to collect soccer and betting data, organize it consistently, preserve where it came from, and make it usable for later model training and match predictions.
+
+The easiest way to understand the database is to put the `fixture` table at the center. One fixture is one soccer match:
+
+```text
+Competition
+    └── Season
+          └── Fixture
+              ├── Home team
+              └── Away team
+```
+
+For example:
+
+```text
+Premier League
+└── 2025/26
+    └── Arsenal vs Chelsea
+```
+
+Information about the match is stored in separate tables connected to that fixture:
+
+```text
+Fixture
+├── Result
+├── Lineups
+├── Player appearances
+├── Match events
+├── Team statistics
+├── Player statistics
+├── Bookmaker odds
+└── Polymarket markets
+```
+
+Teams and players have their own tables. Other records refer to them using stable identifiers such as `team_id` and `player_id`, instead of repeatedly storing names as plain text. This matters because names can be spelled differently by different data providers.
+
+The schema looks large because results, lineups, statistics, odds, and market prices are different facts with different update times. Keeping them separate avoids duplicated data and lets the system preserve changes over time.
+
+In one sentence: **a fixture connects the teams, and almost all match-related data connects to that fixture.**
+
+### Is collection automatic?
+
+The incremental collector is implemented as `scripts/run_collector.py`. Each invocation checks DuckDB for due work and exits without API calls when nothing is due. It discovers the day's monitored fixtures once, retrieves confirmed lineups shortly before kickoff, collects final player/team data after matches, and captures linked Polymarket order books.
+
+The repository does not automatically install an operating-system schedule. Until the command is registered with macOS `launchd` or moved to an always-on server, someone must invoke it manually. The intended scheduler interval is five minutes; database checkpoints prevent that interval from causing unnecessary requests.
+
 ### Initial validation update
 
 The first live probes confirmed that the architecture can represent the selected sources without discarding required information:
@@ -230,6 +278,15 @@ erDiagram
 ### Constraint status
 
 Primary keys are declared in DuckDB. The current migration does **not** declare SQL `FOREIGN KEY` constraints; the links above are logical relationships maintained by ingestion code and checked with orphan/integrity queries. Adding foreign-key constraints is possible, but analytical warehouses often omit them to make bulk ingestion and source reconciliation easier. The important requirement is that automated integrity checks continue to report zero orphaned references.
+
+### Collector state tables
+
+Two operational tables keep repeated collector executions safe:
+
+- `collection_run` records each invocation, its status, source call counts, summary, and any failure.
+- `collection_checkpoint` records whether a specific daily discovery, fixture detail request, retry, or market snapshot has already run.
+
+These tables are deliberately separate from soccer facts. Deleting collector state would affect scheduling decisions, but it would not delete fixtures, lineups, statistics, or market observations.
 
 ## 6. Data layers
 
@@ -547,12 +604,18 @@ Provider-specific statistics not yet canonicalized stay in raw artifacts or a st
 - `goals`, `assists`
 - `shots`, `shots_on_target`
 - `xg`, `npxg`, `xa`
-- `key_passes`, `passes`, `accurate_passes`
-- `touches`, `carries`, `dribbles_attempted`, `dribbles_completed`
-- `tackles`, `interceptions`, `duels`, `duels_won`
+- `key_passes`, `passes`, `accurate_passes`, `pass_accuracy_pct`
+- `rating`, `captain`, `shirt_number`, `position_code`
+- `dribbles_attempted`, `dribbles_successful`, `dribbled_past`
+- `tackles`, `tackle_blocks`, `interceptions`, `duels`, `duels_won`
 - `fouls_committed`, `fouls_drawn`
-- `yellow_cards`, `red_cards`
-- `penalties_taken`, `penalties_scored`, `penalties_missed`
+- `yellow_cards`, `yellow_red_cards`, `red_cards`
+- `goals_conceded`, `goalkeeper_saves`
+- `penalties_won`, `penalties_committed`, `penalties_scored`, `penalties_missed`, `penalties_saved`
+
+API-Football names its completed-pass field `passes.accuracy`, but validation against actual fixture payloads confirms that it is a count, not a percentage. It maps to `accurate_passes`; `pass_accuracy_pct` is derived as `100 * accurate_passes / passes` when attempts are positive.
+
+Touches, carries, pass coordinates, and progressive-pass measures are not currently supplied by API-Football and remain available only when another source provides them.
 
 Different providers' xG and xA values are not interchangeable. The canonical view must retain the model/provider identity and must not average them without an explicit feature policy.
 
@@ -1018,6 +1081,13 @@ This architecture is ready for implementation when a representative probe demons
 
 - one club fixture and one international fixture can be represented without dropping required source fields;
 - source team, player, fixture, and market IDs map to internal IDs;
+- distinct player IDs from one provider never merge solely because their
+  normalized display names match; cross-source player linkage is explicit and
+  reviewable;
+- API-Football player-stat identity keys include both provider ID and
+  normalized provider name because the provider can reuse one numeric ID for
+  different players; lineup and event identities are contextually linked and
+  cannot overwrite the player-stat identity map;
 - predicted and confirmed lineup states can be distinguished;
 - regulation scores are unambiguous;
 - goals, assists, player minutes, and corners can be normalized where covered;

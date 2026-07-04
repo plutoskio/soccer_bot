@@ -62,3 +62,43 @@ class HttpClient:
             )
         except URLError as error:
             raise RuntimeError(f"Network request failed for {base_url}{path}: {error.reason}") from error
+
+    def post_json(
+        self,
+        base_url: str,
+        path: str,
+        payload: object,
+        *,
+        headers: Mapping[str, str] | None = None,
+        timeout: float = 30.0,
+    ) -> HttpResponse:
+        url = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+        request_headers = {
+            "User-Agent": self.user_agent,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        request_headers.update(headers or {})
+        request = Request(
+            url,
+            headers=request_headers,
+            data=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                return HttpResponse(
+                    url=url,
+                    status=response.status,
+                    headers={key.lower(): value for key, value in response.headers.items()},
+                    body=response.read(),
+                )
+        except HTTPError as error:
+            return HttpResponse(
+                url=url,
+                status=error.code,
+                headers={key.lower(): value for key, value in error.headers.items()},
+                body=error.read(),
+            )
+        except URLError as error:
+            raise RuntimeError(f"Network request failed for {base_url}{path}: {error.reason}") from error

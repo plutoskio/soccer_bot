@@ -1,0 +1,36 @@
+{
+  "sample_matches_per_season": 10,
+  "minimum_interval_seconds": 0.3,
+  "maximum_calls_per_run": 400,
+  "default_completed_seasons": 5,
+  "competitions": [
+    {"league_id": 1, "label": "FIFA World Cup", "seasons": [2018, 2022]},
+    {
+      "league_id": 2,
+      "label": "UEFA Champions League",
+      "completed_seasons": 5,
+      "exclude_round_terms": ["qualifying", "preliminary"]
+    },
+    {"league_id": 4, "label": "UEFA Euro", "seasons": [2020, 2024]},
+    {"league_id": 39, "label": "English Premier League"},
+    {"league_id": 61, "label": "French Ligue 1"},
+    {"league_id": 78, "label": "German Bundesliga"},
+    {"league_id": 88, "label": "Dutch Eredivisie"},
+    {"league_id": 94, "label": "Portuguese Primeira Liga"},
+    {"league_id": 103, "label": "Norwegian Eliteserien"},
+    {"league_id": 119, "label": "Danish Superliga"},
+    {"league_id": 135, "label": "Italian Serie A"},
+    {"league_id": 140, "label": "Spanish La Liga"},
+    {"league_id": 144, "label": "Belgian Jupiler Pro League"},
+    {"league_id": 179, "label": "Scottish Premiership"},
+    {"league_id": 197, "label": "Greek Super League 1"},
+    {"league_id": 203, "label": "Turkish Super Lig"},
+    {"league_id": 207, "label": "Swiss Super League"},
+    {"league_id": 218, "label": "Austrian Bundesliga"},
+    {"league_id": 318, "label": "Cypriot 1. Division"},
+    {"league_id": 333, "label": "Ukrainian Premier League"},
+    {"league_id": 345, "label": "Czech First League"},
+    {"league_id": 389, "label": "Kazakhstan Premier League"},
+    {"league_id": 419, "label": "Azerbaijan Premyer Liqa"}
+  ]
+}

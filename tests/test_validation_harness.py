@@ -84,6 +84,24 @@ class WarehouseTests(unittest.TestCase):
             finally:
                 warehouse.close()
 
+    def test_same_player_display_name_does_not_merge_provider_ids(self):
+        with tempfile.TemporaryDirectory() as directory:
+            warehouse = Warehouse(
+                Path(directory) / "test.duckdb",
+                ROOT / "migrations",
+                ROOT / "config" / "entity_aliases.json",
+            )
+            try:
+                warehouse.migrate()
+                warehouse.register_sources()
+                first = warehouse.resolve_player("api_football", 101, "M. Sylla")
+                second = warehouse.resolve_player("api_football", 202, "M. Sylla")
+                repeated = warehouse.resolve_player("api_football", 101, "Mamadou Sylla")
+                self.assertNotEqual(first, second)
+                self.assertEqual(first, repeated)
+            finally:
+                warehouse.close()
+
 
 if __name__ == "__main__":
     unittest.main()

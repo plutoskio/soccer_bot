@@ -51,6 +51,11 @@ def collect_counts(warehouse: Warehouse) -> dict[str, int]:
 
 def run_quality_checks(warehouse: Warehouse) -> None:
     connection = warehouse.connection
+    # Quality issues describe the latest evaluated warehouse state. Resolve the
+    # previous snapshot first; any issue that still exists is reopened below.
+    connection.execute(
+        "UPDATE data_quality_issue SET status = 'resolved' WHERE status = 'open'"
+    )
     checks = [
         (
             "fixture_same_team",
@@ -93,6 +98,24 @@ def run_quality_checks(warehouse: Warehouse) -> None:
             WHERE shots < 0 OR shots_on_target < 0 OR corners < 0 OR fouls < 0
             """,
             "A count statistic is negative",
+        ),
+        (
+            "invalid_player_match_stat",
+            "blocking",
+            "player_match_stat_observation",
+            """
+            SELECT observation_id FROM player_match_stat_observation
+            WHERE minutes_played < 0 OR minutes_played > 130
+               OR pass_accuracy_pct < 0 OR pass_accuracy_pct > 100
+               OR accurate_passes > passes
+               OR rating < 0 OR rating > 10
+               OR tackles < 0 OR interceptions < 0
+               OR duels < 0 OR duels_won < 0 OR duels_won > duels
+               OR dribbles_attempted < 0 OR dribbles_successful < 0
+               OR dribbles_successful > dribbles_attempted
+               OR fouls_drawn < 0 OR fouls_committed < 0
+            """,
+            "Player match statistic is outside its valid range",
         ),
     ]
     for rule_code, severity, entity_type, sql, message in checks:
