@@ -1,0 +1,915 @@
+Starting historical backfill: 622 batches, 11,894 fixture requests selected.
+Progress 1/622 batches (0.2%) | fixtures 20/11,894 | API calls 1 | cache hits 0 | elapsed 11s | ETA 1h 53m | last api-football-119-2025-0009
+Progress 2/622 batches (0.3%) | fixtures 23/11,894 | API calls 2 | cache hits 0 | elapsed 13s | ETA 1h 08m | last api-football-119-2025-0010
+Progress 3/622 batches (0.5%) | fixtures 43/11,894 | API calls 3 | cache hits 0 | elapsed 24s | ETA 1h 23m | last api-football-144-2025-0001
+Progress 4/622 batches (0.6%) | fixtures 63/11,894 | API calls 4 | cache hits 0 | elapsed 35s | ETA 1h 31m | last api-football-144-2025-0002
+Progress 5/622 batches (0.8%) | fixtures 83/11,894 | API calls 5 | cache hits 0 | elapsed 46s | ETA 1h 35m | last api-football-144-2025-0003
+Progress 6/622 batches (1.0%) | fixtures 103/11,894 | API calls 6 | cache hits 0 | elapsed 57s | ETA 1h 37m | last api-football-144-2025-0004
+Progress 7/622 batches (1.1%) | fixtures 123/11,894 | API calls 7 | cache hits 0 | elapsed 1m 08s | ETA 1h 40m | last api-football-144-2025-0005
+Progress 8/622 batches (1.3%) | fixtures 143/11,894 | API calls 8 | cache hits 0 | elapsed 1m 21s | ETA 1h 43m | last api-football-144-2025-0006
+Progress 9/622 batches (1.4%) | fixtures 163/11,894 | API calls 9 | cache hits 0 | elapsed 1m 32s | ETA 1h 43m | last api-football-144-2025-0007
+Progress 10/622 batches (1.6%) | fixtures 183/11,894 | API calls 10 | cache hits 0 | elapsed 1m 43s | ETA 1h 44m | last api-football-144-2025-0008
+Progress 11/622 batches (1.8%) | fixtures 203/11,894 | API calls 11 | cache hits 0 | elapsed 1m 54s | ETA 1h 45m | last api-football-144-2025-0009
+Progress 12/622 batches (1.9%) | fixtures 223/11,894 | API calls 12 | cache hits 0 | elapsed 2m 06s | ETA 1h 46m | last api-football-144-2025-0010
+Progress 13/622 batches (2.1%) | fixtures 243/11,894 | API calls 13 | cache hits 0 | elapsed 2m 17s | ETA 1h 46m | last api-football-144-2025-0011
+Progress 14/622 batches (2.3%) | fixtures 263/11,894 | API calls 14 | cache hits 0 | elapsed 2m 27s | ETA 1h 46m | last api-football-144-2025-0012
+Progress 15/622 batches (2.4%) | fixtures 283/11,894 | API calls 15 | cache hits 0 | elapsed 2m 39s | ETA 1h 47m | last api-football-144-2025-0013
+Progress 16/622 batches (2.6%) | fixtures 303/11,894 | API calls 16 | cache hits 0 | elapsed 2m 51s | ETA 1h 47m | last api-football-144-2025-0014
+Progress 17/622 batches (2.7%) | fixtures 323/11,894 | API calls 17 | cache hits 0 | elapsed 3m 02s | ETA 1h 47m | last api-football-144-2025-0015
+Progress 18/622 batches (2.9%) | fixtures 334/11,894 | API calls 18 | cache hits 0 | elapsed 3m 08s | ETA 1h 45m | last api-football-144-2025-0016
+Progress 19/622 batches (3.1%) | fixtures 354/11,894 | API calls 19 | cache hits 0 | elapsed 3m 22s | ETA 1h 46m | last api-football-179-2025-0001
+Progress 20/622 batches (3.2%) | fixtures 374/11,894 | API calls 20 | cache hits 0 | elapsed 3m 36s | ETA 1h 48m | last api-football-179-2025-0002
+Progress 21/622 batches (3.4%) | fixtures 394/11,894 | API calls 21 | cache hits 0 | elapsed 3m 49s | ETA 1h 49m | last api-football-179-2025-0003
+Progress 22/622 batches (3.5%) | fixtures 414/11,894 | API calls 22 | cache hits 0 | elapsed 4m 04s | ETA 1h 50m | last api-football-179-2025-0004
+Progress 23/622 batches (3.7%) | fixtures 434/11,894 | API calls 23 | cache hits 0 | elapsed 4m 19s | ETA 1h 52m | last api-football-179-2025-0005
+Progress 24/622 batches (3.9%) | fixtures 454/11,894 | API calls 24 | cache hits 0 | elapsed 4m 33s | ETA 1h 53m | last api-football-179-2025-0006
+Progress 25/622 batches (4.0%) | fixtures 474/11,894 | API calls 25 | cache hits 0 | elapsed 4m 49s | ETA 1h 54m | last api-football-179-2025-0007
+Progress 26/622 batches (4.2%) | fixtures 494/11,894 | API calls 26 | cache hits 0 | elapsed 5m 03s | ETA 1h 55m | last api-football-179-2025-0008
+Progress 27/622 batches (4.3%) | fixtures 514/11,894 | API calls 27 | cache hits 0 | elapsed 5m 17s | ETA 1h 56m | last api-football-179-2025-0009
+Progress 28/622 batches (4.5%) | fixtures 534/11,894 | API calls 28 | cache hits 0 | elapsed 5m 32s | ETA 1h 57m | last api-football-179-2025-0010
+FAILED batch 29/622 (api-football-179-2025-0011) after 5m 32s: BackfillValidationError: Raw fixture validation failed: [{"complete": false, "core_player_fields": false, "fixture_id": 1543679, "identity_failures": [], "lineups": true, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "result": true, "team_statistics": true}, {"complete": false, "core_player_fields": false, "fixture_id": 1543680, "identity_failures": [], "lineups": true, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "result": true, "team_statistics": true}, {"complete": false, "core_player_fields": false, "fixture_id": 1544661, "identity_failures": [], "lineups": true, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "result": true, "team_statistics": true}, {"complete": false, "core_player_fields": false, "fixture_id": 1544662, "identity_failures": [], "lineups": true, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "result": true, "team_statistics": true}]
+Traceback (most recent call last):
+  File "/Users/milo/Desktop/soccer_bot/scripts/run_historical_backfill.py", line 86, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/Users/milo/Desktop/soccer_bot/scripts/run_historical_backfill.py", line 73, in main
+    summary = executor.run(
+        maximum_batches=args.max_batches,
+    ...<2 lines>...
+        retry_failed=args.retry_failed,
+    )
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 223, in run
+    self._execute_batch(batch, run_id)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 337, in _execute_batch
+    raw_validation = self._validate_response(payload, batch)
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 450, in _validate_response
+    raise BackfillValidationError(
+        "Raw fixture validation failed: " + json.dumps(failures, sort_keys=True)
+    )
+soccer_bot.backfill_executor.BackfillValidationError: Raw fixture validation failed: [{"complete": false, "core_player_fields": false, "fixture_id": 1543679, "identity_failures": [], "lineups": true, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "result": true, "team_statistics": true}, {"complete": false, "core_player_fields": false, "fixture_id": 1543680, "identity_failures": [], "lineups": true, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "result": true, "team_statistics": true}, {"complete": false, "core_player_fields": false, "fixture_id": 1544661, "identity_failures": [], "lineups": true, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "result": true, "team_statistics": true}, {"complete": false, "core_player_fields": false, "fixture_id": 1544662, "identity_failures": [], "lineups": true, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "result": true, "team_statistics": true}]
+Starting historical backfill: 593 batches, 11,340 fixture requests selected.
+Progress 1/593 batches (0.2%) | fixtures 5/11,340 | API calls 1 | cache hits 0 | elapsed 6s | ETA 1h 02m | last api-football-179-2025-0012
+Progress 2/593 batches (0.3%) | fixtures 25/11,340 | API calls 2 | cache hits 0 | elapsed 21s | ETA 1h 45m | last api-football-197-2025-0001
+Progress 3/593 batches (0.5%) | fixtures 45/11,340 | API calls 3 | cache hits 0 | elapsed 37s | ETA 2h 00m | last api-football-197-2025-0002
+Progress 4/593 batches (0.7%) | fixtures 65/11,340 | API calls 4 | cache hits 0 | elapsed 53s | ETA 2h 09m | last api-football-197-2025-0003
+Progress 5/593 batches (0.8%) | fixtures 85/11,340 | API calls 5 | cache hits 0 | elapsed 1m 10s | ETA 2h 17m | last api-football-197-2025-0004
+Progress 6/593 batches (1.0%) | fixtures 105/11,340 | API calls 6 | cache hits 0 | elapsed 1m 26s | ETA 2h 20m | last api-football-197-2025-0005
+Progress 7/593 batches (1.2%) | fixtures 125/11,340 | API calls 7 | cache hits 0 | elapsed 1m 43s | ETA 2h 23m | last api-football-197-2025-0006
+Progress 8/593 batches (1.3%) | fixtures 145/11,340 | API calls 8 | cache hits 0 | elapsed 1m 59s | ETA 2h 25m | last api-football-197-2025-0007
+Progress 9/593 batches (1.5%) | fixtures 165/11,340 | API calls 9 | cache hits 0 | elapsed 2m 16s | ETA 2h 26m | last api-football-197-2025-0008
+Progress 10/593 batches (1.7%) | fixtures 185/11,340 | API calls 10 | cache hits 0 | elapsed 2m 31s | ETA 2h 26m | last api-football-197-2025-0009
+Progress 11/593 batches (1.9%) | fixtures 205/11,340 | API calls 11 | cache hits 0 | elapsed 2m 47s | ETA 2h 27m | last api-football-197-2025-0010
+Progress 12/593 batches (2.0%) | fixtures 225/11,340 | API calls 12 | cache hits 0 | elapsed 3m 04s | ETA 2h 28m | last api-football-197-2025-0011
+Progress 13/593 batches (2.2%) | fixtures 231/11,340 | API calls 13 | cache hits 0 | elapsed 3m 11s | ETA 2h 21m | last api-football-197-2025-0012
+Progress 14/593 batches (2.4%) | fixtures 251/11,340 | API calls 14 | cache hits 0 | elapsed 3m 24s | ETA 2h 20m | last api-football-203-2025-0001
+Progress 15/593 batches (2.5%) | fixtures 271/11,340 | API calls 15 | cache hits 0 | elapsed 3m 37s | ETA 2h 19m | last api-football-203-2025-0002
+Progress 16/593 batches (2.7%) | fixtures 291/11,340 | API calls 16 | cache hits 0 | elapsed 3m 49s | ETA 2h 17m | last api-football-203-2025-0003
+Progress 17/593 batches (2.9%) | fixtures 311/11,340 | API calls 17 | cache hits 0 | elapsed 4m 02s | ETA 2h 16m | last api-football-203-2025-0004
+Progress 18/593 batches (3.0%) | fixtures 331/11,340 | API calls 18 | cache hits 0 | elapsed 4m 14s | ETA 2h 15m | last api-football-203-2025-0005
+Progress 19/593 batches (3.2%) | fixtures 351/11,340 | API calls 19 | cache hits 0 | elapsed 4m 27s | ETA 2h 14m | last api-football-203-2025-0006
+Progress 20/593 batches (3.4%) | fixtures 371/11,340 | API calls 20 | cache hits 0 | elapsed 4m 40s | ETA 2h 13m | last api-football-203-2025-0007
+Progress 21/593 batches (3.5%) | fixtures 391/11,340 | API calls 21 | cache hits 0 | elapsed 4m 55s | ETA 2h 13m | last api-football-203-2025-0008
+Progress 22/593 batches (3.7%) | fixtures 411/11,340 | API calls 22 | cache hits 0 | elapsed 5m 10s | ETA 2h 13m | last api-football-203-2025-0009
+Progress 23/593 batches (3.9%) | fixtures 431/11,340 | API calls 23 | cache hits 0 | elapsed 5m 24s | ETA 2h 13m | last api-football-203-2025-0010
+Progress 24/593 batches (4.0%) | fixtures 451/11,340 | API calls 24 | cache hits 0 | elapsed 5m 37s | ETA 2h 13m | last api-football-203-2025-0011
+Progress 25/593 batches (4.2%) | fixtures 471/11,340 | API calls 25 | cache hits 0 | elapsed 5m 51s | ETA 2h 13m | last api-football-203-2025-0012
+Progress 26/593 batches (4.4%) | fixtures 491/11,340 | API calls 26 | cache hits 0 | elapsed 6m 05s | ETA 2h 12m | last api-football-203-2025-0013
+Progress 27/593 batches (4.6%) | fixtures 511/11,340 | API calls 27 | cache hits 0 | elapsed 6m 19s | ETA 2h 12m | last api-football-203-2025-0014
+Progress 28/593 batches (4.7%) | fixtures 527/11,340 | API calls 28 | cache hits 0 | elapsed 6m 31s | ETA 2h 11m | last api-football-203-2025-0015
+Progress 29/593 batches (4.9%) | fixtures 547/11,340 | API calls 29 | cache hits 0 | elapsed 6m 44s | ETA 2h 11m | last api-football-207-2025-0001
+Progress 30/593 batches (5.1%) | fixtures 567/11,340 | API calls 30 | cache hits 0 | elapsed 6m 58s | ETA 2h 10m | last api-football-207-2025-0002
+Progress 31/593 batches (5.2%) | fixtures 587/11,340 | API calls 31 | cache hits 0 | elapsed 7m 11s | ETA 2h 10m | last api-football-207-2025-0003
+Progress 32/593 batches (5.4%) | fixtures 607/11,340 | API calls 32 | cache hits 0 | elapsed 7m 25s | ETA 2h 09m | last api-football-207-2025-0004
+Progress 33/593 batches (5.6%) | fixtures 627/11,340 | API calls 33 | cache hits 0 | elapsed 7m 38s | ETA 2h 09m | last api-football-207-2025-0005
+Progress 34/593 batches (5.7%) | fixtures 647/11,340 | API calls 34 | cache hits 0 | elapsed 7m 55s | ETA 2h 10m | last api-football-207-2025-0006
+Progress 35/593 batches (5.9%) | fixtures 667/11,340 | API calls 35 | cache hits 0 | elapsed 8m 12s | ETA 2h 10m | last api-football-207-2025-0007
+Progress 36/593 batches (6.1%) | fixtures 687/11,340 | API calls 36 | cache hits 0 | elapsed 8m 31s | ETA 2h 11m | last api-football-207-2025-0008
+Progress 37/593 batches (6.2%) | fixtures 707/11,340 | API calls 37 | cache hits 0 | elapsed 8m 49s | ETA 2h 12m | last api-football-207-2025-0009
+Progress 38/593 batches (6.4%) | fixtures 727/11,340 | API calls 38 | cache hits 0 | elapsed 10m 10s | ETA 2h 28m | last api-football-207-2025-0010
+Progress 39/593 batches (6.6%) | fixtures 747/11,340 | API calls 39 | cache hits 0 | elapsed 11m 31s | ETA 2h 43m | last api-football-207-2025-0011
+Progress 40/593 batches (6.7%) | fixtures 748/11,340 | API calls 40 | cache hits 0 | elapsed 11m 38s | ETA 2h 40m | last api-football-207-2025-0012
+Progress 41/593 batches (6.9%) | fixtures 768/11,340 | API calls 41 | cache hits 0 | elapsed 12m 57s | ETA 2h 54m | last api-football-218-2025-0001
+Progress 42/593 batches (7.1%) | fixtures 788/11,340 | API calls 42 | cache hits 0 | elapsed 14m 11s | ETA 3h 06m | last api-football-218-2025-0002
+Progress 43/593 batches (7.3%) | fixtures 808/11,340 | API calls 43 | cache hits 0 | elapsed 15m 32s | ETA 3h 18m | last api-football-218-2025-0003
+Progress 44/593 batches (7.4%) | fixtures 828/11,340 | API calls 44 | cache hits 0 | elapsed 16m 45s | ETA 3h 28m | last api-football-218-2025-0004
+Progress 45/593 batches (7.6%) | fixtures 848/11,340 | API calls 45 | cache hits 0 | elapsed 17m 27s | ETA 3h 32m | last api-football-218-2025-0005
+Progress 46/593 batches (7.8%) | fixtures 868/11,340 | API calls 46 | cache hits 0 | elapsed 17m 40s | ETA 3h 30m | last api-football-218-2025-0006
+Progress 47/593 batches (7.9%) | fixtures 888/11,340 | API calls 47 | cache hits 0 | elapsed 17m 53s | ETA 3h 27m | last api-football-218-2025-0007
+Progress 48/593 batches (8.1%) | fixtures 908/11,340 | API calls 48 | cache hits 0 | elapsed 18m 05s | ETA 3h 25m | last api-football-218-2025-0008
+Progress 49/593 batches (8.3%) | fixtures 928/11,340 | API calls 49 | cache hits 0 | elapsed 18m 18s | ETA 3h 23m | last api-football-218-2025-0009
+Progress 50/593 batches (8.4%) | fixtures 933/11,340 | API calls 50 | cache hits 0 | elapsed 18m 21s | ETA 3h 19m | last api-football-218-2025-0010
+Progress 51/593 batches (8.6%) | fixtures 953/11,340 | API calls 51 | cache hits 0 | elapsed 18m 37s | ETA 3h 17m | last api-football-345-2025-0001
+Progress 52/593 batches (8.8%) | fixtures 973/11,340 | API calls 52 | cache hits 0 | elapsed 18m 51s | ETA 3h 16m | last api-football-345-2025-0002
+Progress 53/593 batches (8.9%) | fixtures 993/11,340 | API calls 53 | cache hits 0 | elapsed 19m 04s | ETA 3h 14m | last api-football-345-2025-0003
+Progress 54/593 batches (9.1%) | fixtures 1,013/11,340 | API calls 54 | cache hits 0 | elapsed 19m 18s | ETA 3h 12m | last api-football-345-2025-0004
+Progress 55/593 batches (9.3%) | fixtures 1,033/11,340 | API calls 55 | cache hits 0 | elapsed 19m 31s | ETA 3h 10m | last api-football-345-2025-0005
+Progress 56/593 batches (9.4%) | fixtures 1,053/11,340 | API calls 56 | cache hits 0 | elapsed 20m 04s | ETA 3h 12m | last api-football-345-2025-0006
+Progress 57/593 batches (9.6%) | fixtures 1,073/11,340 | API calls 57 | cache hits 0 | elapsed 21m 01s | ETA 3h 17m | last api-football-345-2025-0007
+Progress 58/593 batches (9.8%) | fixtures 1,093/11,340 | API calls 58 | cache hits 0 | elapsed 21m 40s | ETA 3h 19m | last api-football-345-2025-0008
+Progress 59/593 batches (9.9%) | fixtures 1,113/11,340 | API calls 59 | cache hits 0 | elapsed 23m 00s | ETA 3h 28m | last api-football-345-2025-0009
+Progress 60/593 batches (10.1%) | fixtures 1,133/11,340 | API calls 60 | cache hits 0 | elapsed 23m 40s | ETA 3h 30m | last api-football-345-2025-0010
+Progress 61/593 batches (10.3%) | fixtures 1,153/11,340 | API calls 61 | cache hits 0 | elapsed 24m 12s | ETA 3h 31m | last api-football-345-2025-0011
+Progress 62/593 batches (10.5%) | fixtures 1,173/11,340 | API calls 62 | cache hits 0 | elapsed 24m 25s | ETA 3h 29m | last api-football-345-2025-0012
+Progress 63/593 batches (10.6%) | fixtures 1,193/11,340 | API calls 63 | cache hits 0 | elapsed 25m 31s | ETA 3h 34m | last api-football-345-2025-0013
+Progress 64/593 batches (10.8%) | fixtures 1,202/11,340 | API calls 64 | cache hits 0 | elapsed 25m 38s | ETA 3h 31m | last api-football-345-2025-0014
+Progress 65/593 batches (11.0%) | fixtures 1,222/11,340 | API calls 65 | cache hits 0 | elapsed 26m 37s | ETA 3h 36m | last api-football-88-2024-0001
+Progress 66/593 batches (11.1%) | fixtures 1,242/11,340 | API calls 66 | cache hits 0 | elapsed 27m 42s | ETA 3h 41m | last api-football-88-2024-0002
+Progress 67/593 batches (11.3%) | fixtures 1,262/11,340 | API calls 67 | cache hits 0 | elapsed 27m 57s | ETA 3h 39m | last api-football-88-2024-0003
+Progress 68/593 batches (11.5%) | fixtures 1,282/11,340 | API calls 68 | cache hits 0 | elapsed 28m 12s | ETA 3h 37m | last api-football-88-2024-0004
+Progress 69/593 batches (11.6%) | fixtures 1,302/11,340 | API calls 69 | cache hits 0 | elapsed 28m 26s | ETA 3h 35m | last api-football-88-2024-0005
+Progress 70/593 batches (11.8%) | fixtures 1,322/11,340 | API calls 70 | cache hits 0 | elapsed 29m 30s | ETA 3h 40m | last api-football-88-2024-0006
+Progress 71/593 batches (12.0%) | fixtures 1,342/11,340 | API calls 71 | cache hits 0 | elapsed 30m 57s | ETA 3h 47m | last api-football-88-2024-0007
+Progress 72/593 batches (12.1%) | fixtures 1,362/11,340 | API calls 72 | cache hits 0 | elapsed 32m 21s | ETA 3h 54m | last api-football-88-2024-0008
+Progress 73/593 batches (12.3%) | fixtures 1,382/11,340 | API calls 73 | cache hits 0 | elapsed 33m 47s | ETA 4h 00m | last api-football-88-2024-0009
+Progress 74/593 batches (12.5%) | fixtures 1,402/11,340 | API calls 74 | cache hits 0 | elapsed 35m 13s | ETA 4h 07m | last api-football-88-2024-0010
+Progress 75/593 batches (12.6%) | fixtures 1,422/11,340 | API calls 75 | cache hits 0 | elapsed 36m 36s | ETA 4h 12m | last api-football-88-2024-0011
+Progress 76/593 batches (12.8%) | fixtures 1,442/11,340 | API calls 76 | cache hits 0 | elapsed 37m 35s | ETA 4h 15m | last api-football-88-2024-0012
+Progress 77/593 batches (13.0%) | fixtures 1,462/11,340 | API calls 77 | cache hits 0 | elapsed 38m 21s | ETA 4h 17m | last api-football-88-2024-0013
+Progress 78/593 batches (13.2%) | fixtures 1,482/11,340 | API calls 78 | cache hits 0 | elapsed 39m 22s | ETA 4h 19m | last api-football-88-2024-0014
+Progress 79/593 batches (13.3%) | fixtures 1,502/11,340 | API calls 79 | cache hits 0 | elapsed 39m 37s | ETA 4h 17m | last api-football-88-2024-0015
+Progress 80/593 batches (13.5%) | fixtures 1,513/11,340 | API calls 80 | cache hits 0 | elapsed 40m 27s | ETA 4h 19m | last api-football-88-2024-0016
+Progress 81/593 batches (13.7%) | fixtures 1,533/11,340 | API calls 81 | cache hits 0 | elapsed 41m 47s | ETA 4h 24m | last api-football-94-2024-0001
+Progress 82/593 batches (13.8%) | fixtures 1,553/11,340 | API calls 82 | cache hits 0 | elapsed 42m 42s | ETA 4h 26m | last api-football-94-2024-0002
+Progress 83/593 batches (14.0%) | fixtures 1,573/11,340 | API calls 83 | cache hits 0 | elapsed 42m 56s | ETA 4h 23m | last api-football-94-2024-0003
+Progress 84/593 batches (14.2%) | fixtures 1,593/11,340 | API calls 84 | cache hits 0 | elapsed 43m 10s | ETA 4h 21m | last api-football-94-2024-0004
+Progress 85/593 batches (14.3%) | fixtures 1,613/11,340 | API calls 85 | cache hits 0 | elapsed 44m 34s | ETA 4h 26m | last api-football-94-2024-0005
+Progress 86/593 batches (14.5%) | fixtures 1,633/11,340 | API calls 86 | cache hits 0 | elapsed 45m 55s | ETA 4h 30m | last api-football-94-2024-0006
+Progress 87/593 batches (14.7%) | fixtures 1,653/11,340 | API calls 87 | cache hits 0 | elapsed 47m 16s | ETA 4h 34m | last api-football-94-2024-0007
+Progress 88/593 batches (14.8%) | fixtures 1,673/11,340 | API calls 88 | cache hits 0 | elapsed 47m 32s | ETA 4h 32m | last api-football-94-2024-0008
+Progress 89/593 batches (15.0%) | fixtures 1,693/11,340 | API calls 89 | cache hits 0 | elapsed 47m 46s | ETA 4h 30m | last api-football-94-2024-0009
+Progress 90/593 batches (15.2%) | fixtures 1,713/11,340 | API calls 90 | cache hits 0 | elapsed 48m 00s | ETA 4h 28m | last api-football-94-2024-0010
+Progress 91/593 batches (15.3%) | fixtures 1,733/11,340 | API calls 91 | cache hits 0 | elapsed 48m 40s | ETA 4h 28m | last api-football-94-2024-0011
+Progress 92/593 batches (15.5%) | fixtures 1,753/11,340 | API calls 92 | cache hits 0 | elapsed 49m 33s | ETA 4h 29m | last api-football-94-2024-0012
+Progress 93/593 batches (15.7%) | fixtures 1,773/11,340 | API calls 93 | cache hits 0 | elapsed 50m 58s | ETA 4h 34m | last api-football-94-2024-0013
+Progress 94/593 batches (15.9%) | fixtures 1,793/11,340 | API calls 94 | cache hits 0 | elapsed 52m 21s | ETA 4h 37m | last api-football-94-2024-0014
+Progress 95/593 batches (16.0%) | fixtures 1,811/11,340 | API calls 95 | cache hits 0 | elapsed 53m 34s | ETA 4h 40m | last api-football-94-2024-0015
+Progress 96/593 batches (16.2%) | fixtures 1,831/11,340 | API calls 96 | cache hits 0 | elapsed 54m 54s | ETA 4h 44m | last api-football-103-2024-0001
+Progress 97/593 batches (16.4%) | fixtures 1,851/11,340 | API calls 97 | cache hits 0 | elapsed 56m 14s | ETA 4h 47m | last api-football-103-2024-0002
+Progress 98/593 batches (16.5%) | fixtures 1,871/11,340 | API calls 98 | cache hits 0 | elapsed 57m 36s | ETA 4h 50m | last api-football-103-2024-0003
+Progress 99/593 batches (16.7%) | fixtures 1,891/11,340 | API calls 99 | cache hits 0 | elapsed 58m 57s | ETA 4h 54m | last api-football-103-2024-0004
+Progress 100/593 batches (16.9%) | fixtures 1,911/11,340 | API calls 100 | cache hits 0 | elapsed 1h 00m | ETA 4h 57m | last api-football-103-2024-0005
+Progress 101/593 batches (17.0%) | fixtures 1,931/11,340 | API calls 101 | cache hits 0 | elapsed 1h 01m | ETA 5h 00m | last api-football-103-2024-0006
+Progress 102/593 batches (17.2%) | fixtures 1,951/11,340 | API calls 102 | cache hits 0 | elapsed 1h 03m | ETA 5h 03m | last api-football-103-2024-0007
+FAILED batch 103/593 (api-football-103-2024-0008) after 1h 03m: BackfillValidationError: Raw fixture validation failed: [{"accepted_partial": false, "complete": false, "core_player_fields": false, "fixture_id": 1164487, "identity_failures": [], "lineups": true, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": true, "player_stats_unavailable": false, "result": true, "team_statistics": true}]
+Traceback (most recent call last):
+  File "/Users/milo/Desktop/soccer_bot/scripts/run_historical_backfill.py", line 86, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/Users/milo/Desktop/soccer_bot/scripts/run_historical_backfill.py", line 73, in main
+    summary = executor.run(
+        maximum_batches=args.max_batches,
+    ...<2 lines>...
+        retry_failed=args.retry_failed,
+    )
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 223, in run
+    self._execute_batch(batch, run_id)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 337, in _execute_batch
+    raw_validation = self._validate_response(payload, batch)
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 463, in _validate_response
+    raise BackfillValidationError(
+        "Raw fixture validation failed: " + json.dumps(failures, sort_keys=True)
+    )
+soccer_bot.backfill_executor.BackfillValidationError: Raw fixture validation failed: [{"accepted_partial": false, "complete": false, "core_player_fields": false, "fixture_id": 1164487, "identity_failures": [], "lineups": true, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": true, "player_stats_unavailable": false, "result": true, "team_statistics": true}]
+Starting historical backfill: 490 batches, 9,369 fixture requests selected.
+Progress 1/490 batches (0.2%) | fixtures 20/9,369 | API calls 1 | cache hits 0 | elapsed 1m 09s | ETA 9h 21m | last api-football-103-2024-0009
+Progress 2/490 batches (0.4%) | fixtures 40/9,369 | API calls 2 | cache hits 0 | elapsed 2m 30s | ETA 10h 10m | last api-football-103-2024-0010
+Progress 3/490 batches (0.6%) | fixtures 60/9,369 | API calls 3 | cache hits 0 | elapsed 3m 51s | ETA 10h 23m | last api-football-103-2024-0011
+Progress 4/490 batches (0.8%) | fixtures 72/9,369 | API calls 4 | cache hits 0 | elapsed 4m 42s | ETA 9h 30m | last api-football-103-2024-0012
+Progress 5/490 batches (1.0%) | fixtures 92/9,369 | API calls 5 | cache hits 0 | elapsed 5m 19s | ETA 8h 35m | last api-football-119-2024-0001
+Progress 6/490 batches (1.2%) | fixtures 112/9,369 | API calls 6 | cache hits 0 | elapsed 5m 33s | ETA 7h 27m | last api-football-119-2024-0002
+Progress 7/490 batches (1.4%) | fixtures 132/9,369 | API calls 7 | cache hits 0 | elapsed 5m 54s | ETA 6h 46m | last api-football-119-2024-0003
+Progress 8/490 batches (1.6%) | fixtures 152/9,369 | API calls 8 | cache hits 0 | elapsed 7m 23s | ETA 7h 25m | last api-football-119-2024-0004
+Progress 9/490 batches (1.8%) | fixtures 172/9,369 | API calls 9 | cache hits 0 | elapsed 8m 04s | ETA 7h 11m | last api-football-119-2024-0005
+Progress 10/490 batches (2.0%) | fixtures 192/9,369 | API calls 10 | cache hits 0 | elapsed 9m 02s | ETA 7h 13m | last api-football-119-2024-0006
+Progress 11/490 batches (2.2%) | fixtures 212/9,369 | API calls 11 | cache hits 0 | elapsed 10m 14s | ETA 7h 25m | last api-football-119-2024-0007
+Progress 12/490 batches (2.4%) | fixtures 232/9,369 | API calls 12 | cache hits 0 | elapsed 10m 29s | ETA 6h 57m | last api-football-119-2024-0008
+Progress 13/490 batches (2.7%) | fixtures 252/9,369 | API calls 13 | cache hits 0 | elapsed 10m 45s | ETA 6h 34m | last api-football-119-2024-0009
+Progress 14/490 batches (2.9%) | fixtures 255/9,369 | API calls 14 | cache hits 0 | elapsed 10m 56s | ETA 6h 11m | last api-football-119-2024-0010
+Progress 15/490 batches (3.1%) | fixtures 275/9,369 | API calls 15 | cache hits 0 | elapsed 12m 23s | ETA 6h 32m | last api-football-144-2024-0001
+Progress 16/490 batches (3.3%) | fixtures 295/9,369 | API calls 16 | cache hits 0 | elapsed 13m 55s | ETA 6h 52m | last api-football-144-2024-0002
+Progress 17/490 batches (3.5%) | fixtures 315/9,369 | API calls 17 | cache hits 0 | elapsed 14m 12s | ETA 6h 34m | last api-football-144-2024-0003
+Starting historical backfill: 473 batches, 9,054 fixture requests selected.
+Progress 1/473 batches (0.2%) | fixtures 20/9,054 | API calls 0 | cache hits 1 | elapsed 14s | ETA 1h 47m | last api-football-144-2024-0004
+Progress 2/473 batches (0.4%) | fixtures 40/9,054 | API calls 1 | cache hits 1 | elapsed 28s | ETA 1h 50m | last api-football-144-2024-0005
+Progress 3/473 batches (0.6%) | fixtures 60/9,054 | API calls 2 | cache hits 1 | elapsed 43s | ETA 1h 51m | last api-football-144-2024-0006
+Progress 4/473 batches (0.8%) | fixtures 80/9,054 | API calls 3 | cache hits 1 | elapsed 1m 25s | ETA 2h 45m | last api-football-144-2024-0007
+Progress 5/473 batches (1.1%) | fixtures 100/9,054 | API calls 4 | cache hits 1 | elapsed 2m 46s | ETA 4h 18m | last api-football-144-2024-0008
+Progress 6/473 batches (1.3%) | fixtures 120/9,054 | API calls 5 | cache hits 1 | elapsed 4m 06s | ETA 5h 19m | last api-football-144-2024-0009
+Progress 7/473 batches (1.5%) | fixtures 140/9,054 | API calls 6 | cache hits 1 | elapsed 5m 35s | ETA 6h 11m | last api-football-144-2024-0010
+Progress 8/473 batches (1.7%) | fixtures 160/9,054 | API calls 7 | cache hits 1 | elapsed 6m 11s | ETA 5h 59m | last api-football-144-2024-0011
+Progress 9/473 batches (1.9%) | fixtures 180/9,054 | API calls 8 | cache hits 1 | elapsed 6m 26s | ETA 5h 32m | last api-football-144-2024-0012
+Progress 10/473 batches (2.1%) | fixtures 200/9,054 | API calls 9 | cache hits 1 | elapsed 7m 41s | ETA 5h 55m | last api-football-144-2024-0013
+Progress 11/473 batches (2.3%) | fixtures 220/9,054 | API calls 10 | cache hits 1 | elapsed 9m 03s | ETA 6h 19m | last api-football-144-2024-0014
+Progress 12/473 batches (2.5%) | fixtures 240/9,054 | API calls 11 | cache hits 1 | elapsed 10m 24s | ETA 6h 39m | last api-football-144-2024-0015
+Progress 13/473 batches (2.7%) | fixtures 245/9,054 | API calls 12 | cache hits 1 | elapsed 10m 45s | ETA 6h 20m | last api-football-144-2024-0016
+Progress 14/473 batches (3.0%) | fixtures 265/9,054 | API calls 13 | cache hits 1 | elapsed 12m 08s | ETA 6h 37m | last api-football-179-2024-0001
+Progress 15/473 batches (3.2%) | fixtures 285/9,054 | API calls 14 | cache hits 1 | elapsed 13m 36s | ETA 6h 55m | last api-football-179-2024-0002
+Progress 16/473 batches (3.4%) | fixtures 305/9,054 | API calls 15 | cache hits 1 | elapsed 14m 59s | ETA 7h 08m | last api-football-179-2024-0003
+Progress 17/473 batches (3.6%) | fixtures 325/9,054 | API calls 16 | cache hits 1 | elapsed 16m 22s | ETA 7h 19m | last api-football-179-2024-0004
+Progress 18/473 batches (3.8%) | fixtures 345/9,054 | API calls 17 | cache hits 1 | elapsed 17m 47s | ETA 7h 29m | last api-football-179-2024-0005
+Progress 19/473 batches (4.0%) | fixtures 365/9,054 | API calls 18 | cache hits 1 | elapsed 19m 13s | ETA 7h 39m | last api-football-179-2024-0006
+Progress 20/473 batches (4.2%) | fixtures 385/9,054 | API calls 19 | cache hits 1 | elapsed 20m 37s | ETA 7h 46m | last api-football-179-2024-0007
+Progress 21/473 batches (4.4%) | fixtures 405/9,054 | API calls 20 | cache hits 1 | elapsed 22m 01s | ETA 7h 53m | last api-football-179-2024-0008
+Progress 22/473 batches (4.7%) | fixtures 425/9,054 | API calls 21 | cache hits 1 | elapsed 23m 11s | ETA 7h 55m | last api-football-179-2024-0009
+Progress 23/473 batches (4.9%) | fixtures 445/9,054 | API calls 22 | cache hits 1 | elapsed 23m 57s | ETA 7h 48m | last api-football-179-2024-0010
+Progress 24/473 batches (5.1%) | fixtures 465/9,054 | API calls 23 | cache hits 1 | elapsed 24m 12s | ETA 7h 32m | last api-football-179-2024-0011
+Running global warehouse quality audit after 25/473 batches...
+Global warehouse quality audit passed.
+Progress 25/473 batches (5.3%) | fixtures 470/9,054 | API calls 24 | cache hits 1 | elapsed 24m 17s | ETA 7h 15m | last api-football-179-2024-0012
+Progress 26/473 batches (5.5%) | fixtures 490/9,054 | API calls 25 | cache hits 1 | elapsed 24m 58s | ETA 7h 09m | last api-football-197-2024-0001
+Progress 27/473 batches (5.7%) | fixtures 510/9,054 | API calls 26 | cache hits 1 | elapsed 26m 35s | ETA 7h 19m | last api-football-197-2024-0002
+Progress 28/473 batches (5.9%) | fixtures 530/9,054 | API calls 27 | cache hits 1 | elapsed 27m 49s | ETA 7h 22m | last api-football-197-2024-0003
+Progress 29/473 batches (6.1%) | fixtures 550/9,054 | API calls 28 | cache hits 1 | elapsed 29m 19s | ETA 7h 28m | last api-football-197-2024-0004
+Progress 30/473 batches (6.3%) | fixtures 570/9,054 | API calls 29 | cache hits 1 | elapsed 30m 47s | ETA 7h 34m | last api-football-197-2024-0005
+Progress 31/473 batches (6.6%) | fixtures 590/9,054 | API calls 30 | cache hits 1 | elapsed 31m 48s | ETA 7h 33m | last api-football-197-2024-0006
+Progress 32/473 batches (6.8%) | fixtures 610/9,054 | API calls 31 | cache hits 1 | elapsed 32m 03s | ETA 7h 21m | last api-football-197-2024-0007
+Progress 33/473 batches (7.0%) | fixtures 630/9,054 | API calls 32 | cache hits 1 | elapsed 32m 19s | ETA 7h 10m | last api-football-197-2024-0008
+Progress 34/473 batches (7.2%) | fixtures 650/9,054 | API calls 33 | cache hits 1 | elapsed 33m 07s | ETA 7h 07m | last api-football-197-2024-0009
+Progress 35/473 batches (7.4%) | fixtures 670/9,054 | API calls 34 | cache hits 1 | elapsed 34m 30s | ETA 7h 11m | last api-football-197-2024-0010
+Progress 36/473 batches (7.6%) | fixtures 690/9,054 | API calls 35 | cache hits 1 | elapsed 35m 59s | ETA 7h 16m | last api-football-197-2024-0011
+Progress 37/473 batches (7.8%) | fixtures 696/9,054 | API calls 36 | cache hits 1 | elapsed 36m 25s | ETA 7h 09m | last api-football-197-2024-0012
+Progress 38/473 batches (8.0%) | fixtures 716/9,054 | API calls 37 | cache hits 1 | elapsed 37m 59s | ETA 7h 14m | last api-football-203-2024-0001
+Progress 39/473 batches (8.2%) | fixtures 736/9,054 | API calls 38 | cache hits 1 | elapsed 39m 31s | ETA 7h 19m | last api-football-203-2024-0002
+Progress 40/473 batches (8.5%) | fixtures 756/9,054 | API calls 39 | cache hits 1 | elapsed 39m 47s | ETA 7h 10m | last api-football-203-2024-0003
+Progress 41/473 batches (8.7%) | fixtures 776/9,054 | API calls 40 | cache hits 1 | elapsed 40m 04s | ETA 7h 02m | last api-football-203-2024-0004
+Progress 42/473 batches (8.9%) | fixtures 796/9,054 | API calls 41 | cache hits 1 | elapsed 40m 21s | ETA 6h 53m | last api-football-203-2024-0005
+Progress 43/473 batches (9.1%) | fixtures 816/9,054 | API calls 42 | cache hits 1 | elapsed 40m 41s | ETA 6h 46m | last api-football-203-2024-0006
+Progress 44/473 batches (9.3%) | fixtures 836/9,054 | API calls 43 | cache hits 1 | elapsed 42m 17s | ETA 6h 52m | last api-football-203-2024-0007
+Progress 45/473 batches (9.5%) | fixtures 856/9,054 | API calls 44 | cache hits 1 | elapsed 43m 49s | ETA 6h 56m | last api-football-203-2024-0008
+Progress 46/473 batches (9.7%) | fixtures 876/9,054 | API calls 45 | cache hits 1 | elapsed 45m 27s | ETA 7h 01m | last api-football-203-2024-0009
+Progress 47/473 batches (9.9%) | fixtures 896/9,054 | API calls 46 | cache hits 1 | elapsed 47m 03s | ETA 7h 06m | last api-football-203-2024-0010
+Progress 48/473 batches (10.1%) | fixtures 916/9,054 | API calls 47 | cache hits 1 | elapsed 48m 41s | ETA 7h 11m | last api-football-203-2024-0011
+Progress 49/473 batches (10.4%) | fixtures 936/9,054 | API calls 48 | cache hits 1 | elapsed 50m 18s | ETA 7h 15m | last api-football-203-2024-0012
+Running global warehouse quality audit after 50/473 batches...
+Global warehouse quality audit passed.
+Progress 50/473 batches (10.6%) | fixtures 956/9,054 | API calls 49 | cache hits 1 | elapsed 52m 00s | ETA 7h 19m | last api-football-203-2024-0013
+Progress 51/473 batches (10.8%) | fixtures 976/9,054 | API calls 50 | cache hits 1 | elapsed 53m 35s | ETA 7h 23m | last api-football-203-2024-0014
+Progress 52/473 batches (11.0%) | fixtures 996/9,054 | API calls 51 | cache hits 1 | elapsed 55m 12s | ETA 7h 26m | last api-football-203-2024-0015
+Progress 53/473 batches (11.2%) | fixtures 1,016/9,054 | API calls 52 | cache hits 1 | elapsed 56m 15s | ETA 7h 25m | last api-football-203-2024-0016
+Progress 54/473 batches (11.4%) | fixtures 1,028/9,054 | API calls 53 | cache hits 1 | elapsed 57m 05s | ETA 7h 22m | last api-football-203-2024-0017
+Progress 55/473 batches (11.6%) | fixtures 1,048/9,054 | API calls 54 | cache hits 1 | elapsed 58m 25s | ETA 7h 23m | last api-football-207-2024-0001
+Progress 56/473 batches (11.8%) | fixtures 1,068/9,054 | API calls 55 | cache hits 1 | elapsed 58m 41s | ETA 7h 16m | last api-football-207-2024-0002
+Progress 57/473 batches (12.1%) | fixtures 1,088/9,054 | API calls 56 | cache hits 1 | elapsed 58m 57s | ETA 7h 10m | last api-football-207-2024-0003
+FAILED batch 58/473 (api-football-207-2024-0004) after 59m 20s: RuntimeError: Query interrupted
+KeyboardInterrupt
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/milo/Desktop/soccer_bot/scripts/run_historical_backfill.py", line 86, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/Users/milo/Desktop/soccer_bot/scripts/run_historical_backfill.py", line 73, in main
+    summary = executor.run(
+        maximum_batches=args.max_batches,
+    ...<2 lines>...
+        retry_failed=args.retry_failed,
+    )
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 265, in run
+    self._execute_batch(batch, run_id)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 432, in _execute_batch
+    self.loader.load_api_football_payload(load_payload, item, RESOURCE)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/loaders.py", line 823, in load_api_football_payload
+    self._load_api_lineups(match.get("lineups", []), fixture_source_id, fixture_id, item)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/loaders.py", line 941, in _load_api_lineups
+    self.warehouse._map_entities(mapping_rows)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/database.py", line 479, in _map_entities
+    self.connection.executemany(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        """
+        ^^^
+    ...<11 lines>...
+        rows,
+        ^^^^^
+    )
+    ^
+RuntimeError: Query interrupted
+Starting historical backfill: 416 batches, 7,966 fixture requests selected.
+Progress 1/416 batches (0.2%) | fixtures 20/7,966 | API calls 0 | cache hits 1 | elapsed 15s | ETA 1h 46m | last api-football-207-2024-0004
+Progress 2/416 batches (0.5%) | fixtures 40/7,966 | API calls 1 | cache hits 1 | elapsed 31s | ETA 1h 47m | last api-football-207-2024-0005
+Progress 3/416 batches (0.7%) | fixtures 60/7,966 | API calls 2 | cache hits 1 | elapsed 47s | ETA 1h 47m | last api-football-207-2024-0006
+Progress 4/416 batches (1.0%) | fixtures 80/7,966 | API calls 3 | cache hits 1 | elapsed 1m 02s | ETA 1h 47m | last api-football-207-2024-0007
+Progress 5/416 batches (1.2%) | fixtures 100/7,966 | API calls 4 | cache hits 1 | elapsed 1m 18s | ETA 1h 47m | last api-football-207-2024-0008
+Progress 6/416 batches (1.4%) | fixtures 120/7,966 | API calls 5 | cache hits 1 | elapsed 1m 34s | ETA 1h 46m | last api-football-207-2024-0009
+Progress 7/416 batches (1.7%) | fixtures 140/7,966 | API calls 6 | cache hits 1 | elapsed 1m 50s | ETA 1h 46m | last api-football-207-2024-0010
+Progress 8/416 batches (1.9%) | fixtures 160/7,966 | API calls 7 | cache hits 1 | elapsed 2m 07s | ETA 1h 47m | last api-football-207-2024-0011
+FAILED batch 9/416 (api-football-207-2024-0012) after 2m 07s: BackfillValidationError: Raw fixture validation failed: [{"accepted_partial": false, "complete": false, "core_player_fields": false, "fixture_id": 1376518, "identity_failures": [], "lineups": true, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "player_stats_unavailable": false, "player_stats_unavailable_reason": null, "result": true, "team_statistics": false}]
+Traceback (most recent call last):
+  File "/Users/milo/Desktop/soccer_bot/scripts/run_historical_backfill.py", line 86, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/Users/milo/Desktop/soccer_bot/scripts/run_historical_backfill.py", line 73, in main
+    summary = executor.run(
+        maximum_batches=args.max_batches,
+    ...<2 lines>...
+        retry_failed=args.retry_failed,
+    )
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 266, in run
+    self._execute_batch(batch, run_id)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 410, in _execute_batch
+    raw_validation = self._validate_response(payload, batch)
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 545, in _validate_response
+    raise BackfillValidationError(
+        "Raw fixture validation failed: " + json.dumps(failures, sort_keys=True)
+    )
+soccer_bot.backfill_executor.BackfillValidationError: Raw fixture validation failed: [{"accepted_partial": false, "complete": false, "core_player_fields": false, "fixture_id": 1376518, "identity_failures": [], "lineups": true, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "player_stats_unavailable": false, "player_stats_unavailable_reason": null, "result": true, "team_statistics": false}]
+Starting historical backfill: 407 batches, 7,805 fixture requests selected.
+Progress 1/407 batches (0.2%) | fixtures 20/7,805 | API calls 1 | cache hits 0 | elapsed 14s | ETA 1h 38m | last api-football-218-2024-0001
+Progress 2/407 batches (0.5%) | fixtures 40/7,805 | API calls 2 | cache hits 0 | elapsed 29s | ETA 1h 37m | last api-football-218-2024-0002
+Progress 3/407 batches (0.7%) | fixtures 60/7,805 | API calls 3 | cache hits 0 | elapsed 43s | ETA 1h 37m | last api-football-218-2024-0003
+Progress 4/407 batches (1.0%) | fixtures 80/7,805 | API calls 4 | cache hits 0 | elapsed 58s | ETA 1h 36m | last api-football-218-2024-0004
+Progress 5/407 batches (1.2%) | fixtures 100/7,805 | API calls 5 | cache hits 0 | elapsed 1m 12s | ETA 1h 36m | last api-football-218-2024-0005
+Progress 6/407 batches (1.5%) | fixtures 120/7,805 | API calls 6 | cache hits 0 | elapsed 1m 26s | ETA 1h 35m | last api-football-218-2024-0006
+Progress 7/407 batches (1.7%) | fixtures 140/7,805 | API calls 7 | cache hits 0 | elapsed 1m 40s | ETA 1h 35m | last api-football-218-2024-0007
+Progress 8/407 batches (2.0%) | fixtures 160/7,805 | API calls 8 | cache hits 0 | elapsed 1m 56s | ETA 1h 36m | last api-football-218-2024-0008
+Progress 9/407 batches (2.2%) | fixtures 180/7,805 | API calls 9 | cache hits 0 | elapsed 2m 10s | ETA 1h 35m | last api-football-218-2024-0009
+Progress 10/407 batches (2.5%) | fixtures 185/7,805 | API calls 10 | cache hits 0 | elapsed 2m 13s | ETA 1h 28m | last api-football-218-2024-0010
+Progress 11/407 batches (2.7%) | fixtures 205/7,805 | API calls 11 | cache hits 0 | elapsed 2m 30s | ETA 1h 29m | last api-football-345-2024-0001
+Progress 12/407 batches (2.9%) | fixtures 225/7,805 | API calls 12 | cache hits 0 | elapsed 2m 46s | ETA 1h 31m | last api-football-345-2024-0002
+Progress 13/407 batches (3.2%) | fixtures 245/7,805 | API calls 13 | cache hits 0 | elapsed 3m 03s | ETA 1h 32m | last api-football-345-2024-0003
+Progress 14/407 batches (3.4%) | fixtures 265/7,805 | API calls 14 | cache hits 0 | elapsed 3m 19s | ETA 1h 33m | last api-football-345-2024-0004
+Progress 15/407 batches (3.7%) | fixtures 285/7,805 | API calls 15 | cache hits 0 | elapsed 3m 36s | ETA 1h 34m | last api-football-345-2024-0005
+Progress 16/407 batches (3.9%) | fixtures 305/7,805 | API calls 16 | cache hits 0 | elapsed 3m 54s | ETA 1h 35m | last api-football-345-2024-0006
+Progress 17/407 batches (4.2%) | fixtures 325/7,805 | API calls 17 | cache hits 0 | elapsed 4m 10s | ETA 1h 35m | last api-football-345-2024-0007
+Progress 18/407 batches (4.4%) | fixtures 345/7,805 | API calls 18 | cache hits 0 | elapsed 4m 26s | ETA 1h 35m | last api-football-345-2024-0008
+Progress 19/407 batches (4.7%) | fixtures 365/7,805 | API calls 19 | cache hits 0 | elapsed 4m 43s | ETA 1h 36m | last api-football-345-2024-0009
+Progress 20/407 batches (4.9%) | fixtures 385/7,805 | API calls 20 | cache hits 0 | elapsed 4m 59s | ETA 1h 36m | last api-football-345-2024-0010
+Progress 21/407 batches (5.2%) | fixtures 405/7,805 | API calls 21 | cache hits 0 | elapsed 5m 16s | ETA 1h 36m | last api-football-345-2024-0011
+Progress 22/407 batches (5.4%) | fixtures 425/7,805 | API calls 22 | cache hits 0 | elapsed 5m 33s | ETA 1h 37m | last api-football-345-2024-0012
+Progress 23/407 batches (5.7%) | fixtures 445/7,805 | API calls 23 | cache hits 0 | elapsed 5m 50s | ETA 1h 37m | last api-football-345-2024-0013
+Progress 24/407 batches (5.9%) | fixtures 455/7,805 | API calls 24 | cache hits 0 | elapsed 5m 59s | ETA 1h 35m | last api-football-345-2024-0014
+Running global warehouse quality audit after 25/407 batches...
+Global warehouse quality audit passed.
+Progress 25/407 batches (6.1%) | fixtures 475/7,805 | API calls 25 | cache hits 0 | elapsed 6m 17s | ETA 1h 35m | last api-football-88-2023-0001
+Progress 26/407 batches (6.4%) | fixtures 495/7,805 | API calls 26 | cache hits 0 | elapsed 6m 35s | ETA 1h 36m | last api-football-88-2023-0002
+Progress 27/407 batches (6.6%) | fixtures 515/7,805 | API calls 27 | cache hits 0 | elapsed 6m 54s | ETA 1h 37m | last api-football-88-2023-0003
+Progress 28/407 batches (6.9%) | fixtures 535/7,805 | API calls 28 | cache hits 0 | elapsed 7m 12s | ETA 1h 37m | last api-football-88-2023-0004
+Progress 29/407 batches (7.1%) | fixtures 555/7,805 | API calls 29 | cache hits 0 | elapsed 7m 31s | ETA 1h 38m | last api-football-88-2023-0005
+Progress 30/407 batches (7.4%) | fixtures 575/7,805 | API calls 30 | cache hits 0 | elapsed 7m 51s | ETA 1h 38m | last api-football-88-2023-0006
+Progress 31/407 batches (7.6%) | fixtures 595/7,805 | API calls 31 | cache hits 0 | elapsed 8m 10s | ETA 1h 39m | last api-football-88-2023-0007
+Progress 32/407 batches (7.9%) | fixtures 615/7,805 | API calls 32 | cache hits 0 | elapsed 8m 29s | ETA 1h 39m | last api-football-88-2023-0008
+Progress 33/407 batches (8.1%) | fixtures 635/7,805 | API calls 33 | cache hits 0 | elapsed 8m 47s | ETA 1h 39m | last api-football-88-2023-0009
+Progress 34/407 batches (8.4%) | fixtures 655/7,805 | API calls 34 | cache hits 0 | elapsed 9m 06s | ETA 1h 39m | last api-football-88-2023-0010
+Progress 35/407 batches (8.6%) | fixtures 675/7,805 | API calls 35 | cache hits 0 | elapsed 9m 24s | ETA 1h 39m | last api-football-88-2023-0011
+Progress 36/407 batches (8.8%) | fixtures 695/7,805 | API calls 36 | cache hits 0 | elapsed 9m 42s | ETA 1h 40m | last api-football-88-2023-0012
+Progress 37/407 batches (9.1%) | fixtures 715/7,805 | API calls 37 | cache hits 0 | elapsed 10m 02s | ETA 1h 40m | last api-football-88-2023-0013
+Progress 38/407 batches (9.3%) | fixtures 735/7,805 | API calls 38 | cache hits 0 | elapsed 10m 20s | ETA 1h 40m | last api-football-88-2023-0014
+Progress 39/407 batches (9.6%) | fixtures 755/7,805 | API calls 39 | cache hits 0 | elapsed 10m 39s | ETA 1h 40m | last api-football-88-2023-0015
+Progress 40/407 batches (9.8%) | fixtures 766/7,805 | API calls 40 | cache hits 0 | elapsed 10m 49s | ETA 1h 39m | last api-football-88-2023-0016
+Progress 41/407 batches (10.1%) | fixtures 786/7,805 | API calls 41 | cache hits 0 | elapsed 11m 07s | ETA 1h 39m | last api-football-94-2023-0001
+Progress 42/407 batches (10.3%) | fixtures 806/7,805 | API calls 42 | cache hits 0 | elapsed 11m 24s | ETA 1h 39m | last api-football-94-2023-0002
+Progress 43/407 batches (10.6%) | fixtures 826/7,805 | API calls 43 | cache hits 0 | elapsed 11m 41s | ETA 1h 38m | last api-football-94-2023-0003
+Progress 44/407 batches (10.8%) | fixtures 846/7,805 | API calls 44 | cache hits 0 | elapsed 11m 59s | ETA 1h 38m | last api-football-94-2023-0004
+Progress 45/407 batches (11.1%) | fixtures 866/7,805 | API calls 45 | cache hits 0 | elapsed 12m 17s | ETA 1h 38m | last api-football-94-2023-0005
+Progress 46/407 batches (11.3%) | fixtures 886/7,805 | API calls 46 | cache hits 0 | elapsed 12m 34s | ETA 1h 38m | last api-football-94-2023-0006
+Progress 47/407 batches (11.5%) | fixtures 906/7,805 | API calls 47 | cache hits 0 | elapsed 12m 51s | ETA 1h 38m | last api-football-94-2023-0007
+Progress 48/407 batches (11.8%) | fixtures 926/7,805 | API calls 48 | cache hits 0 | elapsed 13m 08s | ETA 1h 38m | last api-football-94-2023-0008
+Progress 49/407 batches (12.0%) | fixtures 946/7,805 | API calls 49 | cache hits 0 | elapsed 13m 26s | ETA 1h 38m | last api-football-94-2023-0009
+Running global warehouse quality audit after 50/407 batches...
+Global warehouse quality audit passed.
+Progress 50/407 batches (12.3%) | fixtures 966/7,805 | API calls 50 | cache hits 0 | elapsed 13m 44s | ETA 1h 38m | last api-football-94-2023-0010
+Progress 51/407 batches (12.5%) | fixtures 986/7,805 | API calls 51 | cache hits 0 | elapsed 14m 01s | ETA 1h 37m | last api-football-94-2023-0011
+Progress 52/407 batches (12.8%) | fixtures 1,006/7,805 | API calls 52 | cache hits 0 | elapsed 14m 19s | ETA 1h 37m | last api-football-94-2023-0012
+Progress 53/407 batches (13.0%) | fixtures 1,026/7,805 | API calls 53 | cache hits 0 | elapsed 14m 38s | ETA 1h 37m | last api-football-94-2023-0013
+Progress 54/407 batches (13.3%) | fixtures 1,046/7,805 | API calls 54 | cache hits 0 | elapsed 14m 56s | ETA 1h 37m | last api-football-94-2023-0014
+Progress 55/407 batches (13.5%) | fixtures 1,064/7,805 | API calls 55 | cache hits 0 | elapsed 15m 12s | ETA 1h 37m | last api-football-94-2023-0015
+Progress 56/407 batches (13.8%) | fixtures 1,084/7,805 | API calls 56 | cache hits 0 | elapsed 15m 26s | ETA 1h 36m | last api-football-103-2023-0001
+Progress 57/407 batches (14.0%) | fixtures 1,104/7,805 | API calls 57 | cache hits 0 | elapsed 15m 40s | ETA 1h 36m | last api-football-103-2023-0002
+Progress 58/407 batches (14.3%) | fixtures 1,124/7,805 | API calls 58 | cache hits 0 | elapsed 15m 55s | ETA 1h 35m | last api-football-103-2023-0003
+Progress 59/407 batches (14.5%) | fixtures 1,144/7,805 | API calls 59 | cache hits 0 | elapsed 16m 09s | ETA 1h 35m | last api-football-103-2023-0004
+Progress 60/407 batches (14.7%) | fixtures 1,164/7,805 | API calls 60 | cache hits 0 | elapsed 16m 23s | ETA 1h 34m | last api-football-103-2023-0005
+Progress 61/407 batches (15.0%) | fixtures 1,184/7,805 | API calls 61 | cache hits 0 | elapsed 16m 38s | ETA 1h 34m | last api-football-103-2023-0006
+Progress 62/407 batches (15.2%) | fixtures 1,204/7,805 | API calls 62 | cache hits 0 | elapsed 16m 52s | ETA 1h 33m | last api-football-103-2023-0007
+Progress 63/407 batches (15.5%) | fixtures 1,224/7,805 | API calls 63 | cache hits 0 | elapsed 17m 06s | ETA 1h 33m | last api-football-103-2023-0008
+Progress 64/407 batches (15.7%) | fixtures 1,244/7,805 | API calls 64 | cache hits 0 | elapsed 17m 21s | ETA 1h 33m | last api-football-103-2023-0009
+Progress 65/407 batches (16.0%) | fixtures 1,264/7,805 | API calls 65 | cache hits 0 | elapsed 17m 36s | ETA 1h 32m | last api-football-103-2023-0010
+Progress 66/407 batches (16.2%) | fixtures 1,284/7,805 | API calls 66 | cache hits 0 | elapsed 17m 51s | ETA 1h 32m | last api-football-103-2023-0011
+Progress 67/407 batches (16.5%) | fixtures 1,296/7,805 | API calls 67 | cache hits 0 | elapsed 18m 00s | ETA 1h 31m | last api-football-103-2023-0012
+Progress 68/407 batches (16.7%) | fixtures 1,316/7,805 | API calls 68 | cache hits 0 | elapsed 18m 17s | ETA 1h 31m | last api-football-119-2023-0001
+Progress 69/407 batches (17.0%) | fixtures 1,336/7,805 | API calls 69 | cache hits 0 | elapsed 18m 34s | ETA 1h 30m | last api-football-119-2023-0002
+Progress 70/407 batches (17.2%) | fixtures 1,356/7,805 | API calls 70 | cache hits 0 | elapsed 18m 51s | ETA 1h 30m | last api-football-119-2023-0003
+Progress 71/407 batches (17.4%) | fixtures 1,376/7,805 | API calls 71 | cache hits 0 | elapsed 19m 08s | ETA 1h 30m | last api-football-119-2023-0004
+Progress 72/407 batches (17.7%) | fixtures 1,396/7,805 | API calls 72 | cache hits 0 | elapsed 19m 26s | ETA 1h 30m | last api-football-119-2023-0005
+Progress 73/407 batches (17.9%) | fixtures 1,416/7,805 | API calls 73 | cache hits 0 | elapsed 19m 43s | ETA 1h 30m | last api-football-119-2023-0006
+Progress 74/407 batches (18.2%) | fixtures 1,436/7,805 | API calls 74 | cache hits 0 | elapsed 20m 01s | ETA 1h 30m | last api-football-119-2023-0007
+Running global warehouse quality audit after 75/407 batches...
+Global warehouse quality audit passed.
+Progress 75/407 batches (18.4%) | fixtures 1,456/7,805 | API calls 75 | cache hits 0 | elapsed 20m 20s | ETA 1h 29m | last api-football-119-2023-0008
+Progress 76/407 batches (18.7%) | fixtures 1,476/7,805 | API calls 76 | cache hits 0 | elapsed 20m 38s | ETA 1h 29m | last api-football-119-2023-0009
+Progress 77/407 batches (18.9%) | fixtures 1,479/7,805 | API calls 77 | cache hits 0 | elapsed 20m 42s | ETA 1h 28m | last api-football-119-2023-0010
+Progress 78/407 batches (19.2%) | fixtures 1,499/7,805 | API calls 78 | cache hits 0 | elapsed 20m 59s | ETA 1h 28m | last api-football-144-2023-0001
+Progress 79/407 batches (19.4%) | fixtures 1,519/7,805 | API calls 79 | cache hits 0 | elapsed 21m 16s | ETA 1h 28m | last api-football-144-2023-0002
+Progress 80/407 batches (19.7%) | fixtures 1,539/7,805 | API calls 80 | cache hits 0 | elapsed 21m 33s | ETA 1h 28m | last api-football-144-2023-0003
+Progress 81/407 batches (19.9%) | fixtures 1,559/7,805 | API calls 81 | cache hits 0 | elapsed 21m 50s | ETA 1h 27m | last api-football-144-2023-0004
+Progress 82/407 batches (20.1%) | fixtures 1,579/7,805 | API calls 82 | cache hits 0 | elapsed 22m 07s | ETA 1h 27m | last api-football-144-2023-0005
+Progress 83/407 batches (20.4%) | fixtures 1,599/7,805 | API calls 83 | cache hits 0 | elapsed 22m 24s | ETA 1h 27m | last api-football-144-2023-0006
+Progress 84/407 batches (20.6%) | fixtures 1,619/7,805 | API calls 84 | cache hits 0 | elapsed 22m 41s | ETA 1h 27m | last api-football-144-2023-0007
+Progress 85/407 batches (20.9%) | fixtures 1,639/7,805 | API calls 85 | cache hits 0 | elapsed 23m 00s | ETA 1h 27m | last api-football-144-2023-0008
+Progress 86/407 batches (21.1%) | fixtures 1,659/7,805 | API calls 86 | cache hits 0 | elapsed 23m 20s | ETA 1h 27m | last api-football-144-2023-0009
+Progress 87/407 batches (21.4%) | fixtures 1,679/7,805 | API calls 87 | cache hits 0 | elapsed 23m 39s | ETA 1h 26m | last api-football-144-2023-0010
+Progress 88/407 batches (21.6%) | fixtures 1,699/7,805 | API calls 88 | cache hits 0 | elapsed 23m 58s | ETA 1h 26m | last api-football-144-2023-0011
+Progress 89/407 batches (21.9%) | fixtures 1,719/7,805 | API calls 89 | cache hits 0 | elapsed 24m 17s | ETA 1h 26m | last api-football-144-2023-0012
+Progress 90/407 batches (22.1%) | fixtures 1,739/7,805 | API calls 90 | cache hits 0 | elapsed 24m 47s | ETA 1h 27m | last api-football-144-2023-0013
+Progress 91/407 batches (22.4%) | fixtures 1,759/7,805 | API calls 91 | cache hits 0 | elapsed 25m 46s | ETA 1h 29m | last api-football-144-2023-0014
+FAILED batch 92/407 (api-football-144-2023-0015) after 25m 47s: BackfillValidationError: Raw fixture validation failed: [{"accepted_partial": false, "complete": false, "core_player_fields": false, "fixture_id": 1186236, "identity_failures": [], "lineups": false, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "player_stats_unavailable": false, "player_stats_unavailable_reason": null, "result": true, "team_statistics": true, "team_stats_unavailable": false, "team_stats_unavailable_reason": null}]
+Traceback (most recent call last):
+  File "/Users/milo/Desktop/soccer_bot/scripts/run_historical_backfill.py", line 86, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/Users/milo/Desktop/soccer_bot/scripts/run_historical_backfill.py", line 73, in main
+    summary = executor.run(
+        maximum_batches=args.max_batches,
+    ...<2 lines>...
+        retry_failed=args.retry_failed,
+    )
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 266, in run
+    self._execute_batch(batch, run_id)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 410, in _execute_batch
+    raw_validation = self._validate_response(payload, batch)
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 564, in _validate_response
+    raise BackfillValidationError(
+        "Raw fixture validation failed: " + json.dumps(failures, sort_keys=True)
+    )
+soccer_bot.backfill_executor.BackfillValidationError: Raw fixture validation failed: [{"accepted_partial": false, "complete": false, "core_player_fields": false, "fixture_id": 1186236, "identity_failures": [], "lineups": false, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "player_stats_unavailable": false, "player_stats_unavailable_reason": null, "result": true, "team_statistics": true, "team_stats_unavailable": false, "team_stats_unavailable_reason": null}]
+Starting historical backfill: 315 batches, 6,026 fixture requests selected.
+Progress 1/315 batches (0.3%) | fixtures 5/6,026 | API calls 1 | cache hits 0 | elapsed 5s | ETA 23m 35s | last api-football-144-2023-0016
+Progress 2/315 batches (0.6%) | fixtures 25/6,026 | API calls 2 | cache hits 0 | elapsed 59s | ETA 2h 34m | last api-football-179-2023-0001
+Progress 3/315 batches (1.0%) | fixtures 45/6,026 | API calls 3 | cache hits 0 | elapsed 2m 31s | ETA 4h 21m | last api-football-179-2023-0002
+Progress 4/315 batches (1.3%) | fixtures 65/6,026 | API calls 4 | cache hits 0 | elapsed 4m 02s | ETA 5h 13m | last api-football-179-2023-0003
+Progress 5/315 batches (1.6%) | fixtures 85/6,026 | API calls 5 | cache hits 0 | elapsed 5m 09s | ETA 5h 18m | last api-football-179-2023-0004
+Progress 6/315 batches (1.9%) | fixtures 105/6,026 | API calls 6 | cache hits 0 | elapsed 5m 24s | ETA 4h 38m | last api-football-179-2023-0005
+Progress 7/315 batches (2.2%) | fixtures 125/6,026 | API calls 7 | cache hits 0 | elapsed 5m 40s | ETA 4h 09m | last api-football-179-2023-0006
+Progress 8/315 batches (2.5%) | fixtures 145/6,026 | API calls 8 | cache hits 0 | elapsed 6m 48s | ETA 4h 20m | last api-football-179-2023-0007
+Progress 9/315 batches (2.9%) | fixtures 165/6,026 | API calls 9 | cache hits 0 | elapsed 8m 18s | ETA 4h 42m | last api-football-179-2023-0008
+Progress 10/315 batches (3.2%) | fixtures 185/6,026 | API calls 10 | cache hits 0 | elapsed 9m 49s | ETA 4h 59m | last api-football-179-2023-0009
+Progress 11/315 batches (3.5%) | fixtures 205/6,026 | API calls 11 | cache hits 0 | elapsed 10m 14s | ETA 4h 42m | last api-football-179-2023-0010
+Progress 12/315 batches (3.8%) | fixtures 225/6,026 | API calls 12 | cache hits 0 | elapsed 11m 52s | ETA 4h 59m | last api-football-179-2023-0011
+Progress 13/315 batches (4.1%) | fixtures 230/6,026 | API calls 13 | cache hits 0 | elapsed 12m 15s | ETA 4h 44m | last api-football-179-2023-0012
+FAILED batch 14/315 (api-football-197-2023-0001) after 13m 52s: BackfillValidationError: Relational fixture validation failed: [{"administrative_result_unplayed": false, "distinct_players": 0, "fixture_id": 1073491, "home_away_teams_distinct": true, "invalid_player_rows": 0, "invalid_team_stat_rows": 0, "lineup_teams": 2, "participating_players": 0, "participating_players_not_in_lineup": 0, "passing_coverage": 0.0, "player_rows": 0, "player_stats_expected": false, "player_stats_unavailable": true, "player_value_mismatches": [], "result_rows": 1, "score_matches_raw": true, "starter_counts": [9, 11], "team_identity_matches_raw": true, "team_stat_rows": 2, "team_stat_teams": 2, "team_stats_expected": true, "team_stats_unavailable": false, "wrong_team_rows": 0}]
+Traceback (most recent call last):
+  File "/Users/milo/Desktop/soccer_bot/scripts/run_historical_backfill.py", line 86, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/Users/milo/Desktop/soccer_bot/scripts/run_historical_backfill.py", line 73, in main
+    summary = executor.run(
+        maximum_batches=args.max_batches,
+    ...<2 lines>...
+        retry_failed=args.retry_failed,
+    )
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 266, in run
+    self._execute_batch(batch, run_id)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 452, in _execute_batch
+    relational_validation = self._validate_loaded_batch(
+        batch, raw_artifact_id, load_payload
+    )
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 802, in _validate_loaded_batch
+    raise BackfillValidationError(
+        "Relational fixture validation failed: " + json.dumps(failures, sort_keys=True)
+    )
+soccer_bot.backfill_executor.BackfillValidationError: Relational fixture validation failed: [{"administrative_result_unplayed": false, "distinct_players": 0, "fixture_id": 1073491, "home_away_teams_distinct": true, "invalid_player_rows": 0, "invalid_team_stat_rows": 0, "lineup_teams": 2, "participating_players": 0, "participating_players_not_in_lineup": 0, "passing_coverage": 0.0, "player_rows": 0, "player_stats_expected": false, "player_stats_unavailable": true, "player_value_mismatches": [], "result_rows": 1, "score_matches_raw": true, "starter_counts": [9, 11], "team_identity_matches_raw": true, "team_stat_rows": 2, "team_stat_teams": 2, "team_stats_expected": true, "team_stats_unavailable": false, "wrong_team_rows": 0}]
+Starting historical backfill: 301 batches, 5,776 fixture requests selected.
+Progress 1/301 batches (0.3%) | fixtures 20/5,776 | API calls 1 | cache hits 0 | elapsed 1m 22s | ETA 6h 51m | last api-football-197-2023-0002
+Progress 2/301 batches (0.7%) | fixtures 40/5,776 | API calls 2 | cache hits 0 | elapsed 2m 04s | ETA 5h 09m | last api-football-197-2023-0003
+Progress 3/301 batches (1.0%) | fixtures 60/5,776 | API calls 3 | cache hits 0 | elapsed 2m 21s | ETA 3h 53m | last api-football-197-2023-0004
+Progress 4/301 batches (1.3%) | fixtures 80/5,776 | API calls 4 | cache hits 0 | elapsed 2m 39s | ETA 3h 16m | last api-football-197-2023-0005
+Progress 5/301 batches (1.7%) | fixtures 100/5,776 | API calls 5 | cache hits 0 | elapsed 3m 08s | ETA 3h 05m | last api-football-197-2023-0006
+Progress 6/301 batches (2.0%) | fixtures 120/5,776 | API calls 6 | cache hits 0 | elapsed 4m 02s | ETA 3h 18m | last api-football-197-2023-0007
+Progress 7/301 batches (2.3%) | fixtures 140/5,776 | API calls 7 | cache hits 0 | elapsed 5m 40s | ETA 3h 57m | last api-football-197-2023-0008
+Progress 8/301 batches (2.7%) | fixtures 160/5,776 | API calls 8 | cache hits 0 | elapsed 7m 11s | ETA 4h 23m | last api-football-197-2023-0009
+Progress 9/301 batches (3.0%) | fixtures 180/5,776 | API calls 9 | cache hits 0 | elapsed 7m 34s | ETA 4h 05m | last api-football-197-2023-0010
+Progress 10/301 batches (3.3%) | fixtures 200/5,776 | API calls 10 | cache hits 0 | elapsed 7m 51s | ETA 3h 48m | last api-football-197-2023-0011
+Progress 11/301 batches (3.7%) | fixtures 210/5,776 | API calls 11 | cache hits 0 | elapsed 8m 23s | ETA 3h 41m | last api-football-197-2023-0012
+Progress 12/301 batches (4.0%) | fixtures 230/5,776 | API calls 12 | cache hits 0 | elapsed 9m 43s | ETA 3h 53m | last api-football-203-2023-0001
+Progress 13/301 batches (4.3%) | fixtures 250/5,776 | API calls 13 | cache hits 0 | elapsed 10m 07s | ETA 3h 44m | last api-football-203-2023-0002
+Progress 14/301 batches (4.7%) | fixtures 270/5,776 | API calls 14 | cache hits 0 | elapsed 10m 25s | ETA 3h 33m | last api-football-203-2023-0003
+Progress 15/301 batches (5.0%) | fixtures 290/5,776 | API calls 15 | cache hits 0 | elapsed 10m 43s | ETA 3h 24m | last api-football-203-2023-0004
+Progress 16/301 batches (5.3%) | fixtures 310/5,776 | API calls 16 | cache hits 0 | elapsed 12m 14s | ETA 3h 37m | last api-football-203-2023-0005
+Progress 17/301 batches (5.6%) | fixtures 330/5,776 | API calls 17 | cache hits 0 | elapsed 13m 33s | ETA 3h 46m | last api-football-203-2023-0006
+Progress 18/301 batches (6.0%) | fixtures 350/5,776 | API calls 18 | cache hits 0 | elapsed 13m 51s | ETA 3h 37m | last api-football-203-2023-0007
+Progress 19/301 batches (6.3%) | fixtures 370/5,776 | API calls 19 | cache hits 0 | elapsed 14m 09s | ETA 3h 30m | last api-football-203-2023-0008
+Progress 20/301 batches (6.6%) | fixtures 390/5,776 | API calls 20 | cache hits 0 | elapsed 14m 26s | ETA 3h 22m | last api-football-203-2023-0009
+Progress 21/301 batches (7.0%) | fixtures 410/5,776 | API calls 21 | cache hits 0 | elapsed 15m 59s | ETA 3h 33m | last api-football-203-2023-0010
+Progress 22/301 batches (7.3%) | fixtures 430/5,776 | API calls 22 | cache hits 0 | elapsed 17m 40s | ETA 3h 43m | last api-football-203-2023-0011
+Progress 23/301 batches (7.6%) | fixtures 450/5,776 | API calls 23 | cache hits 0 | elapsed 19m 12s | ETA 3h 52m | last api-football-203-2023-0012
+Progress 24/301 batches (8.0%) | fixtures 470/5,776 | API calls 24 | cache hits 0 | elapsed 20m 46s | ETA 3h 59m | last api-football-203-2023-0013
+Running global warehouse quality audit after 25/301 batches...
+Global warehouse quality audit passed.
+Progress 25/301 batches (8.3%) | fixtures 490/5,776 | API calls 25 | cache hits 0 | elapsed 21m 10s | ETA 3h 53m | last api-football-203-2023-0014
+Progress 26/301 batches (8.6%) | fixtures 510/5,776 | API calls 26 | cache hits 0 | elapsed 21m 32s | ETA 3h 47m | last api-football-203-2023-0015
+Progress 27/301 batches (9.0%) | fixtures 530/5,776 | API calls 27 | cache hits 0 | elapsed 21m 51s | ETA 3h 41m | last api-football-203-2023-0016
+Progress 28/301 batches (9.3%) | fixtures 550/5,776 | API calls 28 | cache hits 0 | elapsed 23m 24s | ETA 3h 48m | last api-football-203-2023-0017
+Progress 29/301 batches (9.6%) | fixtures 570/5,776 | API calls 29 | cache hits 0 | elapsed 24m 41s | ETA 3h 51m | last api-football-203-2023-0018
+Progress 30/301 batches (10.0%) | fixtures 580/5,776 | API calls 30 | cache hits 0 | elapsed 24m 51s | ETA 3h 44m | last api-football-203-2023-0019
+Progress 31/301 batches (10.3%) | fixtures 600/5,776 | API calls 31 | cache hits 0 | elapsed 25m 08s | ETA 3h 38m | last api-football-207-2023-0001
+Progress 32/301 batches (10.6%) | fixtures 620/5,776 | API calls 32 | cache hits 0 | elapsed 26m 35s | ETA 3h 43m | last api-football-207-2023-0002
+Progress 33/301 batches (11.0%) | fixtures 640/5,776 | API calls 33 | cache hits 0 | elapsed 27m 56s | ETA 3h 46m | last api-football-207-2023-0003
+Progress 34/301 batches (11.3%) | fixtures 660/5,776 | API calls 34 | cache hits 0 | elapsed 28m 44s | ETA 3h 45m | last api-football-207-2023-0004
+Progress 35/301 batches (11.6%) | fixtures 680/5,776 | API calls 35 | cache hits 0 | elapsed 29m 34s | ETA 3h 44m | last api-football-207-2023-0005
+Progress 36/301 batches (12.0%) | fixtures 700/5,776 | API calls 36 | cache hits 0 | elapsed 31m 19s | ETA 3h 50m | last api-football-207-2023-0006
+Progress 37/301 batches (12.3%) | fixtures 720/5,776 | API calls 37 | cache hits 0 | elapsed 32m 50s | ETA 3h 54m | last api-football-207-2023-0007
+Progress 38/301 batches (12.6%) | fixtures 740/5,776 | API calls 38 | cache hits 0 | elapsed 33m 11s | ETA 3h 49m | last api-football-207-2023-0008
+Progress 39/301 batches (13.0%) | fixtures 760/5,776 | API calls 39 | cache hits 0 | elapsed 34m 17s | ETA 3h 50m | last api-football-207-2023-0009
+Progress 40/301 batches (13.3%) | fixtures 780/5,776 | API calls 40 | cache hits 0 | elapsed 36m 00s | ETA 3h 54m | last api-football-207-2023-0010
+Progress 41/301 batches (13.6%) | fixtures 800/5,776 | API calls 41 | cache hits 0 | elapsed 36m 23s | ETA 3h 50m | last api-football-207-2023-0011
+Progress 42/301 batches (14.0%) | fixtures 801/5,776 | API calls 42 | cache hits 0 | elapsed 36m 25s | ETA 3h 44m | last api-football-207-2023-0012
+Progress 43/301 batches (14.3%) | fixtures 821/5,776 | API calls 43 | cache hits 0 | elapsed 37m 04s | ETA 3h 42m | last api-football-218-2023-0001
+Progress 44/301 batches (14.6%) | fixtures 841/5,776 | API calls 44 | cache hits 0 | elapsed 38m 38s | ETA 3h 45m | last api-football-218-2023-0002
+Progress 45/301 batches (15.0%) | fixtures 861/5,776 | API calls 45 | cache hits 0 | elapsed 40m 07s | ETA 3h 48m | last api-football-218-2023-0003
+Progress 46/301 batches (15.3%) | fixtures 881/5,776 | API calls 46 | cache hits 0 | elapsed 41m 37s | ETA 3h 50m | last api-football-218-2023-0004
+Progress 47/301 batches (15.6%) | fixtures 901/5,776 | API calls 47 | cache hits 0 | elapsed 41m 53s | ETA 3h 46m | last api-football-218-2023-0005
+Progress 48/301 batches (15.9%) | fixtures 921/5,776 | API calls 48 | cache hits 0 | elapsed 42m 09s | ETA 3h 42m | last api-football-218-2023-0006
+Progress 49/301 batches (16.3%) | fixtures 941/5,776 | API calls 49 | cache hits 0 | elapsed 42m 25s | ETA 3h 38m | last api-football-218-2023-0007
+Running global warehouse quality audit after 50/301 batches...
+Global warehouse quality audit passed.
+Progress 50/301 batches (16.6%) | fixtures 961/5,776 | API calls 50 | cache hits 0 | elapsed 42m 42s | ETA 3h 34m | last api-football-218-2023-0008
+Progress 51/301 batches (16.9%) | fixtures 981/5,776 | API calls 51 | cache hits 0 | elapsed 42m 59s | ETA 3h 30m | last api-football-218-2023-0009
+Progress 52/301 batches (17.3%) | fixtures 986/5,776 | API calls 52 | cache hits 0 | elapsed 43m 03s | ETA 3h 26m | last api-football-218-2023-0010
+Progress 53/301 batches (17.6%) | fixtures 1,006/5,776 | API calls 53 | cache hits 0 | elapsed 43m 21s | ETA 3h 22m | last api-football-88-2022-0001
+Progress 54/301 batches (17.9%) | fixtures 1,026/5,776 | API calls 54 | cache hits 0 | elapsed 43m 39s | ETA 3h 19m | last api-football-88-2022-0002
+Progress 55/301 batches (18.3%) | fixtures 1,046/5,776 | API calls 55 | cache hits 0 | elapsed 43m 57s | ETA 3h 16m | last api-football-88-2022-0003
+Progress 56/301 batches (18.6%) | fixtures 1,066/5,776 | API calls 56 | cache hits 0 | elapsed 44m 18s | ETA 3h 13m | last api-football-88-2022-0004
+Progress 57/301 batches (18.9%) | fixtures 1,086/5,776 | API calls 57 | cache hits 0 | elapsed 44m 40s | ETA 3h 11m | last api-football-88-2022-0005
+Progress 58/301 batches (19.3%) | fixtures 1,106/5,776 | API calls 58 | cache hits 0 | elapsed 45m 00s | ETA 3h 08m | last api-football-88-2022-0006
+Progress 59/301 batches (19.6%) | fixtures 1,126/5,776 | API calls 59 | cache hits 0 | elapsed 45m 20s | ETA 3h 05m | last api-football-88-2022-0007
+Progress 60/301 batches (19.9%) | fixtures 1,146/5,776 | API calls 60 | cache hits 0 | elapsed 45m 39s | ETA 3h 03m | last api-football-88-2022-0008
+Progress 61/301 batches (20.3%) | fixtures 1,166/5,776 | API calls 61 | cache hits 0 | elapsed 46m 24s | ETA 3h 02m | last api-football-88-2022-0009
+Progress 62/301 batches (20.6%) | fixtures 1,186/5,776 | API calls 62 | cache hits 0 | elapsed 48m 08s | ETA 3h 05m | last api-football-88-2022-0010
+Progress 63/301 batches (20.9%) | fixtures 1,206/5,776 | API calls 63 | cache hits 0 | elapsed 49m 55s | ETA 3h 08m | last api-football-88-2022-0011
+Progress 64/301 batches (21.3%) | fixtures 1,226/5,776 | API calls 64 | cache hits 0 | elapsed 50m 41s | ETA 3h 07m | last api-football-88-2022-0012
+Progress 65/301 batches (21.6%) | fixtures 1,246/5,776 | API calls 65 | cache hits 0 | elapsed 51m 30s | ETA 3h 06m | last api-football-88-2022-0013
+Progress 66/301 batches (21.9%) | fixtures 1,266/5,776 | API calls 66 | cache hits 0 | elapsed 52m 20s | ETA 3h 06m | last api-football-88-2022-0014
+Progress 67/301 batches (22.3%) | fixtures 1,286/5,776 | API calls 67 | cache hits 0 | elapsed 53m 18s | ETA 3h 06m | last api-football-88-2022-0015
+Progress 68/301 batches (22.6%) | fixtures 1,300/5,776 | API calls 68 | cache hits 0 | elapsed 53m 44s | ETA 3h 04m | last api-football-88-2022-0016
+Progress 69/301 batches (22.9%) | fixtures 1,320/5,776 | API calls 69 | cache hits 0 | elapsed 54m 51s | ETA 3h 04m | last api-football-94-2022-0001
+Progress 70/301 batches (23.3%) | fixtures 1,340/5,776 | API calls 70 | cache hits 0 | elapsed 56m 00s | ETA 3h 04m | last api-football-94-2022-0002
+Progress 71/301 batches (23.6%) | fixtures 1,360/5,776 | API calls 71 | cache hits 0 | elapsed 56m 16s | ETA 3h 02m | last api-football-94-2022-0003
+Progress 72/301 batches (23.9%) | fixtures 1,380/5,776 | API calls 72 | cache hits 0 | elapsed 57m 08s | ETA 3h 01m | last api-football-94-2022-0004
+Progress 73/301 batches (24.3%) | fixtures 1,400/5,776 | API calls 73 | cache hits 0 | elapsed 58m 40s | ETA 3h 03m | last api-football-94-2022-0005
+Progress 74/301 batches (24.6%) | fixtures 1,420/5,776 | API calls 74 | cache hits 0 | elapsed 1h 00m | ETA 3h 04m | last api-football-94-2022-0006
+Running global warehouse quality audit after 75/301 batches...
+Global warehouse quality audit passed.
+Progress 75/301 batches (24.9%) | fixtures 1,440/5,776 | API calls 75 | cache hits 0 | elapsed 1h 00m | ETA 3h 02m | last api-football-94-2022-0007
+Progress 76/301 batches (25.2%) | fixtures 1,460/5,776 | API calls 76 | cache hits 0 | elapsed 1h 00m | ETA 2h 59m | last api-football-94-2022-0008
+Progress 77/301 batches (25.6%) | fixtures 1,480/5,776 | API calls 77 | cache hits 0 | elapsed 1h 02m | ETA 3h 00m | last api-football-94-2022-0009
+Progress 78/301 batches (25.9%) | fixtures 1,500/5,776 | API calls 78 | cache hits 0 | elapsed 1h 03m | ETA 3h 02m | last api-football-94-2022-0010
+Progress 79/301 batches (26.2%) | fixtures 1,520/5,776 | API calls 79 | cache hits 0 | elapsed 1h 04m | ETA 3h 00m | last api-football-94-2022-0011
+Progress 80/301 batches (26.6%) | fixtures 1,540/5,776 | API calls 80 | cache hits 0 | elapsed 1h 04m | ETA 2h 58m | last api-football-94-2022-0012
+Progress 81/301 batches (26.9%) | fixtures 1,560/5,776 | API calls 81 | cache hits 0 | elapsed 1h 06m | ETA 2h 59m | last api-football-94-2022-0013
+Progress 82/301 batches (27.2%) | fixtures 1,580/5,776 | API calls 82 | cache hits 0 | elapsed 1h 07m | ETA 3h 00m | last api-football-94-2022-0014
+Progress 83/301 batches (27.6%) | fixtures 1,598/5,776 | API calls 83 | cache hits 0 | elapsed 1h 09m | ETA 3h 01m | last api-football-94-2022-0015
+Progress 84/301 batches (27.9%) | fixtures 1,618/5,776 | API calls 84 | cache hits 0 | elapsed 1h 09m | ETA 2h 59m | last api-football-103-2022-0001
+Progress 85/301 batches (28.2%) | fixtures 1,638/5,776 | API calls 85 | cache hits 0 | elapsed 1h 09m | ETA 2h 57m | last api-football-103-2022-0002
+Progress 86/301 batches (28.6%) | fixtures 1,658/5,776 | API calls 86 | cache hits 0 | elapsed 1h 11m | ETA 2h 58m | last api-football-103-2022-0003
+Progress 87/301 batches (28.9%) | fixtures 1,678/5,776 | API calls 87 | cache hits 0 | elapsed 1h 11m | ETA 2h 57m | last api-football-103-2022-0004
+Progress 88/301 batches (29.2%) | fixtures 1,698/5,776 | API calls 88 | cache hits 0 | elapsed 1h 12m | ETA 2h 55m | last api-football-103-2022-0005
+Progress 89/301 batches (29.6%) | fixtures 1,718/5,776 | API calls 89 | cache hits 0 | elapsed 1h 12m | ETA 2h 52m | last api-football-103-2022-0006
+Progress 90/301 batches (29.9%) | fixtures 1,738/5,776 | API calls 90 | cache hits 0 | elapsed 1h 12m | ETA 2h 50m | last api-football-103-2022-0007
+Progress 91/301 batches (30.2%) | fixtures 1,758/5,776 | API calls 91 | cache hits 0 | elapsed 1h 13m | ETA 2h 48m | last api-football-103-2022-0008
+Progress 92/301 batches (30.6%) | fixtures 1,778/5,776 | API calls 92 | cache hits 0 | elapsed 1h 13m | ETA 2h 46m | last api-football-103-2022-0009
+Progress 93/301 batches (30.9%) | fixtures 1,798/5,776 | API calls 93 | cache hits 0 | elapsed 1h 13m | ETA 2h 44m | last api-football-103-2022-0010
+Progress 94/301 batches (31.2%) | fixtures 1,818/5,776 | API calls 94 | cache hits 0 | elapsed 1h 14m | ETA 2h 43m | last api-football-103-2022-0011
+Progress 95/301 batches (31.6%) | fixtures 1,830/5,776 | API calls 95 | cache hits 0 | elapsed 1h 14m | ETA 2h 42m | last api-football-103-2022-0012
+Progress 96/301 batches (31.9%) | fixtures 1,850/5,776 | API calls 96 | cache hits 0 | elapsed 1h 16m | ETA 2h 42m | last api-football-119-2022-0001
+Progress 97/301 batches (32.2%) | fixtures 1,870/5,776 | API calls 97 | cache hits 0 | elapsed 1h 17m | ETA 2h 43m | last api-football-119-2022-0002
+Progress 98/301 batches (32.6%) | fixtures 1,890/5,776 | API calls 98 | cache hits 0 | elapsed 1h 18m | ETA 2h 43m | last api-football-119-2022-0003
+Progress 99/301 batches (32.9%) | fixtures 1,910/5,776 | API calls 99 | cache hits 0 | elapsed 1h 20m | ETA 2h 43m | last api-football-119-2022-0004
+Running global warehouse quality audit after 100/301 batches...
+Global warehouse quality audit passed.
+Progress 100/301 batches (33.2%) | fixtures 1,930/5,776 | API calls 100 | cache hits 0 | elapsed 1h 20m | ETA 2h 41m | last api-football-119-2022-0005
+Progress 101/301 batches (33.6%) | fixtures 1,950/5,776 | API calls 101 | cache hits 0 | elapsed 1h 21m | ETA 2h 40m | last api-football-119-2022-0006
+Progress 102/301 batches (33.9%) | fixtures 1,970/5,776 | API calls 102 | cache hits 0 | elapsed 1h 22m | ETA 2h 41m | last api-football-119-2022-0007
+Progress 103/301 batches (34.2%) | fixtures 1,990/5,776 | API calls 103 | cache hits 0 | elapsed 1h 24m | ETA 2h 41m | last api-football-119-2022-0008
+Progress 104/301 batches (34.6%) | fixtures 2,010/5,776 | API calls 104 | cache hits 0 | elapsed 1h 24m | ETA 2h 40m | last api-football-119-2022-0009
+Progress 105/301 batches (34.9%) | fixtures 2,013/5,776 | API calls 105 | cache hits 0 | elapsed 1h 24m | ETA 2h 37m | last api-football-119-2022-0010
+Progress 106/301 batches (35.2%) | fixtures 2,033/5,776 | API calls 106 | cache hits 0 | elapsed 1h 25m | ETA 2h 36m | last api-football-144-2022-0001
+Progress 107/301 batches (35.5%) | fixtures 2,053/5,776 | API calls 107 | cache hits 0 | elapsed 1h 25m | ETA 2h 34m | last api-football-144-2022-0002
+Progress 108/301 batches (35.9%) | fixtures 2,073/5,776 | API calls 108 | cache hits 0 | elapsed 1h 26m | ETA 2h 34m | last api-football-144-2022-0003
+Progress 109/301 batches (36.2%) | fixtures 2,093/5,776 | API calls 109 | cache hits 0 | elapsed 1h 27m | ETA 2h 34m | last api-football-144-2022-0004
+Progress 110/301 batches (36.5%) | fixtures 2,113/5,776 | API calls 110 | cache hits 0 | elapsed 1h 29m | ETA 2h 35m | last api-football-144-2022-0005
+Progress 111/301 batches (36.9%) | fixtures 2,133/5,776 | API calls 111 | cache hits 0 | elapsed 1h 29m | ETA 2h 33m | last api-football-144-2022-0006
+Progress 112/301 batches (37.2%) | fixtures 2,153/5,776 | API calls 112 | cache hits 0 | elapsed 1h 31m | ETA 2h 34m | last api-football-144-2022-0007
+Progress 113/301 batches (37.5%) | fixtures 2,173/5,776 | API calls 113 | cache hits 0 | elapsed 1h 32m | ETA 2h 34m | last api-football-144-2022-0008
+Progress 114/301 batches (37.9%) | fixtures 2,193/5,776 | API calls 114 | cache hits 0 | elapsed 1h 34m | ETA 2h 34m | last api-football-144-2022-0009
+Progress 115/301 batches (38.2%) | fixtures 2,213/5,776 | API calls 115 | cache hits 0 | elapsed 1h 34m | ETA 2h 32m | last api-football-144-2022-0010
+Progress 116/301 batches (38.5%) | fixtures 2,233/5,776 | API calls 116 | cache hits 0 | elapsed 1h 34m | ETA 2h 30m | last api-football-144-2022-0011
+Progress 117/301 batches (38.9%) | fixtures 2,253/5,776 | API calls 117 | cache hits 0 | elapsed 1h 36m | ETA 2h 31m | last api-football-144-2022-0012
+Progress 118/301 batches (39.2%) | fixtures 2,273/5,776 | API calls 118 | cache hits 0 | elapsed 1h 36m | ETA 2h 29m | last api-football-144-2022-0013
+Progress 119/301 batches (39.5%) | fixtures 2,293/5,776 | API calls 119 | cache hits 0 | elapsed 1h 36m | ETA 2h 27m | last api-football-144-2022-0014
+Progress 120/301 batches (39.9%) | fixtures 2,313/5,776 | API calls 120 | cache hits 0 | elapsed 1h 37m | ETA 2h 26m | last api-football-144-2022-0015
+Progress 121/301 batches (40.2%) | fixtures 2,331/5,776 | API calls 121 | cache hits 0 | elapsed 1h 37m | ETA 2h 25m | last api-football-144-2022-0016
+Progress 122/301 batches (40.5%) | fixtures 2,351/5,776 | API calls 122 | cache hits 0 | elapsed 1h 37m | ETA 2h 23m | last api-football-179-2022-0001
+Progress 123/301 batches (40.9%) | fixtures 2,371/5,776 | API calls 123 | cache hits 0 | elapsed 1h 39m | ETA 2h 23m | last api-football-179-2022-0002
+Progress 124/301 batches (41.2%) | fixtures 2,391/5,776 | API calls 124 | cache hits 0 | elapsed 1h 40m | ETA 2h 22m | last api-football-179-2022-0003
+Running global warehouse quality audit after 125/301 batches...
+Global warehouse quality audit passed.
+Progress 125/301 batches (41.5%) | fixtures 2,411/5,776 | API calls 125 | cache hits 0 | elapsed 1h 41m | ETA 2h 22m | last api-football-179-2022-0004
+Progress 126/301 batches (41.9%) | fixtures 2,431/5,776 | API calls 126 | cache hits 0 | elapsed 1h 41m | ETA 2h 20m | last api-football-179-2022-0005
+Progress 127/301 batches (42.2%) | fixtures 2,451/5,776 | API calls 127 | cache hits 0 | elapsed 1h 41m | ETA 2h 19m | last api-football-179-2022-0006
+Progress 128/301 batches (42.5%) | fixtures 2,471/5,776 | API calls 128 | cache hits 0 | elapsed 1h 42m | ETA 2h 18m | last api-football-179-2022-0007
+Progress 129/301 batches (42.9%) | fixtures 2,491/5,776 | API calls 129 | cache hits 0 | elapsed 1h 43m | ETA 2h 17m | last api-football-179-2022-0008
+Progress 130/301 batches (43.2%) | fixtures 2,511/5,776 | API calls 130 | cache hits 0 | elapsed 1h 45m | ETA 2h 18m | last api-football-179-2022-0009
+Progress 131/301 batches (43.5%) | fixtures 2,531/5,776 | API calls 131 | cache hits 0 | elapsed 1h 46m | ETA 2h 18m | last api-football-179-2022-0010
+Progress 132/301 batches (43.9%) | fixtures 2,551/5,776 | API calls 132 | cache hits 0 | elapsed 1h 48m | ETA 2h 18m | last api-football-179-2022-0011
+Progress 133/301 batches (44.2%) | fixtures 2,556/5,776 | API calls 133 | cache hits 0 | elapsed 1h 48m | ETA 2h 16m | last api-football-179-2022-0012
+Progress 134/301 batches (44.5%) | fixtures 2,576/5,776 | API calls 134 | cache hits 0 | elapsed 1h 48m | ETA 2h 15m | last api-football-197-2022-0001
+Progress 135/301 batches (44.9%) | fixtures 2,596/5,776 | API calls 135 | cache hits 0 | elapsed 1h 49m | ETA 2h 14m | last api-football-197-2022-0002
+Progress 136/301 batches (45.2%) | fixtures 2,616/5,776 | API calls 136 | cache hits 0 | elapsed 1h 49m | ETA 2h 12m | last api-football-197-2022-0003
+Progress 137/301 batches (45.5%) | fixtures 2,636/5,776 | API calls 137 | cache hits 0 | elapsed 1h 49m | ETA 2h 11m | last api-football-197-2022-0004
+Progress 138/301 batches (45.8%) | fixtures 2,656/5,776 | API calls 138 | cache hits 0 | elapsed 1h 49m | ETA 2h 09m | last api-football-197-2022-0005
+Progress 139/301 batches (46.2%) | fixtures 2,676/5,776 | API calls 139 | cache hits 0 | elapsed 1h 50m | ETA 2h 08m | last api-football-197-2022-0006
+Progress 140/301 batches (46.5%) | fixtures 2,696/5,776 | API calls 140 | cache hits 0 | elapsed 1h 50m | ETA 2h 07m | last api-football-197-2022-0007
+Progress 141/301 batches (46.8%) | fixtures 2,716/5,776 | API calls 141 | cache hits 0 | elapsed 1h 50m | ETA 2h 05m | last api-football-197-2022-0008
+Progress 142/301 batches (47.2%) | fixtures 2,736/5,776 | API calls 142 | cache hits 0 | elapsed 1h 51m | ETA 2h 04m | last api-football-197-2022-0009
+Progress 143/301 batches (47.5%) | fixtures 2,756/5,776 | API calls 143 | cache hits 0 | elapsed 1h 51m | ETA 2h 03m | last api-football-197-2022-0010
+Progress 144/301 batches (47.8%) | fixtures 2,776/5,776 | API calls 144 | cache hits 0 | elapsed 1h 51m | ETA 2h 01m | last api-football-197-2022-0011
+Progress 145/301 batches (48.2%) | fixtures 2,786/5,776 | API calls 145 | cache hits 0 | elapsed 1h 51m | ETA 2h 00m | last api-football-197-2022-0012
+Progress 146/301 batches (48.5%) | fixtures 2,806/5,776 | API calls 146 | cache hits 0 | elapsed 1h 52m | ETA 1h 59m | last api-football-203-2022-0001
+Progress 147/301 batches (48.8%) | fixtures 2,826/5,776 | API calls 147 | cache hits 0 | elapsed 1h 52m | ETA 1h 57m | last api-football-203-2022-0002
+Progress 148/301 batches (49.2%) | fixtures 2,846/5,776 | API calls 148 | cache hits 0 | elapsed 1h 52m | ETA 1h 56m | last api-football-203-2022-0003
+Progress 149/301 batches (49.5%) | fixtures 2,866/5,776 | API calls 149 | cache hits 0 | elapsed 1h 53m | ETA 1h 55m | last api-football-203-2022-0004
+Running global warehouse quality audit after 150/301 batches...
+Global warehouse quality audit passed.
+Progress 150/301 batches (49.8%) | fixtures 2,886/5,776 | API calls 150 | cache hits 0 | elapsed 1h 53m | ETA 1h 54m | last api-football-203-2022-0005
+Progress 151/301 batches (50.2%) | fixtures 2,906/5,776 | API calls 151 | cache hits 0 | elapsed 1h 53m | ETA 1h 52m | last api-football-203-2022-0006
+Progress 152/301 batches (50.5%) | fixtures 2,926/5,776 | API calls 152 | cache hits 0 | elapsed 1h 54m | ETA 1h 51m | last api-football-203-2022-0007
+Progress 153/301 batches (50.8%) | fixtures 2,946/5,776 | API calls 153 | cache hits 0 | elapsed 1h 54m | ETA 1h 50m | last api-football-203-2022-0008
+Progress 154/301 batches (51.2%) | fixtures 2,966/5,776 | API calls 154 | cache hits 0 | elapsed 1h 54m | ETA 1h 49m | last api-football-203-2022-0009
+Progress 155/301 batches (51.5%) | fixtures 2,986/5,776 | API calls 155 | cache hits 0 | elapsed 1h 55m | ETA 1h 48m | last api-football-203-2022-0010
+FAILED batch 156/301 (api-football-203-2022-0011) after 1h 55m: BackfillValidationError: Raw fixture validation failed: [{"accepted_partial": false, "administrative_result_reason": null, "administrative_result_unplayed": false, "complete": false, "core_player_fields": false, "fixture_id": 884549, "identity_failures": [], "lineup_duplicate_entries": [], "lineups": false, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "player_stats_unavailable": false, "player_stats_unavailable_reason": null, "result": true, "team_statistics": true, "team_stats_unavailable": false, "team_stats_unavailable_reason": null, "unrecoverable_lineup_duplicates": false}, {"accepted_partial": false, "administrative_result_reason": null, "administrative_result_unplayed": false, "complete": false, "core_player_fields": false, "fixture_id": 884555, "identity_failures": [], "lineup_duplicate_entries": [], "lineups": false, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "player_stats_unavailable": false, "player_stats_unavailable_reason": null, "result": true, "team_statistics": true, "team_stats_unavailable": false, "team_stats_unavailable_reason": null, "unrecoverable_lineup_duplicates": false}, {"accepted_partial": false, "administrative_result_reason": null, "administrative_result_unplayed": false, "complete": false, "core_player_fields": false, "fixture_id": 884560, "identity_failures": [], "lineup_duplicate_entries": [], "lineups": false, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "player_stats_unavailable": false, "player_stats_unavailable_reason": null, "result": true, "team_statistics": true, "team_stats_unavailable": false, "team_stats_unavailable_reason": null, "unrecoverable_lineup_duplicates": false}, {"accepted_partial": false, "administrative_result_reason": null, "administrative_result_unplayed": false, "complete": false, "core_player_fields": false, "fixture_id": 884563, "identity_failures": [], "lineup_duplicate_entries": [], "lineups": false, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "player_stats_unavailable": false, "player_stats_unavailable_reason": null, "result": true, "team_statistics": true, "team_stats_unavailable": false, "team_stats_unavailable_reason": null, "unrecoverable_lineup_duplicates": false}]
+Traceback (most recent call last):
+  File "/Users/milo/Desktop/soccer_bot/scripts/run_historical_backfill.py", line 86, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/Users/milo/Desktop/soccer_bot/scripts/run_historical_backfill.py", line 73, in main
+    summary = executor.run(
+        maximum_batches=args.max_batches,
+    ...<2 lines>...
+        retry_failed=args.retry_failed,
+    )
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 267, in run
+    self._execute_batch(batch, run_id)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 411, in _execute_batch
+    raw_validation = self._validate_response(payload, batch)
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 622, in _validate_response
+    raise BackfillValidationError(
+        "Raw fixture validation failed: " + json.dumps(failures, sort_keys=True)
+    )
+soccer_bot.backfill_executor.BackfillValidationError: Raw fixture validation failed: [{"accepted_partial": false, "administrative_result_reason": null, "administrative_result_unplayed": false, "complete": false, "core_player_fields": false, "fixture_id": 884549, "identity_failures": [], "lineup_duplicate_entries": [], "lineups": false, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "player_stats_unavailable": false, "player_stats_unavailable_reason": null, "result": true, "team_statistics": true, "team_stats_unavailable": false, "team_stats_unavailable_reason": null, "unrecoverable_lineup_duplicates": false}, {"accepted_partial": false, "administrative_result_reason": null, "administrative_result_unplayed": false, "complete": false, "core_player_fields": false, "fixture_id": 884555, "identity_failures": [], "lineup_duplicate_entries": [], "lineups": false, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "player_stats_unavailable": false, "player_stats_unavailable_reason": null, "result": true, "team_statistics": true, "team_stats_unavailable": false, "team_stats_unavailable_reason": null, "unrecoverable_lineup_duplicates": false}, {"accepted_partial": false, "administrative_result_reason": null, "administrative_result_unplayed": false, "complete": false, "core_player_fields": false, "fixture_id": 884560, "identity_failures": [], "lineup_duplicate_entries": [], "lineups": false, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "player_stats_unavailable": false, "player_stats_unavailable_reason": null, "result": true, "team_statistics": true, "team_stats_unavailable": false, "team_stats_unavailable_reason": null, "unrecoverable_lineup_duplicates": false}, {"accepted_partial": false, "administrative_result_reason": null, "administrative_result_unplayed": false, "complete": false, "core_player_fields": false, "fixture_id": 884563, "identity_failures": [], "lineup_duplicate_entries": [], "lineups": false, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "player_stats_unavailable": false, "player_stats_unavailable_reason": null, "result": true, "team_statistics": true, "team_stats_unavailable": false, "team_stats_unavailable_reason": null, "unrecoverable_lineup_duplicates": false}]
+Starting historical backfill: 145 batches, 2,770 fixture requests selected.
+Progress 1/145 batches (0.7%) | fixtures 20/2,770 | API calls 1 | cache hits 0 | elapsed 16s | ETA 39m 24s | last api-football-203-2022-0012
+Progress 2/145 batches (1.4%) | fixtures 40/2,770 | API calls 2 | cache hits 0 | elapsed 33s | ETA 39m 12s | last api-football-203-2022-0013
+Progress 3/145 batches (2.1%) | fixtures 60/2,770 | API calls 3 | cache hits 0 | elapsed 1m 37s | ETA 1h 16m | last api-football-203-2022-0014
+Progress 4/145 batches (2.8%) | fixtures 80/2,770 | API calls 4 | cache hits 0 | elapsed 2m 58s | ETA 1h 44m | last api-football-203-2022-0015
+Progress 5/145 batches (3.4%) | fixtures 100/2,770 | API calls 5 | cache hits 0 | elapsed 4m 17s | ETA 1h 59m | last api-football-203-2022-0016
+Progress 6/145 batches (4.1%) | fixtures 111/2,770 | API calls 6 | cache hits 0 | elapsed 5m 03s | ETA 1h 57m | last api-football-203-2022-0017
+Progress 7/145 batches (4.8%) | fixtures 131/2,770 | API calls 7 | cache hits 0 | elapsed 5m 41s | ETA 1h 52m | last api-football-207-2022-0001
+Progress 8/145 batches (5.5%) | fixtures 151/2,770 | API calls 8 | cache hits 0 | elapsed 6m 54s | ETA 1h 58m | last api-football-207-2022-0002
+Progress 9/145 batches (6.2%) | fixtures 171/2,770 | API calls 9 | cache hits 0 | elapsed 8m 42s | ETA 2h 11m | last api-football-207-2022-0003
+Progress 10/145 batches (6.9%) | fixtures 191/2,770 | API calls 10 | cache hits 0 | elapsed 9m 51s | ETA 2h 13m | last api-football-207-2022-0004
+Progress 11/145 batches (7.6%) | fixtures 211/2,770 | API calls 11 | cache hits 0 | elapsed 10m 10s | ETA 2h 03m | last api-football-207-2022-0005
+Progress 12/145 batches (8.3%) | fixtures 231/2,770 | API calls 12 | cache hits 0 | elapsed 10m 29s | ETA 1h 56m | last api-football-207-2022-0006
+Progress 13/145 batches (9.0%) | fixtures 251/2,770 | API calls 13 | cache hits 0 | elapsed 10m 48s | ETA 1h 49m | last api-football-207-2022-0007
+Progress 14/145 batches (9.7%) | fixtures 271/2,770 | API calls 14 | cache hits 0 | elapsed 11m 07s | ETA 1h 44m | last api-football-207-2022-0008
+Progress 15/145 batches (10.3%) | fixtures 284/2,770 | API calls 15 | cache hits 0 | elapsed 11m 19s | ETA 1h 38m | last api-football-207-2022-0009
+Progress 16/145 batches (11.0%) | fixtures 304/2,770 | API calls 16 | cache hits 0 | elapsed 11m 37s | ETA 1h 33m | last api-football-218-2022-0001
+Progress 17/145 batches (11.7%) | fixtures 324/2,770 | API calls 17 | cache hits 0 | elapsed 11m 56s | ETA 1h 29m | last api-football-218-2022-0002
+Progress 18/145 batches (12.4%) | fixtures 344/2,770 | API calls 18 | cache hits 0 | elapsed 12m 14s | ETA 1h 26m | last api-football-218-2022-0003
+Progress 19/145 batches (13.1%) | fixtures 364/2,770 | API calls 19 | cache hits 0 | elapsed 12m 31s | ETA 1h 23m | last api-football-218-2022-0004
+Progress 20/145 batches (13.8%) | fixtures 384/2,770 | API calls 20 | cache hits 0 | elapsed 12m 49s | ETA 1h 20m | last api-football-218-2022-0005
+Progress 21/145 batches (14.5%) | fixtures 404/2,770 | API calls 21 | cache hits 0 | elapsed 13m 07s | ETA 1h 17m | last api-football-218-2022-0006
+Progress 22/145 batches (15.2%) | fixtures 424/2,770 | API calls 22 | cache hits 0 | elapsed 13m 24s | ETA 1h 14m | last api-football-218-2022-0007
+Progress 23/145 batches (15.9%) | fixtures 444/2,770 | API calls 23 | cache hits 0 | elapsed 13m 41s | ETA 1h 12m | last api-football-218-2022-0008
+Progress 24/145 batches (16.6%) | fixtures 464/2,770 | API calls 24 | cache hits 0 | elapsed 13m 58s | ETA 1h 10m | last api-football-218-2022-0009
+Running global warehouse quality audit after 25/145 batches...
+Global warehouse quality audit passed.
+Progress 25/145 batches (17.2%) | fixtures 469/2,770 | API calls 25 | cache hits 0 | elapsed 14m 04s | ETA 1h 07m | last api-football-218-2022-0010
+Progress 26/145 batches (17.9%) | fixtures 489/2,770 | API calls 26 | cache hits 0 | elapsed 14m 26s | ETA 1h 06m | last api-football-88-2021-0001
+Progress 27/145 batches (18.6%) | fixtures 509/2,770 | API calls 27 | cache hits 0 | elapsed 14m 48s | ETA 1h 04m | last api-football-88-2021-0002
+Progress 28/145 batches (19.3%) | fixtures 529/2,770 | API calls 28 | cache hits 0 | elapsed 15m 09s | ETA 1h 03m | last api-football-88-2021-0003
+Progress 29/145 batches (20.0%) | fixtures 549/2,770 | API calls 29 | cache hits 0 | elapsed 15m 31s | ETA 1h 02m | last api-football-88-2021-0004
+Progress 30/145 batches (20.7%) | fixtures 569/2,770 | API calls 30 | cache hits 0 | elapsed 15m 52s | ETA 1h 00m | last api-football-88-2021-0005
+Progress 31/145 batches (21.4%) | fixtures 589/2,770 | API calls 31 | cache hits 0 | elapsed 16m 13s | ETA 59m 40s | last api-football-88-2021-0006
+Progress 32/145 batches (22.1%) | fixtures 609/2,770 | API calls 32 | cache hits 0 | elapsed 16m 35s | ETA 58m 33s | last api-football-88-2021-0007
+Progress 33/145 batches (22.8%) | fixtures 629/2,770 | API calls 33 | cache hits 0 | elapsed 16m 57s | ETA 57m 33s | last api-football-88-2021-0008
+Progress 34/145 batches (23.4%) | fixtures 649/2,770 | API calls 34 | cache hits 0 | elapsed 17m 19s | ETA 56m 31s | last api-football-88-2021-0009
+Progress 35/145 batches (24.1%) | fixtures 669/2,770 | API calls 35 | cache hits 0 | elapsed 17m 41s | ETA 55m 35s | last api-football-88-2021-0010
+Progress 36/145 batches (24.8%) | fixtures 689/2,770 | API calls 36 | cache hits 0 | elapsed 18m 03s | ETA 54m 39s | last api-football-88-2021-0011
+Progress 37/145 batches (25.5%) | fixtures 709/2,770 | API calls 37 | cache hits 0 | elapsed 18m 25s | ETA 53m 45s | last api-football-88-2021-0012
+Progress 38/145 batches (26.2%) | fixtures 729/2,770 | API calls 38 | cache hits 0 | elapsed 18m 46s | ETA 52m 52s | last api-football-88-2021-0013
+Progress 39/145 batches (26.9%) | fixtures 749/2,770 | API calls 39 | cache hits 0 | elapsed 19m 08s | ETA 52m 01s | last api-football-88-2021-0014
+Progress 40/145 batches (27.6%) | fixtures 769/2,770 | API calls 40 | cache hits 0 | elapsed 19m 32s | ETA 51m 17s | last api-football-88-2021-0015
+Progress 41/145 batches (28.3%) | fixtures 783/2,770 | API calls 41 | cache hits 0 | elapsed 19m 48s | ETA 50m 13s | last api-football-88-2021-0016
+Progress 42/145 batches (29.0%) | fixtures 803/2,770 | API calls 42 | cache hits 0 | elapsed 20m 09s | ETA 49m 25s | last api-football-94-2021-0001
+Progress 43/145 batches (29.7%) | fixtures 823/2,770 | API calls 43 | cache hits 0 | elapsed 20m 30s | ETA 48m 38s | last api-football-94-2021-0002
+Progress 44/145 batches (30.3%) | fixtures 843/2,770 | API calls 44 | cache hits 0 | elapsed 20m 51s | ETA 47m 52s | last api-football-94-2021-0003
+Progress 45/145 batches (31.0%) | fixtures 863/2,770 | API calls 45 | cache hits 0 | elapsed 21m 12s | ETA 47m 07s | last api-football-94-2021-0004
+Progress 46/145 batches (31.7%) | fixtures 883/2,770 | API calls 46 | cache hits 0 | elapsed 21m 33s | ETA 46m 23s | last api-football-94-2021-0005
+Progress 47/145 batches (32.4%) | fixtures 903/2,770 | API calls 47 | cache hits 0 | elapsed 21m 56s | ETA 45m 45s | last api-football-94-2021-0006
+Progress 48/145 batches (33.1%) | fixtures 923/2,770 | API calls 48 | cache hits 0 | elapsed 22m 18s | ETA 45m 03s | last api-football-94-2021-0007
+Progress 49/145 batches (33.8%) | fixtures 943/2,770 | API calls 49 | cache hits 0 | elapsed 22m 39s | ETA 44m 23s | last api-football-94-2021-0008
+Running global warehouse quality audit after 50/145 batches...
+Global warehouse quality audit passed.
+Progress 50/145 batches (34.5%) | fixtures 963/2,770 | API calls 50 | cache hits 0 | elapsed 23m 02s | ETA 43m 45s | last api-football-94-2021-0009
+Progress 51/145 batches (35.2%) | fixtures 983/2,770 | API calls 51 | cache hits 0 | elapsed 23m 24s | ETA 43m 08s | last api-football-94-2021-0010
+Progress 52/145 batches (35.9%) | fixtures 1,003/2,770 | API calls 52 | cache hits 0 | elapsed 23m 46s | ETA 42m 30s | last api-football-94-2021-0011
+Progress 53/145 batches (36.6%) | fixtures 1,023/2,770 | API calls 53 | cache hits 0 | elapsed 24m 07s | ETA 41m 52s | last api-football-94-2021-0012
+Progress 54/145 batches (37.2%) | fixtures 1,043/2,770 | API calls 54 | cache hits 0 | elapsed 24m 30s | ETA 41m 18s | last api-football-94-2021-0013
+Progress 55/145 batches (37.9%) | fixtures 1,063/2,770 | API calls 55 | cache hits 0 | elapsed 24m 52s | ETA 40m 41s | last api-football-94-2021-0014
+Progress 56/145 batches (38.6%) | fixtures 1,081/2,770 | API calls 56 | cache hits 0 | elapsed 25m 11s | ETA 40m 02s | last api-football-94-2021-0015
+Progress 57/145 batches (39.3%) | fixtures 1,101/2,770 | API calls 57 | cache hits 0 | elapsed 25m 32s | ETA 39m 26s | last api-football-103-2021-0001
+Progress 58/145 batches (40.0%) | fixtures 1,121/2,770 | API calls 58 | cache hits 0 | elapsed 25m 54s | ETA 38m 50s | last api-football-103-2021-0002
+Progress 59/145 batches (40.7%) | fixtures 1,141/2,770 | API calls 59 | cache hits 0 | elapsed 26m 15s | ETA 38m 16s | last api-football-103-2021-0003
+Progress 60/145 batches (41.4%) | fixtures 1,161/2,770 | API calls 60 | cache hits 0 | elapsed 26m 36s | ETA 37m 42s | last api-football-103-2021-0004
+Progress 61/145 batches (42.1%) | fixtures 1,181/2,770 | API calls 61 | cache hits 0 | elapsed 26m 59s | ETA 37m 09s | last api-football-103-2021-0005
+Progress 62/145 batches (42.8%) | fixtures 1,201/2,770 | API calls 62 | cache hits 0 | elapsed 27m 19s | ETA 36m 35s | last api-football-103-2021-0006
+Progress 63/145 batches (43.4%) | fixtures 1,221/2,770 | API calls 63 | cache hits 0 | elapsed 27m 40s | ETA 36m 01s | last api-football-103-2021-0007
+Progress 64/145 batches (44.1%) | fixtures 1,241/2,770 | API calls 64 | cache hits 0 | elapsed 28m 02s | ETA 35m 28s | last api-football-103-2021-0008
+Progress 65/145 batches (44.8%) | fixtures 1,261/2,770 | API calls 65 | cache hits 0 | elapsed 28m 23s | ETA 34m 56s | last api-football-103-2021-0009
+Progress 66/145 batches (45.5%) | fixtures 1,281/2,770 | API calls 66 | cache hits 0 | elapsed 28m 44s | ETA 34m 23s | last api-football-103-2021-0010
+Progress 67/145 batches (46.2%) | fixtures 1,301/2,770 | API calls 67 | cache hits 0 | elapsed 29m 05s | ETA 33m 51s | last api-football-103-2021-0011
+Progress 68/145 batches (46.9%) | fixtures 1,312/2,770 | API calls 68 | cache hits 0 | elapsed 29m 17s | ETA 33m 10s | last api-football-103-2021-0012
+Progress 69/145 batches (47.6%) | fixtures 1,332/2,770 | API calls 69 | cache hits 0 | elapsed 29m 39s | ETA 32m 39s | last api-football-119-2021-0001
+Progress 70/145 batches (48.3%) | fixtures 1,352/2,770 | API calls 70 | cache hits 0 | elapsed 29m 59s | ETA 32m 07s | last api-football-119-2021-0002
+Progress 71/145 batches (49.0%) | fixtures 1,372/2,770 | API calls 71 | cache hits 0 | elapsed 30m 20s | ETA 31m 37s | last api-football-119-2021-0003
+Progress 72/145 batches (49.7%) | fixtures 1,392/2,770 | API calls 72 | cache hits 0 | elapsed 30m 40s | ETA 31m 06s | last api-football-119-2021-0004
+Progress 73/145 batches (50.3%) | fixtures 1,412/2,770 | API calls 73 | cache hits 0 | elapsed 31m 01s | ETA 30m 35s | last api-football-119-2021-0005
+Progress 74/145 batches (51.0%) | fixtures 1,432/2,770 | API calls 74 | cache hits 0 | elapsed 31m 21s | ETA 30m 05s | last api-football-119-2021-0006
+Running global warehouse quality audit after 75/145 batches...
+Global warehouse quality audit passed.
+Progress 75/145 batches (51.7%) | fixtures 1,452/2,770 | API calls 75 | cache hits 0 | elapsed 31m 42s | ETA 29m 35s | last api-football-119-2021-0007
+Progress 76/145 batches (52.4%) | fixtures 1,472/2,770 | API calls 76 | cache hits 0 | elapsed 32m 02s | ETA 29m 05s | last api-football-119-2021-0008
+Progress 77/145 batches (53.1%) | fixtures 1,492/2,770 | API calls 77 | cache hits 0 | elapsed 32m 24s | ETA 28m 37s | last api-football-119-2021-0009
+Progress 78/145 batches (53.8%) | fixtures 1,495/2,770 | API calls 78 | cache hits 0 | elapsed 32m 27s | ETA 27m 52s | last api-football-119-2021-0010
+Progress 79/145 batches (54.5%) | fixtures 1,515/2,770 | API calls 79 | cache hits 0 | elapsed 32m 47s | ETA 27m 24s | last api-football-144-2021-0001
+Progress 80/145 batches (55.2%) | fixtures 1,535/2,770 | API calls 80 | cache hits 0 | elapsed 33m 08s | ETA 26m 55s | last api-football-144-2021-0002
+Progress 81/145 batches (55.9%) | fixtures 1,555/2,770 | API calls 81 | cache hits 0 | elapsed 33m 28s | ETA 26m 27s | last api-football-144-2021-0003
+Progress 82/145 batches (56.6%) | fixtures 1,575/2,770 | API calls 82 | cache hits 0 | elapsed 33m 49s | ETA 25m 59s | last api-football-144-2021-0004
+Progress 83/145 batches (57.2%) | fixtures 1,595/2,770 | API calls 83 | cache hits 0 | elapsed 34m 09s | ETA 25m 30s | last api-football-144-2021-0005
+Progress 84/145 batches (57.9%) | fixtures 1,615/2,770 | API calls 84 | cache hits 0 | elapsed 34m 30s | ETA 25m 03s | last api-football-144-2021-0006
+Progress 85/145 batches (58.6%) | fixtures 1,635/2,770 | API calls 85 | cache hits 0 | elapsed 34m 51s | ETA 24m 36s | last api-football-144-2021-0007
+Progress 86/145 batches (59.3%) | fixtures 1,655/2,770 | API calls 86 | cache hits 0 | elapsed 35m 11s | ETA 24m 09s | last api-football-144-2021-0008
+Progress 87/145 batches (60.0%) | fixtures 1,675/2,770 | API calls 87 | cache hits 0 | elapsed 35m 32s | ETA 23m 41s | last api-football-144-2021-0009
+FAILED batch 88/145 (api-football-144-2021-0010) after 35m 32s: BackfillValidationError: Raw fixture validation failed: [{"accepted_partial": false, "administrative_result_reason": null, "administrative_result_unplayed": false, "complete": false, "core_player_fields": false, "fixture_id": 710232, "identity_failures": [], "lineup_duplicate_entries": [], "lineups": false, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "player_stats_unavailable": false, "player_stats_unavailable_reason": null, "result": true, "team_statistics": true, "team_stats_unavailable": false, "team_stats_unavailable_reason": null, "unrecoverable_lineup_duplicates": false}]
+Traceback (most recent call last):
+  File "/Users/milo/Desktop/soccer_bot/scripts/run_historical_backfill.py", line 86, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/Users/milo/Desktop/soccer_bot/scripts/run_historical_backfill.py", line 73, in main
+    summary = executor.run(
+        maximum_batches=args.max_batches,
+    ...<2 lines>...
+        retry_failed=args.retry_failed,
+    )
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 267, in run
+    self._execute_batch(batch, run_id)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 411, in _execute_batch
+    raw_validation = self._validate_response(payload, batch)
+  File "/Users/milo/Desktop/soccer_bot/src/soccer_bot/backfill_executor.py", line 622, in _validate_response
+    raise BackfillValidationError(
+        "Raw fixture validation failed: " + json.dumps(failures, sort_keys=True)
+    )
+soccer_bot.backfill_executor.BackfillValidationError: Raw fixture validation failed: [{"accepted_partial": false, "administrative_result_reason": null, "administrative_result_unplayed": false, "complete": false, "core_player_fields": false, "fixture_id": 710232, "identity_failures": [], "lineup_duplicate_entries": [], "lineups": false, "minutes": false, "participating_players": 0, "passing_coverage": 0.0, "player_blocks": false, "player_stats_unavailable": false, "player_stats_unavailable_reason": null, "result": true, "team_statistics": true, "team_stats_unavailable": false, "team_stats_unavailable_reason": null, "unrecoverable_lineup_duplicates": false}]
+Starting historical backfill: 57 batches, 1,075 fixture requests selected.
+Progress 1/57 batches (1.8%) | fixtures 20/1,075 | API calls 1 | cache hits 0 | elapsed 19s | ETA 17m 28s | last api-football-144-2021-0011
+Progress 2/57 batches (3.5%) | fixtures 40/1,075 | API calls 2 | cache hits 0 | elapsed 37s | ETA 17m 00s | last api-football-144-2021-0012
+Progress 3/57 batches (5.3%) | fixtures 60/1,075 | API calls 3 | cache hits 0 | elapsed 55s | ETA 16m 36s | last api-football-144-2021-0013
+Progress 4/57 batches (7.0%) | fixtures 80/1,075 | API calls 4 | cache hits 0 | elapsed 1m 13s | ETA 16m 13s | last api-football-144-2021-0014
+Progress 5/57 batches (8.8%) | fixtures 100/1,075 | API calls 5 | cache hits 0 | elapsed 1m 32s | ETA 15m 53s | last api-football-144-2021-0015
+Progress 6/57 batches (10.5%) | fixtures 120/1,075 | API calls 6 | cache hits 0 | elapsed 1m 50s | ETA 15m 38s | last api-football-144-2021-0016
+Progress 7/57 batches (12.3%) | fixtures 122/1,075 | API calls 7 | cache hits 0 | elapsed 1m 52s | ETA 13m 22s | last api-football-144-2021-0017
+Progress 8/57 batches (14.0%) | fixtures 142/1,075 | API calls 8 | cache hits 0 | elapsed 2m 10s | ETA 13m 18s | last api-football-179-2021-0001
+Progress 9/57 batches (15.8%) | fixtures 162/1,075 | API calls 9 | cache hits 0 | elapsed 2m 30s | ETA 13m 18s | last api-football-179-2021-0002
+Progress 10/57 batches (17.5%) | fixtures 182/1,075 | API calls 10 | cache hits 0 | elapsed 2m 48s | ETA 13m 09s | last api-football-179-2021-0003
+Progress 11/57 batches (19.3%) | fixtures 202/1,075 | API calls 11 | cache hits 0 | elapsed 3m 06s | ETA 12m 57s | last api-football-179-2021-0004
+Progress 12/57 batches (21.1%) | fixtures 222/1,075 | API calls 12 | cache hits 0 | elapsed 3m 24s | ETA 12m 44s | last api-football-179-2021-0005
+Progress 13/57 batches (22.8%) | fixtures 242/1,075 | API calls 13 | cache hits 0 | elapsed 3m 42s | ETA 12m 31s | last api-football-179-2021-0006
+Progress 14/57 batches (24.6%) | fixtures 262/1,075 | API calls 14 | cache hits 0 | elapsed 4m 02s | ETA 12m 22s | last api-football-179-2021-0007
+Progress 15/57 batches (26.3%) | fixtures 282/1,075 | API calls 15 | cache hits 0 | elapsed 4m 21s | ETA 12m 11s | last api-football-179-2021-0008
+Progress 16/57 batches (28.1%) | fixtures 302/1,075 | API calls 16 | cache hits 0 | elapsed 4m 40s | ETA 11m 58s | last api-football-179-2021-0009
+Progress 17/57 batches (29.8%) | fixtures 322/1,075 | API calls 17 | cache hits 0 | elapsed 5m 01s | ETA 11m 47s | last api-football-179-2021-0010
+Progress 18/57 batches (31.6%) | fixtures 342/1,075 | API calls 18 | cache hits 0 | elapsed 5m 21s | ETA 11m 35s | last api-football-179-2021-0011
+Progress 19/57 batches (33.3%) | fixtures 347/1,075 | API calls 19 | cache hits 0 | elapsed 5m 25s | ETA 10m 51s | last api-football-179-2021-0012
+Progress 20/57 batches (35.1%) | fixtures 367/1,075 | API calls 20 | cache hits 0 | elapsed 5m 46s | ETA 10m 40s | last api-football-203-2021-0001
+Progress 21/57 batches (36.8%) | fixtures 387/1,075 | API calls 21 | cache hits 0 | elapsed 6m 07s | ETA 10m 29s | last api-football-203-2021-0002
+Progress 22/57 batches (38.6%) | fixtures 407/1,075 | API calls 22 | cache hits 0 | elapsed 6m 27s | ETA 10m 16s | last api-football-203-2021-0003
+Progress 23/57 batches (40.4%) | fixtures 427/1,075 | API calls 23 | cache hits 0 | elapsed 6m 48s | ETA 10m 04s | last api-football-203-2021-0004
+Progress 24/57 batches (42.1%) | fixtures 447/1,075 | API calls 24 | cache hits 0 | elapsed 7m 09s | ETA 9m 50s | last api-football-203-2021-0005
+Running global warehouse quality audit after 25/57 batches...
+Global warehouse quality audit passed.
+Progress 25/57 batches (43.9%) | fixtures 467/1,075 | API calls 25 | cache hits 0 | elapsed 7m 32s | ETA 9m 39s | last api-football-203-2021-0006
+Progress 26/57 batches (45.6%) | fixtures 487/1,075 | API calls 26 | cache hits 0 | elapsed 7m 53s | ETA 9m 24s | last api-football-203-2021-0007
+Progress 27/57 batches (47.4%) | fixtures 507/1,075 | API calls 27 | cache hits 0 | elapsed 8m 14s | ETA 9m 09s | last api-football-203-2021-0008
+Progress 28/57 batches (49.1%) | fixtures 527/1,075 | API calls 28 | cache hits 0 | elapsed 8m 35s | ETA 8m 54s | last api-football-203-2021-0009
+Progress 29/57 batches (50.9%) | fixtures 547/1,075 | API calls 29 | cache hits 0 | elapsed 8m 56s | ETA 8m 37s | last api-football-203-2021-0010
+Progress 30/57 batches (52.6%) | fixtures 567/1,075 | API calls 30 | cache hits 0 | elapsed 9m 17s | ETA 8m 21s | last api-football-203-2021-0011
+Progress 31/57 batches (54.4%) | fixtures 587/1,075 | API calls 31 | cache hits 0 | elapsed 9m 38s | ETA 8m 05s | last api-football-203-2021-0012
+Progress 32/57 batches (56.1%) | fixtures 607/1,075 | API calls 32 | cache hits 0 | elapsed 10m 00s | ETA 7m 49s | last api-football-203-2021-0013
+Progress 33/57 batches (57.9%) | fixtures 627/1,075 | API calls 33 | cache hits 0 | elapsed 10m 21s | ETA 7m 32s | last api-football-203-2021-0014
+Progress 34/57 batches (59.6%) | fixtures 647/1,075 | API calls 34 | cache hits 0 | elapsed 10m 43s | ETA 7m 15s | last api-football-203-2021-0015
+Progress 35/57 batches (61.4%) | fixtures 667/1,075 | API calls 35 | cache hits 0 | elapsed 11m 04s | ETA 6m 57s | last api-football-203-2021-0016
+Progress 36/57 batches (63.2%) | fixtures 687/1,075 | API calls 36 | cache hits 0 | elapsed 11m 25s | ETA 6m 39s | last api-football-203-2021-0017
+Progress 37/57 batches (64.9%) | fixtures 707/1,075 | API calls 37 | cache hits 0 | elapsed 11m 46s | ETA 6m 21s | last api-football-203-2021-0018
+Progress 38/57 batches (66.7%) | fixtures 717/1,075 | API calls 38 | cache hits 0 | elapsed 11m 56s | ETA 5m 58s | last api-football-203-2021-0019
+Progress 39/57 batches (68.4%) | fixtures 737/1,075 | API calls 39 | cache hits 0 | elapsed 12m 16s | ETA 5m 40s | last api-football-207-2021-0001
+Progress 40/57 batches (70.2%) | fixtures 757/1,075 | API calls 40 | cache hits 0 | elapsed 12m 36s | ETA 5m 21s | last api-football-207-2021-0002
+Progress 41/57 batches (71.9%) | fixtures 777/1,075 | API calls 41 | cache hits 0 | elapsed 12m 56s | ETA 5m 03s | last api-football-207-2021-0003
+Progress 42/57 batches (73.7%) | fixtures 797/1,075 | API calls 42 | cache hits 0 | elapsed 13m 16s | ETA 4m 44s | last api-football-207-2021-0004
+Progress 43/57 batches (75.4%) | fixtures 817/1,075 | API calls 43 | cache hits 0 | elapsed 13m 37s | ETA 4m 26s | last api-football-207-2021-0005
+Progress 44/57 batches (77.2%) | fixtures 837/1,075 | API calls 44 | cache hits 0 | elapsed 13m 57s | ETA 4m 07s | last api-football-207-2021-0006
+Progress 45/57 batches (78.9%) | fixtures 857/1,075 | API calls 45 | cache hits 0 | elapsed 14m 17s | ETA 3m 49s | last api-football-207-2021-0007
+Progress 46/57 batches (80.7%) | fixtures 877/1,075 | API calls 46 | cache hits 0 | elapsed 14m 39s | ETA 3m 30s | last api-football-207-2021-0008
+Progress 47/57 batches (82.5%) | fixtures 890/1,075 | API calls 47 | cache hits 0 | elapsed 14m 52s | ETA 3m 10s | last api-football-207-2021-0009
+Progress 48/57 batches (84.2%) | fixtures 910/1,075 | API calls 48 | cache hits 0 | elapsed 15m 12s | ETA 2m 51s | last api-football-218-2021-0001
+Progress 49/57 batches (86.0%) | fixtures 930/1,075 | API calls 49 | cache hits 0 | elapsed 15m 31s | ETA 2m 32s | last api-football-218-2021-0002
+Running global warehouse quality audit after 50/57 batches...
+Global warehouse quality audit passed.
+Progress 50/57 batches (87.7%) | fixtures 950/1,075 | API calls 50 | cache hits 0 | elapsed 15m 51s | ETA 2m 13s | last api-football-218-2021-0003
+Progress 51/57 batches (89.5%) | fixtures 970/1,075 | API calls 51 | cache hits 0 | elapsed 16m 10s | ETA 1m 54s | last api-football-218-2021-0004
+Progress 52/57 batches (91.2%) | fixtures 990/1,075 | API calls 52 | cache hits 0 | elapsed 16m 28s | ETA 1m 35s | last api-football-218-2021-0005
+Progress 53/57 batches (93.0%) | fixtures 1,010/1,075 | API calls 53 | cache hits 0 | elapsed 16m 47s | ETA 1m 16s | last api-football-218-2021-0006
+Progress 54/57 batches (94.7%) | fixtures 1,030/1,075 | API calls 54 | cache hits 0 | elapsed 17m 07s | ETA 57s | last api-football-218-2021-0007
+Progress 55/57 batches (96.5%) | fixtures 1,050/1,075 | API calls 55 | cache hits 0 | elapsed 17m 26s | ETA 38s | last api-football-218-2021-0008
+Progress 56/57 batches (98.2%) | fixtures 1,070/1,075 | API calls 56 | cache hits 0 | elapsed 17m 46s | ETA 19s | last api-football-218-2021-0009
+Progress 57/57 batches (100.0%) | fixtures 1,075/1,075 | API calls 57 | cache hits 0 | elapsed 17m 51s | ETA 0s | last api-football-218-2021-0010
+Running global warehouse quality audit after 57/57 batches...
+Global warehouse quality audit passed.
+{
+  "api_calls": 57,
+  "attempted_batches": 57,
+  "cache_hits": 0,
+  "completed_batches": 57,
+  "eligible_batches": 57,
+  "global_quality_audits": 3,
+  "manifest_sha256": "12028ad24de33e51e8a7a7b2a5a8030279b3278203e9907ccaa74ebd3989a27d",
+  "mode": "execute",
+  "selected_batches": [
+    "api-football-144-2021-0011",
+    "api-football-144-2021-0012",
+    "api-football-144-2021-0013",
+    "api-football-144-2021-0014",
+    "api-football-144-2021-0015",
+    "api-football-144-2021-0016",
+    "api-football-144-2021-0017",
+    "api-football-179-2021-0001",
+    "api-football-179-2021-0002",
+    "api-football-179-2021-0003",
+    "api-football-179-2021-0004",
+    "api-football-179-2021-0005",
+    "api-football-179-2021-0006",
+    "api-football-179-2021-0007",
+    "api-football-179-2021-0008",
+    "api-football-179-2021-0009",
+    "api-football-179-2021-0010",
+    "api-football-179-2021-0011",
+    "api-football-179-2021-0012",
+    "api-football-203-2021-0001",
+    "api-football-203-2021-0002",
+    "api-football-203-2021-0003",
+    "api-football-203-2021-0004",
+    "api-football-203-2021-0005",
+    "api-football-203-2021-0006",
+    "api-football-203-2021-0007",
+    "api-football-203-2021-0008",
+    "api-football-203-2021-0009",
+    "api-football-203-2021-0010",
+    "api-football-203-2021-0011",
+    "api-football-203-2021-0012",
+    "api-football-203-2021-0013",
+    "api-football-203-2021-0014",
+    "api-football-203-2021-0015",
+    "api-football-203-2021-0016",
+    "api-football-203-2021-0017",
+    "api-football-203-2021-0018",
+    "api-football-203-2021-0019",
+    "api-football-207-2021-0001",
+    "api-football-207-2021-0002",
+    "api-football-207-2021-0003",
+    "api-football-207-2021-0004",
+    "api-football-207-2021-0005",
+    "api-football-207-2021-0006",
+    "api-football-207-2021-0007",
+    "api-football-207-2021-0008",
+    "api-football-207-2021-0009",
+    "api-football-218-2021-0001",
+    "api-football-218-2021-0002",
+    "api-football-218-2021-0003",
+    "api-football-218-2021-0004",
+    "api-football-218-2021-0005",
+    "api-football-218-2021-0006",
+    "api-football-218-2021-0007",
+    "api-football-218-2021-0008",
+    "api-football-218-2021-0009",
+    "api-football-218-2021-0010"
+  ]
+}

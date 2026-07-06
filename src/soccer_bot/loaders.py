@@ -18,6 +18,17 @@ from .database import (
     optional_int,
     stable_id,
 )
+from .player_names import (
+    api_player_comparison_name,
+    compatible_api_player_compound_names,
+    compatible_api_player_names,
+)
+from .player_linking import (
+    LineupAlias,
+    StatCandidate,
+    deduplicate_api_lineup_entries,
+    link_team_players,
+)
 
 
 FOOTBALL_DATA_COMPETITIONS = {
@@ -89,30 +100,6 @@ def parse_api_passes(passes: dict) -> tuple[int | None, int | None, float | None
     accurate = int(accuracy_value)
     percentage = 100.0 * accurate / total if total else None
     return total, accurate, percentage
-
-
-def compatible_api_player_names(first: str, second: str) -> bool:
-    """Match a full and abbreviated provider name only in strong cases."""
-    first_tokens = normalized_name(first).split()
-    second_tokens = normalized_name(second).split()
-    if not first_tokens or not second_tokens:
-        return False
-    if first_tokens == second_tokens:
-        return True
-    if sorted(first_tokens) == sorted(second_tokens):
-        return True
-    left, right = first_tokens[0], second_tokens[0]
-    same_initial = left[0] == right[0]
-    if same_initial and first_tokens[-1] == second_tokens[-1]:
-        return True
-    return bool(
-        len(first_tokens) == len(second_tokens)
-        and first_tokens[1:] == second_tokens[1:]
-        and (
-            (len(left) == 1 and right.startswith(left))
-            or (len(right) == 1 and left.startswith(right))
-        )
-    )
 
 
 def api_player_identity_key(source_player_id: object, name: str) -> str:
@@ -227,6 +214,28 @@ class WarehouseLoader:
         self.warehouse = warehouse
         self.connection = warehouse.connection
         self.catalog = catalog
+        self._api_lineup_alias_map: dict[tuple[str, str, str, str], str] = {}
+        # These caches are opt-in because normal incremental loads are small.  The
+        # historical identity repair primes them once to avoid tens of thousands
+        # of repeated scans over the same warehouse tables.
+        self._api_stat_candidate_cache: dict[
+            tuple[str, str, str], list[StatCandidate]
+        ] | None = None
+        self._api_fixture_id_cache: dict[str, str] = {}
+        self._api_team_id_cache: dict[str, str] = {}
+        self._api_player_id_cache: dict[str, tuple[str, str]] = {}
+        self._api_fixture_team_type_cache: dict[str, str] = {}
+        self._use_runtime_api_player_id_cache = False
+        self._api_runtime_source_ids_by_internal: dict[str, set[str]] = {}
+
+    def enable_api_backfill_identity_cache(self) -> None:
+        """Use IDs observed in this process instead of reverse-scanning mappings.
+
+        Historical detail payloads load player statistics before lineups, so
+        every lineup candidate's provider identity is already available here.
+        The flag is intentionally opt-in to preserve other loader workflows.
+        """
+        self._use_runtime_api_player_id_cache = True
 
     def load_all(self) -> None:
         self.catalog.load_database_catalog()
@@ -235,6 +244,94 @@ class WarehouseLoader:
         self.load_statsbomb()
         self.load_api_football()
         self.load_polymarket()
+
+    def prime_api_link_repair_caches(self) -> None:
+        """Load stable API-Football identity evidence once for a bulk replay."""
+        mapping_rows = self.connection.execute(
+            """
+            SELECT entity_type, source_entity_id, internal_entity_id
+            FROM source_entity_map
+            WHERE source_code='api_football'
+              AND entity_type IN ('fixture', 'team')
+            """
+        ).fetchall()
+        self._api_fixture_id_cache = {
+            source_id: internal_id
+            for entity_type, source_id, internal_id in mapping_rows
+            if entity_type == "fixture"
+        }
+        self._api_team_id_cache = {
+            source_id: internal_id
+            for entity_type, source_id, internal_id in mapping_rows
+            if entity_type == "team"
+        }
+        self._api_fixture_team_type_cache = {
+            fixture_id: (
+                "national" if competition_type == "international_tournament" else "club"
+            )
+            for fixture_id, competition_type in self.connection.execute(
+                """
+                SELECT f.fixture_id, c.competition_type
+                FROM fixture f LEFT JOIN competition c USING (competition_id)
+                """
+            ).fetchall()
+        }
+
+        rows = self.connection.execute(
+            """
+            SELECT s.fixture_id, s.team_id, s.raw_artifact_id, s.player_id,
+                   p.full_name, s.minutes_played, s.started, s.shirt_number,
+                   s.position_code,
+                   list(m.source_entity_id ORDER BY m.source_entity_id)
+            FROM player_match_stat_observation s
+            JOIN player p USING (player_id)
+            LEFT JOIN source_entity_map m
+              ON m.internal_entity_id=p.player_id
+             AND m.source_code='api_football' AND m.entity_type='player'
+            WHERE s.source_code='api_football'
+            GROUP BY s.fixture_id, s.team_id, s.raw_artifact_id, s.player_id,
+                     p.full_name, s.minutes_played, s.started, s.shirt_number,
+                     s.position_code
+            """
+        ).fetchall()
+        cache: dict[tuple[str, str, str], list[StatCandidate]] = {}
+        for row in rows:
+            cache.setdefault((row[0], row[1], row[2]), []).append(
+                StatCandidate(
+                    player_id=row[3], name=row[4], minutes_played=row[5],
+                    started=row[6], shirt_number=row[7], position=row[8],
+                    source_player_ids=tuple(
+                        value for value in row[9] if value is not None
+                    ),
+                )
+            )
+        self._api_stat_candidate_cache = cache
+
+        self._api_player_id_cache = {
+            source_id: (internal_id, full_name)
+            for source_id, internal_id, full_name in self.connection.execute(
+                """
+                SELECT m.source_entity_id, m.internal_entity_id, p.full_name
+                FROM source_entity_map m JOIN player p
+                  ON p.player_id=m.internal_entity_id
+                WHERE m.source_code='api_football' AND m.entity_type='player'
+                """
+            ).fetchall()
+        }
+
+    def api_fixture_id(self, source_fixture_id: object) -> str | None:
+        source_id = str(source_fixture_id)
+        if self._api_fixture_id_cache:
+            return self._api_fixture_id_cache.get(source_id)
+        return self.warehouse.mapped_id("api_football", "fixture", source_id)
+
+    def _resolve_api_team(self, source_id: object, name: str, team_type: str) -> str:
+        cached = self._api_team_id_cache.get(str(source_id))
+        if cached:
+            return cached
+        return self.warehouse.resolve_team(
+            "api_football", source_id, name, team_type=team_type
+        )
 
     def load_football_data_uk(self) -> None:
         source = "football_data_uk"
@@ -759,6 +856,9 @@ class WarehouseLoader:
             loader(response, fixture_source_id, fixture_id, item)
 
     def _api_fixture_team_type(self, fixture_id: str) -> str:
+        cached = self._api_fixture_team_type_cache.get(fixture_id)
+        if cached:
+            return cached
         row = self.connection.execute(
             """
             SELECT c.competition_type
@@ -777,8 +877,8 @@ class WarehouseLoader:
         retrieved_at = parse_datetime(item["retrieved_at"])
         for team in records:
             team_data = team.get("team", {})
-            team_id = self.warehouse.resolve_team(
-                source, team_data.get("id"), team_data.get("name", "Unknown"), team_type=team_type
+            team_id = self._resolve_api_team(
+                team_data.get("id"), team_data.get("name", "Unknown"), team_type
             )
             snapshot_id = stable_id(
                 "lineup", source, fixture_source_id, team_data.get("id"), item["content_sha256"]
@@ -795,25 +895,67 @@ class WarehouseLoader:
             self.connection.execute(
                 "DELETE FROM lineup_player WHERE lineup_snapshot_id=?", [snapshot_id]
             )
-            assigned_lineup_players: set[str] = set()
-            for role, key in (("starter", "startXI"), ("substitute", "substitutes")):
-                for entry in team.get(key) or []:
-                    player = entry.get("player", {})
-                    player_id = self._resolve_api_lineup_player(
-                        fixture_source_id=fixture_source_id,
-                        fixture_id=fixture_id,
-                        team_id=team_id,
-                        source_player_id=player.get("id"),
-                        name=player.get("name", "Unknown"),
+            entries, _, _ = deduplicate_api_lineup_entries(team)
+            aliases = [
+                LineupAlias(
+                    index=index,
+                    source_player_id=str((entry.get("player") or {}).get("id")),
+                    name=(entry.get("player") or {}).get("name", "Unknown"),
+                    role=role,
+                    shirt_number=optional_int((entry.get("player") or {}).get("number")),
+                    position=(entry.get("player") or {}).get("pos"),
+                )
+                for index, (role, entry) in enumerate(entries)
+            ]
+            decisions = link_team_players(
+                aliases,
+                self._api_stat_candidates_for_team(
+                    fixture_id, team_id, item["_raw_artifact_id"]
+                ),
+            )
+            mapping_rows: list[tuple] = []
+            lineup_rows: list[list] = []
+            for alias, (role, entry) in zip(aliases, entries):
+                player = entry.get("player", {})
+                decision = decisions[alias.index]
+                alias_source_id = (
+                    f"{fixture_source_id}|{player.get('id')}|"
+                    f"{normalized_name(player.get('name', 'Unknown'))}"
+                )
+                if decision.player_id:
+                    player_id = decision.player_id
+                    match_method = f"evidence:{decision.method}"
+                    confidence = decision.confidence
+                    review_status = "automatic"
+                else:
+                    player_id = self.warehouse.resolve_player(
+                        "api_football_lineup", alias_source_id,
+                        player.get("name", "Unknown"),
                         primary_position=player.get("pos"),
-                        excluded_player_ids=assigned_lineup_players,
                     )
-                    assigned_lineup_players.add(player_id)
-                    self.connection.execute(
-                        "INSERT OR REPLACE INTO lineup_player VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                        [snapshot_id, player_id, role, player.get("pos"), player.get("grid"),
-                         optional_int(player.get("number")), False, player.get("pos") == "G"],
-                    )
+                    match_method = "unresolved_alias"
+                    confidence = 0.0
+                    review_status = "pending"
+                mapping_rows.append((
+                    "api_football_lineup", "player", alias_source_id,
+                    player_id, player.get("name", "Unknown"), match_method,
+                    confidence, review_status,
+                ))
+                alias_key = (
+                    str(fixture_source_id), team_id, str(player.get("id")),
+                    api_player_comparison_name(player.get("name", "Unknown")),
+                )
+                self._api_lineup_alias_map[alias_key] = player_id
+                lineup_rows.append(
+                    [snapshot_id, player_id, role, player.get("pos"), player.get("grid"),
+                     optional_int(player.get("number")), False, player.get("pos") == "G"]
+                )
+            self.warehouse._map_entities(mapping_rows)
+            if lineup_rows:
+                self.connection.executemany(
+                    "INSERT OR REPLACE INTO lineup_player VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    lineup_rows,
+                )
 
     def _load_api_events(self, records: object, fixture_source_id: object, fixture_id: str, item: dict) -> None:
         if not isinstance(records, list):
@@ -822,18 +964,21 @@ class WarehouseLoader:
         team_type = self._api_fixture_team_type(fixture_id)
         retrieved_at = parse_datetime(item["retrieved_at"])
         occurrences: dict[tuple, int] = {}
+        event_rows: list[list] = []
         for event in records:
             team = event.get("team") or {}
             player = event.get("player") or {}
             assist = event.get("assist") or {}
-            team_id = self.warehouse.resolve_team(
-                source, team.get("id"), team.get("name", "Unknown"), team_type=team_type
+            team_id = self._resolve_api_team(
+                team.get("id"), team.get("name", "Unknown"), team_type
             ) if team.get("id") else None
             player_id = self._resolve_api_event_player(
+                fixture_source_id=fixture_source_id,
                 fixture_id=fixture_id, team_id=team_id,
                 source_player_id=player.get("id"), name=player.get("name", "Unknown"),
             ) if player.get("id") else None
             assist_id = self._resolve_api_event_player(
+                fixture_source_id=fixture_source_id,
                 fixture_id=fixture_id, team_id=team_id,
                 source_player_id=assist.get("id"), name=assist.get("name", "Unknown"),
             ) if assist.get("id") else None
@@ -854,14 +999,18 @@ class WarehouseLoader:
                 f"{player.get('id')}|{normalized_name(player.get('name', ''))}|"
                 f"{event.get('type')}|{occurrence}"
             )
-            self.connection.execute(
-                "INSERT OR REPLACE INTO match_event VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            event_rows.append(
                 [stable_id("event", source, source_event_id), fixture_id, team_id, player_id,
                  assist_id, source, source_event_id, item["_raw_artifact_id"],
                  event.get("type", "Unknown"), event.get("detail"), None,
                  optional_int(event.get("time", {}).get("elapsed")),
                  optional_int(event.get("time", {}).get("extra")), None,
-                 None, None, None, None, None, json_text(event), retrieved_at],
+                 None, None, None, None, None, json_text(event), retrieved_at]
+            )
+        if event_rows:
+            self.connection.executemany(
+                "INSERT OR REPLACE INTO match_event VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                event_rows,
             )
 
     def _load_api_players(self, records: object, fixture_source_id: object, fixture_id: str, item: dict) -> None:
@@ -889,10 +1038,17 @@ class WarehouseLoader:
                 dribbles = statistics.get("dribbles", {})
                 fouls = statistics.get("fouls", {})
                 player_name = player.get("name", "Unknown")
+                player_identity_key = api_player_identity_key(
+                    player.get("id"), player_name
+                )
                 player_id = self.warehouse.resolve_player(
-                    source, api_player_identity_key(player.get("id"), player_name), player_name,
+                    source, player_identity_key, player_name,
                     primary_position=games.get("position"),
                 )
+                if self._use_runtime_api_player_id_cache:
+                    self._api_runtime_source_ids_by_internal.setdefault(
+                        player_id, set()
+                    ).add(player_identity_key)
                 started = not bool(games.get("substitute"))
                 total_passes, accurate_passes, pass_accuracy_pct = parse_api_passes(passes)
                 self.connection.execute(
@@ -944,104 +1100,110 @@ class WarehouseLoader:
                      optional_int(games.get("number")), optional_float(games.get("rating")), retrieved_at],
                 )
 
-    def _resolve_api_lineup_player(
-        self,
-        *,
-        fixture_source_id: object,
-        fixture_id: str,
-        team_id: str,
-        source_player_id: object,
-        name: str,
-        primary_position: str | None,
-        excluded_player_ids: set[str] | None = None,
-    ) -> str:
-        compatible = self._api_stat_player_candidates(
-            fixture_id, team_id, name, source_player_id,
-            excluded_player_ids=excluded_player_ids,
-        )
-        if len(compatible) == 1:
-            return compatible[0]
-        # API-Football lineup IDs are not globally reliable: the same value can
-        # identify a different person in the player-stat block. Namespacing the
-        # fallback by both ID and normalized name avoids contaminating the
-        # authoritative player-stat identity map.
-        lineup_source_id = f"{source_player_id}|{normalized_name(name)}"
-        return self.warehouse.resolve_player(
-            "api_football_lineup", lineup_source_id, name,
-            primary_position=primary_position,
-        )
+    def _api_stat_candidates_for_team(
+        self, fixture_id: str, team_id: str, raw_artifact_id: str
+    ) -> list[StatCandidate]:
+        if self._api_stat_candidate_cache is not None:
+            return self._api_stat_candidate_cache.get(
+                (fixture_id, team_id, raw_artifact_id), []
+            )
+        if self._use_runtime_api_player_id_cache:
+            rows = self.connection.execute(
+                """
+                SELECT s.player_id, p.full_name, s.minutes_played, s.started,
+                       s.shirt_number, s.position_code
+                FROM player_match_stat_observation s
+                JOIN player p USING (player_id)
+                WHERE s.fixture_id=? AND s.team_id=?
+                  AND s.source_code='api_football' AND s.raw_artifact_id=?
+                ORDER BY s.player_id
+                """,
+                [fixture_id, team_id, raw_artifact_id],
+            ).fetchall()
+            return [
+                StatCandidate(
+                    player_id=row[0], name=row[1], minutes_played=row[2],
+                    started=row[3], shirt_number=row[4], position=row[5],
+                    source_player_ids=tuple(sorted(
+                        self._api_runtime_source_ids_by_internal.get(row[0], set())
+                    )),
+                )
+                for row in rows
+            ]
+        rows = self.connection.execute(
+            """
+            SELECT s.player_id, p.full_name, s.minutes_played, s.started,
+                   s.shirt_number, s.position_code,
+                   list(m.source_entity_id ORDER BY m.source_entity_id)
+            FROM player_match_stat_observation s
+            JOIN player p USING (player_id)
+            LEFT JOIN source_entity_map m
+              ON m.internal_entity_id=p.player_id
+             AND m.source_code='api_football' AND m.entity_type='player'
+            WHERE s.fixture_id=? AND s.team_id=? AND s.source_code='api_football'
+              AND s.raw_artifact_id=?
+            GROUP BY s.player_id, p.full_name, s.minutes_played, s.started,
+                     s.shirt_number, s.position_code
+            ORDER BY s.player_id
+            """,
+            [fixture_id, team_id, raw_artifact_id],
+        ).fetchall()
+        return [
+            StatCandidate(
+                player_id=row[0], name=row[1], minutes_played=row[2],
+                started=row[3], shirt_number=row[4], position=row[5],
+                source_player_ids=tuple(value for value in row[6] if value is not None),
+            )
+            for row in rows
+        ]
 
     def _resolve_api_event_player(
         self,
         *,
+        fixture_source_id: object,
         fixture_id: str,
         team_id: str | None,
         source_player_id: object,
         name: str,
     ) -> str:
-        mapped = self.warehouse.mapped_id(
-            "api_football", "player", api_player_identity_key(source_player_id, name)
+        alias_key = (
+            str(fixture_source_id), str(team_id), str(source_player_id),
+            api_player_comparison_name(name),
         )
+        lineup_player_id = self._api_lineup_alias_map.get(alias_key)
+        if lineup_player_id:
+            return lineup_player_id
+        identity_key = api_player_identity_key(source_player_id, name)
+        cached_player = self._api_player_id_cache.get(identity_key)
+        mapped = cached_player[0] if cached_player else self.warehouse.mapped_id(
+            "api_football", "player", identity_key
+        )
+        mapped_name = cached_player[1] if cached_player else None
         if mapped:
-            mapped_name = self.connection.execute(
-                "SELECT full_name FROM player WHERE player_id=?", [mapped]
-            ).fetchone()
-            if mapped_name and compatible_api_player_names(name, mapped_name[0]):
+            if mapped_name is None:
+                row = self.connection.execute(
+                    "SELECT full_name FROM player WHERE player_id=?", [mapped]
+                ).fetchone()
+                mapped_name = row[0] if row else None
+            if mapped_name and (
+                compatible_api_player_names(name, mapped_name)
+                or compatible_api_player_compound_names(name, mapped_name)
+            ):
                 return mapped
-        compatible = self._api_stat_player_candidates(
-            fixture_id, team_id, name, source_player_id
+        lineup_source_id = (
+            f"{fixture_source_id}|{source_player_id}|{normalized_name(name)}"
         )
-        if len(compatible) == 1:
-            return compatible[0]
-        event_source_id = f"{source_player_id}|{normalized_name(name)}"
+        mapped_lineup = self.warehouse.mapped_id(
+            "api_football_lineup", "player", lineup_source_id
+        )
+        if mapped_lineup:
+            return mapped_lineup
+        event_source_id = (
+            f"{fixture_source_id}|{source_player_id}|{normalized_name(name)}"
+        )
         return self.warehouse.resolve_player(
             "api_football_event", event_source_id, name
         )
-
-    def _api_stat_player_candidates(
-        self,
-        fixture_id: str,
-        team_id: str | None,
-        name: str,
-        source_player_id: object,
-        excluded_player_ids: set[str] | None = None,
-    ) -> list[str]:
-        candidates = self.connection.execute(
-            """
-            SELECT DISTINCT p.player_id, p.full_name, m.source_entity_id,
-                            s.minutes_played
-            FROM player_match_stat_observation s
-            JOIN player p USING (player_id)
-            JOIN source_entity_map m
-              ON m.internal_entity_id=p.player_id
-             AND m.source_code='api_football' AND m.entity_type='player'
-            WHERE s.fixture_id=? AND s.team_id=? AND s.source_code='api_football'
-            """,
-            [fixture_id, team_id],
-        ).fetchall()
-        excluded = excluded_player_ids or set()
-        candidates = [row for row in candidates if row[0] not in excluded]
-        target_name = normalized_name(name)
-        exact = {
-            player_id for player_id, stat_name, _, _ in candidates
-            if normalized_name(stat_name) == target_name
-        }
-        if len(exact) == 1:
-            return list(exact)
-        compatible = [
-            player_id for player_id, stat_name, _, _ in candidates
-            if compatible_api_player_names(name, stat_name)
-        ]
-        if len(set(compatible)) == 1:
-            return list(set(compatible))
-        same_id_participant = {
-            player_id for player_id, _, candidate_source_id, minutes in candidates
-            if str(candidate_source_id).split("|", 1)[0] == str(source_player_id)
-            and minutes is not None and int(minutes) > 0
-        }
-        if len(same_id_participant) == 1:
-            return list(same_id_participant)
-        return []
 
     def _load_api_statistics(self, records: object, fixture_source_id: object, fixture_id: str, item: dict) -> None:
         if not isinstance(records, list):
@@ -1101,7 +1263,13 @@ class WarehouseLoader:
         )
         kickoff = parse_datetime(fixture.get("date"))
         status_short = fixture.get("status", {}).get("short")
-        status = "completed" if status_short in {"FT", "AET", "PEN"} else "scheduled" if status_short in {"NS", "TBD"} else status_short
+        status = (
+            "administrative_result_unplayed"
+            if match.get("_administrative_result_unplayed")
+            else "completed" if status_short in {"FT", "AET", "PEN"}
+            else "scheduled" if status_short in {"NS", "TBD"}
+            else status_short
+        )
         fixture_id = self.warehouse.resolve_fixture(
             source, fixture.get("id"), home_team_id=home_id, away_team_id=away_id,
             scheduled_kickoff=kickoff, competition_id=competition_id, season_id=season_id,

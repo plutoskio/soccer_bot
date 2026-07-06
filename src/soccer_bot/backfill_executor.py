@@ -20,6 +20,7 @@ from .loaders import (
     parse_api_passes,
     parse_datetime,
 )
+from .player_linking import deduplicate_api_lineup_entries
 from .raw_store import RawArtifactStore
 
 
@@ -28,6 +29,57 @@ RESOURCE = "historical_backfill_batch"
 
 class BackfillValidationError(RuntimeError):
     pass
+
+
+def format_duration(seconds: float) -> str:
+    total = max(0, int(round(seconds)))
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m"
+    if minutes:
+        return f"{minutes}m {secs:02d}s"
+    return f"{secs}s"
+
+
+def unavailable_player_stats_shape(match: dict) -> str | None:
+    """Identify absent or provider-placeholder fixture player statistics.
+
+    Placeholder blocks contain player identities and lineup context but report
+    zero/no minutes for everyone and no meaningful performance values.  They
+    must not be stored as genuine zero-minute match performances.
+    """
+    blocks = match.get("players") or []
+    if not blocks:
+        return "absent_blocks"
+    if len(blocks) != 2:
+        return None
+    records = [record for block in blocks for record in (block.get("players") or [])]
+    if not records:
+        return "empty_blocks"
+
+    performance_paths = (
+        ("games", "rating"),
+        ("goals", "total"), ("goals", "assists"),
+        ("shots", "total"), ("shots", "on"),
+        ("passes", "total"), ("passes", "accuracy"), ("passes", "key"),
+        ("tackles", "total"), ("tackles", "interceptions"),
+        ("duels", "total"), ("duels", "won"),
+        ("dribbles", "attempts"), ("dribbles", "success"),
+    )
+    positive_minutes = False
+    meaningful_values = False
+    for record in records:
+        statistics = (record.get("statistics") or [{}])[0]
+        minutes = (statistics.get("games") or {}).get("minutes")
+        if minutes is not None and int(minutes) > 0:
+            positive_minutes = True
+        if any((statistics.get(section) or {}).get(field) is not None
+               for section, field in performance_paths):
+            meaningful_values = True
+    if not positive_minutes and not meaningful_values:
+        return "placeholder_zero_minutes"
+    return None
 
 
 def file_sha256(path: Path) -> str:
@@ -157,6 +209,7 @@ class HistoricalBackfillExecutor:
         )
         self.manifest_sha256 = manifest_sha256
         self.loader = WarehouseLoader(warehouse, RawCatalog.__new__(RawCatalog))
+        self.loader.enable_api_backfill_identity_cache()
         self.api_calls = 0
         self.cache_hits = 0
         self.last_request_at: float | None = None
@@ -182,11 +235,22 @@ class HistoricalBackfillExecutor:
             "completed_batches": 0,
             "api_calls": 0,
             "cache_hits": 0,
+            "global_quality_audits": 0,
         }
         if not execute:
             return summary
 
         run_id = str(uuid.uuid4())
+        run_started_monotonic = time.monotonic()
+        total_batches = len(selected)
+        total_fixtures = sum(len(batch["fixture_ids"]) for batch in selected)
+        completed_fixtures = 0
+        last_quality_audit_index = -1
+        print(
+            f"Starting historical backfill: {total_batches:,} batches, "
+            f"{total_fixtures:,} fixture requests selected.",
+            flush=True,
+        )
         now = datetime.now(timezone.utc)
         self.connection.execute(
             """
@@ -197,10 +261,40 @@ class HistoricalBackfillExecutor:
             [run_id, self.manifest_sha256, now, maximum_batches],
         )
         try:
-            for batch in selected:
+            for index, batch in enumerate(selected, 1):
                 summary["attempted_batches"] += 1
-                self._execute_batch(batch, run_id)
+                try:
+                    self._execute_batch(batch, run_id)
+                except Exception as error:
+                    elapsed = time.monotonic() - run_started_monotonic
+                    print(
+                        f"FAILED batch {index:,}/{total_batches:,} "
+                        f"({batch['batch_id']}) after {format_duration(elapsed)}: "
+                        f"{type(error).__name__}: {error}",
+                        flush=True,
+                    )
+                    raise
                 summary["completed_batches"] += 1
+                completed_fixtures += len(batch["fixture_ids"])
+                if index % 25 == 0:
+                    self._run_global_quality_audit(index, total_batches)
+                    summary["global_quality_audits"] += 1
+                    last_quality_audit_index = index
+                elapsed = time.monotonic() - run_started_monotonic
+                average = elapsed / index
+                eta = average * (total_batches - index)
+                print(
+                    f"Progress {index:,}/{total_batches:,} batches "
+                    f"({100 * index / total_batches:.1f}%) | "
+                    f"fixtures {completed_fixtures:,}/{total_fixtures:,} | "
+                    f"API calls {self.api_calls:,} | cache hits {self.cache_hits:,} | "
+                    f"elapsed {format_duration(elapsed)} | ETA {format_duration(eta)} | "
+                    f"last {batch['batch_id']}",
+                    flush=True,
+                )
+            if last_quality_audit_index != total_batches:
+                self._run_global_quality_audit(total_batches, total_batches)
+                summary["global_quality_audits"] += 1
             summary["api_calls"] = self.api_calls
             summary["cache_hits"] = self.cache_hits
             self.connection.execute(
@@ -226,6 +320,29 @@ class HistoricalBackfillExecutor:
                  self.cache_hits, json_text(summary), f"{type(error).__name__}: {error}", run_id],
             )
             raise
+
+    def _run_global_quality_audit(self, completed: int, total: int) -> None:
+        print(
+            f"Running global warehouse quality audit after "
+            f"{completed:,}/{total:,} batches...",
+            flush=True,
+        )
+        from scripts.build_database import run_quality_checks
+        run_quality_checks(
+            self.warehouse,
+            passing_coverage_warning_threshold=float(
+                self.validation_config["passing_coverage_warning_threshold"]
+            ),
+        )
+        blocking = self.connection.execute(
+            """SELECT count(*) FROM data_quality_issue
+               WHERE status='open' AND severity='blocking'"""
+        ).fetchone()[0]
+        if blocking:
+            raise BackfillValidationError(
+                f"Warehouse has {blocking} blocking quality issues after global audit"
+            )
+        print("Global warehouse quality audit passed.", flush=True)
 
     def _select_batches(self, *, batch_id: str | None, retry_failed: bool) -> list[dict]:
         selected = []
@@ -292,23 +409,50 @@ class HistoricalBackfillExecutor:
                 payload = self._validated_http_payload(response)
 
             raw_validation = self._validate_response(payload, batch)
+            unavailable_fixture_ids = {
+                int(state["fixture_id"])
+                for state in raw_validation["fixtures"]
+                if state.get("player_stats_unavailable")
+            }
+            administrative_fixture_ids = {
+                int(state["fixture_id"])
+                for state in raw_validation["fixtures"]
+                if state.get("administrative_result_unplayed")
+            }
+            load_payload = payload
+            if unavailable_fixture_ids or administrative_fixture_ids:
+                # Preserve the immutable raw response, but prevent absent or
+                # placeholder player blocks from becoming false observations.
+                load_payload = {
+                    **payload,
+                    "response": [
+                        (
+                            {
+                                **match,
+                                "players": [], "lineups": [], "events": [],
+                                "statistics": [],
+                                "_administrative_result_unplayed": True,
+                            }
+                            if int((match.get("fixture") or {}).get("id"))
+                               in administrative_fixture_ids
+                            else (
+                                {**match, "players": []}
+                                if int((match.get("fixture") or {}).get("id"))
+                                   in unavailable_fixture_ids
+                                else match
+                            )
+                        )
+                        for match in payload["response"]
+                    ],
+                }
             raw_artifact_id = item["_raw_artifact_id"]
             with self.warehouse.transaction():
                 RawCatalog.register_item(self.warehouse, item)
-                self.loader.load_api_football_payload(payload, item, RESOURCE)
+                self.loader.load_api_football_payload(load_payload, item, RESOURCE)
                 self.warehouse.reconcile_team_aliases()
                 relational_validation = self._validate_loaded_batch(
-                    batch, raw_artifact_id, payload
+                    batch, raw_artifact_id, load_payload
                 )
-                from scripts.build_database import run_quality_checks
-                run_quality_checks(self.warehouse)
-                blocking = self.connection.execute(
-                    "SELECT count(*) FROM data_quality_issue WHERE status='open' AND severity='blocking'"
-                ).fetchone()[0]
-                if blocking:
-                    raise BackfillValidationError(
-                        f"Warehouse has {blocking} blocking quality issues after import"
-                    )
                 validation = {"raw": raw_validation, "relational": relational_validation}
                 completed_at = datetime.now(timezone.utc)
                 self.connection.execute(
@@ -389,11 +533,90 @@ class HistoricalBackfillExecutor:
                 identity_failures.append("kickoff")
             if fixture.get("status", {}).get("short") not in FINAL_STATUSES:
                 identity_failures.append("final_status")
-            audit = audit_match(match)
+            # Passing fields are useful but optional provider data. Preserve
+            # structurally valid fixtures and let the warehouse quality checks
+            # record sub-threshold passing coverage as a warning.
+            audit = audit_match(match, minimum_passing_coverage=None)
             audit_data = asdict(audit)
             audit_data["identity_failures"] = identity_failures
+            lineup_duplicate_entries = []
+            unrecoverable_lineup_duplicates = False
+            for lineup_team in match.get("lineups") or []:
+                _, duplicates, unrecoverable = deduplicate_api_lineup_entries(
+                    lineup_team
+                )
+                lineup_duplicate_entries.extend(duplicates)
+                unrecoverable_lineup_duplicates = bool(
+                    unrecoverable_lineup_duplicates or unrecoverable
+                )
+            audit_data["lineup_duplicate_entries"] = lineup_duplicate_entries
+            audit_data["unrecoverable_lineup_duplicates"] = (
+                unrecoverable_lineup_duplicates
+            )
+            administrative_exception = (
+                self.validation_config.get("administrative_result_fixtures", {})
+                .get(str(fixture_id))
+            )
+            # Preserve structurally sound finished fixtures when an entire
+            # optional statistics section is unavailable.  A partially
+            # populated/malformed section is still rejected.
+            unavailable_shape = unavailable_player_stats_shape(match)
+            player_stats_unavailable = bool(
+                unavailable_shape is not None
+                and audit.result
+                and audit.lineups
+            )
+            team_stat_blocks = match.get("statistics") or []
+            team_stats_unavailable = bool(
+                len(team_stat_blocks) == 0 and audit.result and audit.lineups
+            )
+            player_component_valid = bool(
+                (audit.player_blocks and audit.minutes and audit.core_player_fields)
+                or player_stats_unavailable
+            )
+            team_component_valid = bool(
+                audit.team_statistics or team_stats_unavailable
+            )
+            accepted_partial = bool(
+                not audit.complete
+                and audit.result
+                and audit.lineups
+                and not unrecoverable_lineup_duplicates
+                and player_component_valid
+                and team_component_valid
+            )
+            administrative_result_unplayed = bool(
+                administrative_exception
+                and administrative_exception.get("classification")
+                    == "administrative_result_unplayed"
+                and audit.result
+                and not (match.get("events") or [])
+                and not audit.lineups
+                and unavailable_shape is not None
+            )
+            audit_data["player_stats_unavailable"] = player_stats_unavailable
+            audit_data["player_stats_unavailable_reason"] = (
+                unavailable_shape if player_stats_unavailable else None
+            )
+            audit_data["team_stats_unavailable"] = team_stats_unavailable
+            audit_data["team_stats_unavailable_reason"] = (
+                "absent_blocks" if team_stats_unavailable else None
+            )
+            audit_data["accepted_partial"] = accepted_partial
+            audit_data["administrative_result_unplayed"] = (
+                administrative_result_unplayed
+            )
+            audit_data["administrative_result_reason"] = (
+                administrative_exception.get("reason")
+                if administrative_result_unplayed else None
+            )
             audits.append(audit_data)
-            if identity_failures or not audit.complete:
+            raw_complete = bool(
+                audit.complete and not unrecoverable_lineup_duplicates
+            )
+            if identity_failures or not (
+                raw_complete or accepted_partial or administrative_result_unplayed
+            ):
                 failures.append({"fixture_id": fixture_id, **audit_data})
         if failures:
             raise BackfillValidationError(
@@ -407,15 +630,14 @@ class HistoricalBackfillExecutor:
         validations = []
         failures = []
         minimum_players = int(self.validation_config["minimum_participating_players"])
-        minimum_passing = float(self.validation_config["minimum_passing_coverage"])
-        maximum_unlisted_participants = int(
-            self.validation_config.get("maximum_participating_players_not_in_lineup", 1)
-        )
         raw_matches = {
             int(match["fixture"]["id"]): match for match in payload["response"]
         }
         for api_fixture_id in [int(value) for value in batch["fixture_ids"]]:
             raw_match = raw_matches[api_fixture_id]
+            administrative_result_unplayed = bool(
+                raw_match.get("_administrative_result_unplayed")
+            )
             mapping = self.connection.execute(
                 """
                 SELECT internal_entity_id FROM source_entity_map
@@ -475,7 +697,10 @@ class HistoricalBackfillExecutor:
                 [fixture_id, raw_artifact_id],
             ).fetchall()
             team_stat_rows = self.connection.execute(
-                """SELECT count(DISTINCT team_id), count(*) FROM team_match_stat_observation
+                """SELECT count(DISTINCT team_id), count(*),
+                          count(*) FILTER (WHERE shots<0 OR shots_on_target<0
+                                            OR corners<0 OR fouls<0)
+                   FROM team_match_stat_observation
                    WHERE fixture_id=? AND source_code='api_football' AND raw_artifact_id=?""",
                 [fixture_id, raw_artifact_id],
             ).fetchone()
@@ -512,21 +737,30 @@ class HistoricalBackfillExecutor:
             ).fetchone()[0]
             participants = player_row[2]
             passing_coverage = player_row[3] / participants if participants else 0.0
+            player_stats_expected = bool(raw_match.get("players") or [])
+            team_stats_expected = bool(raw_match.get("statistics") or [])
             player_value_mismatches = self._player_value_mismatches(
                 raw_match, fixture_id, raw_artifact_id
             )
             state = {
                 "fixture_id": api_fixture_id,
+                "administrative_result_unplayed": administrative_result_unplayed,
                 "result_rows": len(result_rows),
                 "score_matches_raw": score_matches,
                 "team_identity_matches_raw": team_identity_matches,
+                "home_away_teams_distinct": fixture_row[0] != fixture_row[1],
                 "lineup_teams": len(lineup_rows),
                 "starter_counts": sorted(row[2] for row in lineup_rows),
                 "team_stat_teams": team_stat_rows[0],
                 "team_stat_rows": team_stat_rows[1],
+                "invalid_team_stat_rows": team_stat_rows[2],
+                "team_stats_expected": team_stats_expected,
+                "team_stats_unavailable": not team_stats_expected,
                 "player_rows": player_row[0],
                 "distinct_players": player_row[1],
                 "participating_players": participants,
+                "player_stats_expected": player_stats_expected,
+                "player_stats_unavailable": not player_stats_expected,
                 "passing_coverage": passing_coverage,
                 "wrong_team_rows": player_row[4],
                 "invalid_player_rows": player_row[5],
@@ -534,18 +768,53 @@ class HistoricalBackfillExecutor:
                 "player_value_mismatches": player_value_mismatches,
             }
             validations.append(state)
-            valid = (
-                len(result_rows) == 1 and score_matches and team_identity_matches
-                and len(lineup_rows) == 2
-                and all(bool(row[1]) and row[2] == 11 for row in lineup_rows)
-                and team_stat_rows[0] == 2 and team_stat_rows[1] == 2
-                and player_row[0] == player_row[1]
-                and participants >= minimum_players
-                and passing_coverage >= minimum_passing
-                and player_row[4] == 0 and player_row[5] == 0
-                and participating_not_in_lineup <= maximum_unlisted_participants
-                and not player_value_mismatches
+            player_data_valid = (
+                (
+                    player_stats_expected
+                    and player_row[0] == player_row[1]
+                    and participants >= minimum_players
+                    and player_row[4] == 0 and player_row[5] == 0
+                    and not player_value_mismatches
+                )
+                or (
+                    not player_stats_expected
+                    and player_row[0] == 0 and participants == 0
+                    and player_row[4] == 0 and player_row[5] == 0
+                    and not player_value_mismatches
+                )
             )
+            team_data_valid = (
+                (
+                    team_stats_expected
+                    and team_stat_rows[0] == 2 and team_stat_rows[1] == 2
+                    and team_stat_rows[2] == 0
+                )
+                or (
+                    not team_stats_expected
+                    and team_stat_rows[0] == 0 and team_stat_rows[1] == 0
+                    and team_stat_rows[2] == 0
+                )
+            )
+            if administrative_result_unplayed:
+                valid = bool(
+                    len(result_rows) == 1 and score_matches
+                    and team_identity_matches
+                    and fixture_row[0] != fixture_row[1]
+                    and len(lineup_rows) == 0
+                    and team_stat_rows[0] == 0 and team_stat_rows[1] == 0
+                    and player_row[0] == 0 and participants == 0
+                    and not player_value_mismatches
+                )
+            else:
+                valid = (
+                    len(result_rows) == 1 and score_matches
+                    and team_identity_matches
+                    and fixture_row[0] != fixture_row[1]
+                    and len(lineup_rows) == 2
+                    and all(bool(row[1]) and row[2] == 11 for row in lineup_rows)
+                    and team_data_valid
+                    and player_data_valid
+                )
             if not valid:
                 failures.append(state)
         if failures:

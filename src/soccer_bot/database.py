@@ -468,7 +468,15 @@ class Warehouse:
         confidence: float = 0.8,
         review_status: str = "automatic",
     ) -> None:
-        self.connection.execute(
+        self._map_entities([(
+            source_code, entity_type, str(source_id), internal_id, source_name,
+            match_method, confidence, review_status,
+        )])
+
+    def _map_entities(self, rows: list[tuple]) -> None:
+        if not rows:
+            return
+        self.connection.executemany(
             """
             INSERT INTO source_entity_map (
                 source_code, entity_type, source_entity_id, internal_entity_id,
@@ -481,8 +489,7 @@ class Warehouse:
                 confidence = excluded.confidence,
                 review_status = excluded.review_status
             """,
-            [source_code, entity_type, str(source_id), internal_id, source_name,
-             match_method, confidence, review_status],
+            rows,
         )
 
 

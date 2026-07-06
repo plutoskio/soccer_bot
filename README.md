@@ -93,17 +93,27 @@ Execute exactly one validated batch:
 
 The executor validates manifest membership, returned fixture IDs, competition,
 season, teams, kickoff, final score, lineup structure, team statistics, player
-participation, passing coverage, and critical player values. Relational writes
-are transactional. A batch is checkpointed only after its stored raw response
-and DuckDB rows both pass validation. Completed batches are skipped on restart;
-failed batches require the explicit `--retry-failed` flag.
+participation, and critical player values. Passing coverage is measured but is
+not a blocking ingestion condition: coverage below the configured 80% threshold
+creates an open `low_player_passing_coverage` warning, and missing values remain
+`NULL`. Relational writes are transactional. A batch is checkpointed only after
+its stored raw response and DuckDB rows both pass validation. Completed batches
+are skipped on restart; failed batches require the explicit `--retry-failed`
+flag.
 
 API-Football player-stat identities use `(provider player ID, normalized
 provider name)` because historical payloads can reuse one numeric ID for
 different people. Lineup and event IDs are isolated and linked to player-stat
 identities only through unique fixture-and-team context. Display names are
 never used for global automatic merging; cross-source player linkage requires
-a separate reviewed identity decision.
+a separate reviewed identity decision. Contextual comparison transliterates
+standalone Latin letters such as `æ`, `ø`, `œ`, `ł`, `ð`, `þ`, and `ß`, but
+canonical names and stable identity keys remain unchanged. Historical links
+missed by this distinction—or by provider sections shortening different parts
+of a compound surname—can be audited with
+`scripts/repair_api_player_transliterations.py` and repaired copy-on-write with
+its explicit `--apply` flag. Compound-surname matching additionally requires
+an equal shirt number and one unique candidate in the same fixture and team.
 
 Run individual probes:
 

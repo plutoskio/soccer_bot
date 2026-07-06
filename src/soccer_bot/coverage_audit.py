@@ -51,7 +51,9 @@ class MatchAudit:
     complete: bool
 
 
-def audit_match(match: dict) -> MatchAudit:
+def audit_match(
+    match: dict, *, minimum_passing_coverage: float | None = 0.8
+) -> MatchAudit:
     fixture_id = match.get("fixture", {}).get("id")
     score = match.get("score", {}).get("fulltime", {})
     result = score.get("home") is not None and score.get("away") is not None
@@ -95,7 +97,10 @@ def audit_match(match: dict) -> MatchAudit:
         and player_blocks
         and minutes_complete
         and core_complete
-        and passing_coverage >= 0.8
+        and (
+            minimum_passing_coverage is None
+            or passing_coverage >= minimum_passing_coverage
+        )
     )
     return MatchAudit(
         fixture_id=fixture_id,

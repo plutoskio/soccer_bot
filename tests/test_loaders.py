@@ -10,6 +10,8 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from soccer_bot.loaders import (
     api_player_identity_key,
+    api_player_comparison_name,
+    compatible_api_player_compound_names,
     compatible_api_player_names,
     parse_api_passes,
 )
@@ -35,6 +37,39 @@ class ApiFootballPassParsingTests(unittest.TestCase):
         self.assertTrue(compatible_api_player_names("Seol Young-Woo", "Young-woo Seol"))
         self.assertFalse(compatible_api_player_names("A. Silva", "B. Silva"))
         self.assertFalse(compatible_api_player_names("M. Sylla", "Mamadou Sarr"))
+
+    def test_player_name_comparison_transliterates_special_latin_letters(self):
+        self.assertEqual("adrian saether", api_player_comparison_name("Adrian Sæther"))
+        self.assertEqual("sondre sorlokk", api_player_comparison_name("Sondre Sørløkk"))
+        self.assertEqual(
+            "lukasz dorde dor thor oezil strasse eli",
+            api_player_comparison_name("Łukasz Đorđe Ðór Þór Œzil Straße Əli"),
+        )
+        self.assertTrue(compatible_api_player_names("A. Saether", "Adrian Sæther"))
+        self.assertTrue(compatible_api_player_names("S. Sorlokk", "Sondre Sørløkk"))
+        self.assertFalse(compatible_api_player_names("A. Saether", "Bjørn Sæther"))
+
+    def test_transliteration_does_not_change_api_identity_keys(self):
+        self.assertNotEqual(
+            api_player_identity_key(1, "Sondre Sørløkk"),
+            api_player_identity_key(1, "Sondre Sorlokk"),
+        )
+
+    def test_compound_surname_comparison_requires_abbreviation_and_subset(self):
+        self.assertTrue(
+            compatible_api_player_compound_names("M. Spiten-Nysaeter", "Mats Spiten")
+        )
+        self.assertTrue(
+            compatible_api_player_compound_names(
+                "S. Sjovold", "Stian Sjøvold Thorstensen"
+            )
+        )
+        self.assertFalse(
+            compatible_api_player_compound_names(
+                "Rubén García", "Raúl García de Haro"
+            )
+        )
+        self.assertFalse(compatible_api_player_compound_names("A. Smith", "B. Smith-Jones"))
 
     def test_reused_provider_player_id_is_disambiguated_by_name(self):
         self.assertNotEqual(

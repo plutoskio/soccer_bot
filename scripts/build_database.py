@@ -49,7 +49,11 @@ def collect_counts(warehouse: Warehouse) -> dict[str, int]:
     }
 
 
-def run_quality_checks(warehouse: Warehouse) -> None:
+def run_quality_checks(
+    warehouse: Warehouse, *, passing_coverage_warning_threshold: float = 0.8
+) -> None:
+    if not 0 <= passing_coverage_warning_threshold <= 1:
+        raise ValueError("passing coverage warning threshold must be between 0 and 1")
     connection = warehouse.connection
     # Quality issues describe the latest evaluated warehouse state. Resolve the
     # previous snapshot first; any issue that still exists is reopened below.
@@ -117,6 +121,164 @@ def run_quality_checks(warehouse: Warehouse) -> None:
             """,
             "Player match statistic is outside its valid range",
         ),
+        (
+            "low_player_passing_coverage",
+            "warning",
+            "fixture",
+            f"""
+            SELECT fixture_id
+            FROM player_match_stat_observation
+            WHERE source_code = 'api_football' AND minutes_played > 0
+            GROUP BY fixture_id
+            HAVING count(*) FILTER (
+                       WHERE passes IS NOT NULL AND accurate_passes IS NOT NULL
+                   ) < {passing_coverage_warning_threshold} * count(*)
+            """,
+            f"Fewer than {passing_coverage_warning_threshold:.0%} of participating "
+            "players have complete passing data; "
+            "the fixture remains usable for features that do not require passing data",
+        ),
+        (
+            "api_administrative_result_unplayed",
+            "warning",
+            "fixture",
+            """
+            SELECT DISTINCT result.fixture_id
+            FROM fixture_result_observation result
+            JOIN fixture f ON f.fixture_id=result.fixture_id
+            WHERE result.source_code='api_football'
+              AND f.status='administrative_result_unplayed'
+              AND NOT EXISTS (
+                  SELECT 1 FROM lineup_snapshot ls
+                  WHERE ls.fixture_id=result.fixture_id
+                    AND ls.source_code=result.source_code
+                    AND ls.raw_artifact_id=result.raw_artifact_id
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM match_event event
+                  WHERE event.fixture_id=result.fixture_id
+                    AND event.source_code=result.source_code
+                    AND event.raw_artifact_id=result.raw_artifact_id
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM team_match_stat_observation tm
+                  WHERE tm.fixture_id=result.fixture_id
+                    AND tm.source_code=result.source_code
+                    AND tm.raw_artifact_id=result.raw_artifact_id
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM player_match_stat_observation pm
+                  WHERE pm.fixture_id=result.fixture_id
+                    AND pm.source_code=result.source_code
+                    AND pm.raw_artifact_id=result.raw_artifact_id
+              )
+            """,
+            "Official administrative result for a match that was not played; "
+            "exclude this fixture from all sporting-performance model training",
+        ),
+        (
+            "api_team_stats_unavailable",
+            "warning",
+            "fixture",
+            """
+            SELECT DISTINCT ls.fixture_id
+            FROM lineup_snapshot ls
+            JOIN fixture_result_observation result
+              ON result.fixture_id=ls.fixture_id
+             AND result.source_code=ls.source_code
+             AND result.raw_artifact_id=ls.raw_artifact_id
+            WHERE ls.source_code='api_football'
+              AND NOT EXISTS (
+                  SELECT 1 FROM team_match_stat_observation tm
+                  WHERE tm.fixture_id=ls.fixture_id
+                    AND tm.source_code=ls.source_code
+                    AND tm.raw_artifact_id=ls.raw_artifact_id
+              )
+            """,
+            "API-Football supplied the result and complete lineups but no "
+            "team-match statistics; exclude this fixture from team-stat and "
+            "corner features",
+        ),
+        (
+            "api_player_stats_unavailable",
+            "warning",
+            "fixture",
+            """
+            SELECT DISTINCT ls.fixture_id
+            FROM lineup_snapshot ls
+            JOIN fixture_result_observation result
+              ON result.fixture_id=ls.fixture_id
+             AND result.source_code=ls.source_code
+             AND result.raw_artifact_id=ls.raw_artifact_id
+            WHERE ls.source_code='api_football'
+              AND NOT EXISTS (
+                  SELECT 1 FROM player_match_stat_observation pm
+                  WHERE pm.fixture_id=ls.fixture_id
+                    AND pm.source_code=ls.source_code
+                    AND pm.raw_artifact_id=ls.raw_artifact_id
+              )
+            """,
+            "API-Football supplied the result and complete lineups but no usable "
+            "player-match statistics; exclude this fixture from player-level training",
+        ),
+        (
+            "api_player_not_linked_to_lineup",
+            "warning",
+            "fixture",
+            """
+            SELECT DISTINCT pm.fixture_id
+            FROM player_match_stat_observation pm
+            JOIN lineup_snapshot ls
+              ON ls.fixture_id=pm.fixture_id AND ls.team_id=pm.team_id
+             AND ls.source_code=pm.source_code
+             AND ls.raw_artifact_id=pm.raw_artifact_id
+            WHERE pm.source_code='api_football' AND pm.minutes_played>0
+              AND NOT EXISTS (
+                  SELECT 1 FROM lineup_player lp
+                  WHERE lp.lineup_snapshot_id=ls.lineup_snapshot_id
+                    AND lp.player_id=pm.player_id
+              )
+            """,
+            "At least one participating API-Football player could not be linked "
+            "confidently to the provider lineup; player-match statistics remain usable",
+        ),
+        (
+            "api_lineup_shirt_conflict",
+            "warning",
+            "fixture",
+            """
+            SELECT DISTINCT ls.fixture_id
+            FROM lineup_snapshot ls
+            JOIN lineup_player lp USING (lineup_snapshot_id)
+            JOIN player_match_stat_observation pm
+              ON pm.fixture_id=ls.fixture_id AND pm.team_id=ls.team_id
+             AND pm.player_id=lp.player_id AND pm.source_code=ls.source_code
+             AND pm.raw_artifact_id=ls.raw_artifact_id
+            WHERE ls.source_code='api_football'
+              AND lp.shirt_number IS NOT NULL AND pm.shirt_number IS NOT NULL
+              AND lp.shirt_number<>pm.shirt_number
+            """,
+            "A linked API-Football lineup and player-stat record disagree on shirt number",
+        ),
+        (
+            "api_lineup_role_conflict",
+            "warning",
+            "fixture",
+            """
+            SELECT DISTINCT ls.fixture_id
+            FROM lineup_snapshot ls
+            JOIN lineup_player lp USING (lineup_snapshot_id)
+            JOIN player_match_stat_observation pm
+              ON pm.fixture_id=ls.fixture_id AND pm.team_id=ls.team_id
+             AND pm.player_id=lp.player_id AND pm.source_code=ls.source_code
+             AND pm.raw_artifact_id=ls.raw_artifact_id
+            WHERE ls.source_code='api_football' AND (
+                (lp.selection_role='starter' AND pm.started=false)
+                OR (lp.selection_role='substitute' AND pm.started=true)
+              )
+            """,
+            "A linked API-Football lineup and player-stat record disagree on starter status",
+        ),
     ]
     for rule_code, severity, entity_type, sql, message in checks:
         for (entity_id,) in connection.execute(sql).fetchall():
@@ -129,6 +291,51 @@ def run_quality_checks(warehouse: Warehouse) -> None:
                 ) VALUES (?, ?, ?, ?, ?, ?, 'open')
                 """,
                 [issue_id, rule_code, severity, entity_type, entity_id, json_text({"message": message})],
+            )
+
+    # Recoverable provider anomalies are recorded in the immutable batch
+    # validation JSON because the normalized lineup intentionally removes the
+    # duplicate. Recreate their warnings during each global quality audit.
+    for (raw_validation,) in connection.execute(
+        """SELECT json_extract(validation, '$.raw')
+           FROM historical_backfill_batch_checkpoint
+           WHERE status='succeeded' AND validation IS NOT NULL"""
+    ).fetchall():
+        raw_validation = (
+            json.loads(raw_validation)
+            if isinstance(raw_validation, str) else raw_validation
+        )
+        for state in (raw_validation or {}).get("fixtures", []):
+            duplicates = state.get("lineup_duplicate_entries") or []
+            if not duplicates:
+                continue
+            mapping = connection.execute(
+                """SELECT internal_entity_id FROM source_entity_map
+                   WHERE source_code='api_football' AND entity_type='fixture'
+                     AND source_entity_id=?""",
+                [str(state.get("fixture_id"))],
+            ).fetchone()
+            if not mapping:
+                continue
+            entity_id = mapping[0]
+            rule_code = "api_lineup_duplicate_entry"
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO data_quality_issue (
+                    issue_id, rule_code, severity, entity_type,
+                    internal_entity_id, details, status
+                ) VALUES (?, ?, 'warning', 'fixture', ?, ?, 'open')
+                """,
+                [
+                    stable_id("quality_issue", rule_code, entity_id),
+                    rule_code,
+                    entity_id,
+                    json_text({
+                        "message": "API-Football repeated lineup players; "
+                                   "starter status was preserved",
+                        "duplicates": duplicates,
+                    }),
+                ],
             )
 
 

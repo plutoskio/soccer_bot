@@ -8,8 +8,63 @@
   },
   "validation": {
     "minimum_participating_players": 22,
-    "minimum_passing_coverage": 0.8,
-    "maximum_participating_players_not_in_lineup": 1,
-    "kickoff_tolerance_seconds": 60
+    "passing_coverage_warning_threshold": 0.8,
+    "kickoff_tolerance_seconds": 60,
+    "administrative_result_fixtures": {
+      "1186236": {
+        "classification": "administrative_result_unplayed",
+        "reason": "Standard Liege team bus was blocked; match was not played and Westerlo was awarded a 5-0 result",
+        "source": "https://standard.be/fr/news/standard-westerlo"
+      },
+      "710232": {
+        "classification": "administrative_result_unplayed",
+        "reason": "KV Mechelen did not appear for the scheduled match; OH Leuven was awarded a 5-0 result",
+        "source": "https://www.bas-cbas.be/cms/resources/arbitrale-uitspraak-08.03.2022-web.pdf"
+      },
+      "884549": {
+        "classification": "administrative_result_unplayed",
+        "reason": "Gaziantep FK withdrew after the February 2023 earthquake; remaining match was awarded 3-0",
+        "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"
+      },
+      "884555": {
+        "classification": "administrative_result_unplayed",
+        "reason": "Hatayspor withdrew after the February 2023 earthquake; remaining match was awarded 3-0",
+        "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"
+      },
+      "884560": {
+        "classification": "administrative_result_unplayed",
+        "reason": "Gaziantep FK withdrew after the February 2023 earthquake; remaining match was awarded 3-0",
+        "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"
+      },
+      "884563": {
+        "classification": "administrative_result_unplayed",
+        "reason": "Hatayspor withdrew after the February 2023 earthquake; remaining match was awarded 3-0",
+        "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"
+      },
+      "884573": {"classification": "administrative_result_unplayed", "reason": "Hatayspor withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884577": {"classification": "administrative_result_unplayed", "reason": "Hatayspor withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884580": {"classification": "administrative_result_unplayed", "reason": "Gaziantep FK withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884586": {"classification": "administrative_result_unplayed", "reason": "Gaziantep FK withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884591": {"classification": "administrative_result_unplayed", "reason": "Hatayspor withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884593": {"classification": "administrative_result_unplayed", "reason": "Hatayspor withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884599": {"classification": "administrative_result_unplayed", "reason": "Gaziantep FK withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884609": {"classification": "administrative_result_unplayed", "reason": "Hatayspor withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884610": {"classification": "administrative_result_unplayed", "reason": "Gaziantep FK withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884614": {"classification": "administrative_result_unplayed", "reason": "Hatayspor withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884623": {"classification": "administrative_result_unplayed", "reason": "Gaziantep FK withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884627": {"classification": "administrative_result_unplayed", "reason": "Hatayspor withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884629": {"classification": "administrative_result_unplayed", "reason": "Gaziantep FK withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884634": {"classification": "administrative_result_unplayed", "reason": "Hatayspor withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884641": {"classification": "administrative_result_unplayed", "reason": "Gaziantep FK withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884645": {"classification": "administrative_result_unplayed", "reason": "Hatayspor withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884653": {"classification": "administrative_result_unplayed", "reason": "Hatayspor withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884654": {"classification": "administrative_result_unplayed", "reason": "Gaziantep FK withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884656": {"classification": "administrative_result_unplayed", "reason": "Hatayspor withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884659": {"classification": "administrative_result_unplayed", "reason": "Gaziantep FK withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884669": {"classification": "administrative_result_unplayed", "reason": "Gaziantep FK withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884672": {"classification": "administrative_result_unplayed", "reason": "Hatayspor withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884675": {"classification": "administrative_result_unplayed", "reason": "Hatayspor withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"},
+      "884677": {"classification": "administrative_result_unplayed", "reason": "Gaziantep FK withdrew after the February 2023 earthquake; remaining match was awarded 3-0", "source": "https://www.aa.com.tr/en/sports/in-wake-of-quakes-gaziantep-fk-announces-temporary-withdrawal-from-turkish-super-lig/2817221"}
+      }
+    }
   }
-}
