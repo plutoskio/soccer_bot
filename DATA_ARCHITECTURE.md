@@ -883,6 +883,25 @@ A raw artifact is considered successfully ingested only after parsing and canoni
 
 Completeness metrics should be calculated per source, competition, season, and field. A model may require a minimum coverage threshold.
 
+### 16.3 `fixture_model_eligibility`
+
+Model builders consume three computed fixture-level booleans instead of
+depending directly on individual quality-rule codes:
+
+- `eligible_result_models`: a played, non-administrative fixture has a valid
+  final regulation score. Use for moneyline, exact-score, and spread targets.
+- `eligible_team_models`: result eligibility plus one coherent two-team
+  regulation statistics block containing valid shots, shots on target, and
+  corners. Individual features still require their own columns to be non-null.
+- `eligible_player_models`: result eligibility plus two complete confirmed
+  lineups and at least 22 valid, positive-minute participants linked to those
+  lineups from one provider artifact.
+
+`reason_codes` contains broad diagnostic explanations such as
+`administrative_unplayed`, `missing_final_result`, `team_data_incomplete`, and
+`player_data_incomplete`. Detailed provider anomalies remain in
+`data_quality_issue`; they are debugging evidence, not additional model flags.
+
 ## 17. Training dataset architecture
 
 Models train on frozen datasets generated from DuckDB/Parquet, not directly on mutable current-state views.

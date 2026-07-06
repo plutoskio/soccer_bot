@@ -110,10 +110,11 @@ a separate reviewed identity decision. Contextual comparison transliterates
 standalone Latin letters such as `æ`, `ø`, `œ`, `ł`, `ð`, `þ`, and `ß`, but
 canonical names and stable identity keys remain unchanged. Historical links
 missed by this distinction—or by provider sections shortening different parts
-of a compound surname—can be audited with
-`scripts/repair_api_player_transliterations.py` and repaired copy-on-write with
-its explicit `--apply` flag. Compound-surname matching additionally requires
-an equal shirt number and one unique candidate in the same fixture and team.
+of a compound surname are handled by the current contextual player linker.
+Compound-surname matching additionally requires an equal shirt number and one
+unique candidate in the same fixture and team. The completed repair procedures
+that introduced these rules remain documented in the corresponding reports and
+Git history; they are no longer routine commands.
 
 Run individual probes:
 
