@@ -13,8 +13,7 @@
     "minimum_interval_seconds": 1.0,
     "fixture_batch_size": 20,
     "supports_fixture_ids_batch": true,
-    "lineup_first_check_minutes": 50,
-    "lineup_retry_minutes": 35,
+    "lineup_stage_offsets": [50, 35, 20, 5],
     "post_match_first_check_minutes": 150,
     "post_match_retry_minutes": 1590
   },

@@ -200,13 +200,14 @@ def validate_lineups(
     fixture_id: str,
     source_code: str = "api_football",
     now: datetime | None = None,
+    schedule_observation_id: str | None = None,
+    schedule_kickoff: datetime | None = None,
 ) -> ValidationResult:
     home_team_id, away_team_id, fixture_status, kickoff = _fixture_context(
         connection, fixture_id
     )
     status = latest_fixture_status(connection, fixture_id, source_code)
-    rows = connection.execute(
-        """
+    lineup_query = """
         SELECT ls.raw_artifact_id, ls.team_id,
                bool_and(ls.is_complete),
                count(*) FILTER (WHERE lp.selection_role = 'starter'),
@@ -218,11 +219,26 @@ def validate_lineups(
         WHERE ls.fixture_id = ? AND ls.source_code = ?
           AND ls.lineup_type = 'confirmed'
           AND ls.raw_artifact_id IS NOT NULL
+    """
+    lineup_params: list[object] = [fixture_id, source_code]
+    if schedule_observation_id is not None:
+        lineup_query += " AND ls.schedule_observation_id = ?"
+        lineup_params.append(schedule_observation_id)
+    if schedule_kickoff is not None:
+        lineup_query += """
+            AND EXISTS (
+                SELECT 1
+                FROM fixture_schedule_observation fso
+                WHERE fso.schedule_observation_id = ls.schedule_observation_id
+                  AND fso.scheduled_kickoff = ?
+            )
+        """
+        lineup_params.append(schedule_kickoff)
+    lineup_query += """
         GROUP BY ls.raw_artifact_id, ls.team_id
         ORDER BY ls.raw_artifact_id, ls.team_id
-        """,
-        [fixture_id, source_code],
-    ).fetchall()
+    """
+    rows = connection.execute(lineup_query, lineup_params).fetchall()
     if not rows:
         state = "retryable" if _postmatch_started(status, kickoff, now) else "pending"
         return _result(state, "missing_lineups", {"artifacts": 0})
@@ -230,10 +246,7 @@ def validate_lineups(
     artifact_rows: dict[str, list[tuple]] = {}
     for row in rows:
         artifact_rows.setdefault(row[0], []).append(row)
-    cross_team_duplicates = {
-        row[0]
-        for row in connection.execute(
-            """
+    duplicate_query = """
             SELECT ls.raw_artifact_id, lp.player_id
             FROM lineup_snapshot ls
             JOIN lineup_player lp USING (lineup_snapshot_id)
@@ -241,11 +254,28 @@ def validate_lineups(
               AND ls.lineup_type = 'confirmed'
               AND ls.raw_artifact_id IS NOT NULL
               AND lp.selection_role = 'starter'
+    """
+    duplicate_params: list[object] = [fixture_id, source_code]
+    if schedule_observation_id is not None:
+        duplicate_query += " AND ls.schedule_observation_id = ?"
+        duplicate_params.append(schedule_observation_id)
+    if schedule_kickoff is not None:
+        duplicate_query += """
+              AND EXISTS (
+                  SELECT 1
+                  FROM fixture_schedule_observation fso
+                  WHERE fso.schedule_observation_id = ls.schedule_observation_id
+                    AND fso.scheduled_kickoff = ?
+              )
+        """
+        duplicate_params.append(schedule_kickoff)
+    duplicate_query += """
             GROUP BY ls.raw_artifact_id, lp.player_id
             HAVING count(DISTINCT ls.team_id) > 1
-            """,
-            [fixture_id, source_code],
-        ).fetchall()
+    """
+    cross_team_duplicates = {
+        row[0]
+        for row in connection.execute(duplicate_query, duplicate_params).fetchall()
     }
     expected_teams = {home_team_id, away_team_id}
     invalid_artifacts = 0

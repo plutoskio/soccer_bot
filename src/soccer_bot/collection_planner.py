@@ -19,6 +19,15 @@ class DiscoveryJob:
     reason: str
 
 
+@dataclass(frozen=True)
+class LineupStagePlan:
+    stage: str
+    offset_minutes: int
+    stage_time: datetime
+    job_key: str
+    schedule_version: str
+
+
 def effective_recovery_days(
     configured_days: int,
     catch_up_days: int | None = None,
@@ -106,6 +115,55 @@ def fixture_refresh_job_key(
     return f"api_football:fixture_refresh:{fixture_source_id}:{reason}:{slot}"
 
 
+def lineup_stage_job_key(
+    fixture_source_id: str, schedule_version: str, offset_minutes: int
+) -> str:
+    return (
+        f"api_football:lineup_stage:{fixture_source_id}:"
+        f"{schedule_version}:{int(offset_minutes)}"
+    )
+
+
+def lineup_stage_plans(
+    *,
+    fixture_source_id: str,
+    schedule_version: str,
+    kickoff: datetime,
+    now: datetime,
+    offsets: list[int],
+    attempted_job_keys: set[str],
+    lineup_complete: bool,
+) -> list[LineupStagePlan]:
+    """Return all due, unattempted lineup stages for one schedule version."""
+    if lineup_complete:
+        return []
+    kickoff = kickoff.astimezone(UTC)
+    now = now.astimezone(UTC)
+    if now >= kickoff:
+        return []
+    normalized_offsets = _lineup_offsets(offsets)
+    plans: list[LineupStagePlan] = []
+    for offset in normalized_offsets:
+        stage_time = kickoff - timedelta(minutes=offset)
+        if now < stage_time:
+            continue
+        job_key = lineup_stage_job_key(
+            fixture_source_id, schedule_version, offset
+        )
+        if job_key in attempted_job_keys:
+            continue
+        plans.append(
+            LineupStagePlan(
+                stage=f"lineup_t_minus_{offset}",
+                offset_minutes=offset,
+                stage_time=stage_time,
+                job_key=job_key,
+                schedule_version=schedule_version,
+            )
+        )
+    return plans
+
+
 def discovery_date_from_checkpoint(
     job_key: str, metadata: object | None = None
 ) -> date | None:
@@ -146,3 +204,14 @@ def _positive_int(value: int, name: str) -> int:
     if value <= 0:
         raise ValueError(f"{name} must be positive")
     return value
+
+
+def _lineup_offsets(values: list[int]) -> list[int]:
+    if not isinstance(values, list) or not values:
+        raise ValueError("lineup_stage_offsets must be a non-empty list")
+    offsets = [int(value) for value in values]
+    if any(value <= 0 for value in offsets):
+        raise ValueError("lineup_stage_offsets must contain positive minutes")
+    if len(set(offsets)) != len(offsets):
+        raise ValueError("lineup_stage_offsets must not contain duplicates")
+    return sorted(offsets, reverse=True)

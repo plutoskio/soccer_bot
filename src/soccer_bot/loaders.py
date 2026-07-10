@@ -739,8 +739,11 @@ class WarehouseLoader:
                 players = team.get("lineup", [])
                 self.connection.execute(
                     """
-                    INSERT OR REPLACE INTO lineup_snapshot VALUES
-                    (?, ?, ?, ?, ?, 'corrected_after_match', ?, ?, ?, ?)
+                    INSERT OR REPLACE INTO lineup_snapshot (
+                        lineup_snapshot_id, fixture_id, team_id, source_code,
+                        raw_artifact_id, lineup_type, formation, observed_at,
+                        retrieved_at, is_complete
+                    ) VALUES (?, ?, ?, ?, ?, 'corrected_after_match', ?, ?, ?, ?)
                     """,
                     [snapshot_id, fixture_id, team_id, source, artifact_id, None, None, retrieved_at, bool(players)],
                 )
@@ -901,32 +904,87 @@ class WarehouseLoader:
         ).fetchone()
         return "national" if row and row[0] == "international_tournament" else "club"
 
+    def _lineup_schedule_provenance(
+        self,
+        fixture_id: str,
+        fixture_source_id: object,
+        item: dict,
+        retrieved_at: datetime,
+    ) -> tuple[str | None, datetime | None, bool | None]:
+        raw_artifact_id = item.get("_raw_artifact_id")
+        planned_schedule_ids = item.get("_lineup_schedule_observation_ids", {})
+        planned_schedule_id = (
+            planned_schedule_ids.get(str(fixture_source_id))
+            if isinstance(planned_schedule_ids, dict) else None
+        )
+        if planned_schedule_id:
+            row = self.connection.execute(
+                """
+                SELECT schedule_observation_id, scheduled_kickoff
+                FROM fixture_schedule_observation
+                WHERE schedule_observation_id = ? AND fixture_id = ?
+                LIMIT 1
+                """,
+                [planned_schedule_id, fixture_id],
+            ).fetchone()
+            if row:
+                kickoff_known = row[1].astimezone(timezone.utc) if row[1] else None
+                captured_before = (
+                    retrieved_at.astimezone(timezone.utc) < kickoff_known
+                    if kickoff_known is not None else None
+                )
+                return row[0], kickoff_known, captured_before
+        row = self.connection.execute(
+            """
+            SELECT schedule_observation_id, scheduled_kickoff
+            FROM fixture_schedule_observation
+            WHERE fixture_id = ? AND source_code = ? AND raw_artifact_id = ?
+            ORDER BY retrieved_at DESC, schedule_observation_id DESC
+            LIMIT 1
+            """,
+            [fixture_id, "api_football", raw_artifact_id],
+        ).fetchone()
+        if not row:
+            row = self.connection.execute(
+                """
+                SELECT schedule_observation_id, scheduled_kickoff
+                FROM fixture_schedule_observation
+                WHERE fixture_id = ? AND source_code = ?
+                  AND retrieved_at <= ?
+                ORDER BY retrieved_at DESC, schedule_observation_id DESC
+                LIMIT 1
+                """,
+                [fixture_id, "api_football", retrieved_at],
+            ).fetchone()
+        if not row:
+            return None, None, None
+        kickoff_known = row[1].astimezone(timezone.utc) if row[1] else None
+        captured_before = (
+            retrieved_at.astimezone(timezone.utc) < kickoff_known
+            if kickoff_known is not None else None
+        )
+        return row[0], kickoff_known, captured_before
+
     def _load_api_lineups(self, records: object, fixture_source_id: object, fixture_id: str, item: dict) -> None:
         if not isinstance(records, list):
             return
         source = "api_football"
         team_type = self._api_fixture_team_type(fixture_id)
         retrieved_at = parse_datetime(item["retrieved_at"])
+        schedule_observation_id, kickoff_known, captured_before = (
+            self._lineup_schedule_provenance(
+                fixture_id, fixture_source_id, item, retrieved_at
+            )
+        )
         for team in records:
             team_data = team.get("team", {})
             team_id = self._resolve_api_team(
                 team_data.get("id"), team_data.get("name", "Unknown"), team_type
             )
             snapshot_id = stable_id(
-                "lineup", source, fixture_source_id, team_data.get("id"), item["content_sha256"]
+                "lineup", source, fixture_source_id, team_data.get("id"), item["_raw_artifact_id"]
             )
             starters = team.get("startXI") or []
-            self.connection.execute(
-                """INSERT OR REPLACE INTO lineup_snapshot VALUES
-                (?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?)""",
-                [snapshot_id, fixture_id, team_id, source, item["_raw_artifact_id"],
-                 team.get("formation"), retrieved_at, retrieved_at, len(starters) == 11],
-            )
-            # Reprocessing a corrected snapshot must replace, not append to,
-            # its player membership.
-            self.connection.execute(
-                "DELETE FROM lineup_player WHERE lineup_snapshot_id=?", [snapshot_id]
-            )
             entries, _, _ = deduplicate_api_lineup_entries(team)
             aliases = [
                 LineupAlias(
@@ -944,6 +1002,41 @@ class WarehouseLoader:
                 self._api_stat_candidates_for_team(
                     fixture_id, team_id, item["_raw_artifact_id"]
                 ),
+            )
+            resolved_count = sum(
+                1 for decision in decisions.values() if decision.player_id is not None
+            )
+            if not decisions:
+                identity_state = "unresolved"
+            elif resolved_count == len(decisions):
+                identity_state = "resolved"
+            elif resolved_count == 0:
+                identity_state = "unresolved"
+            else:
+                identity_state = "partially_resolved"
+            self.connection.execute(
+                """
+                INSERT OR REPLACE INTO lineup_snapshot (
+                    lineup_snapshot_id, fixture_id, team_id, source_code,
+                    raw_artifact_id, lineup_type, formation, observed_at,
+                    retrieved_at, is_complete, schedule_observation_id,
+                    kickoff_known_at_retrieval, captured_before_kickoff,
+                    identity_state
+                ) VALUES (?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    snapshot_id, fixture_id, team_id, source,
+                    item["_raw_artifact_id"], team.get("formation"),
+                    retrieved_at, retrieved_at, len(starters) == 11,
+                    schedule_observation_id, kickoff_known, captured_before,
+                    identity_state,
+                ],
+            )
+            # Reprocessing one raw artifact must replace, not append to, its
+            # player membership while different retrieval artifacts retain
+            # distinct snapshot IDs even when their bodies are identical.
+            self.connection.execute(
+                "DELETE FROM lineup_player WHERE lineup_snapshot_id=?", [snapshot_id]
             )
             mapping_rows: list[tuple] = []
             lineup_rows: list[list] = []

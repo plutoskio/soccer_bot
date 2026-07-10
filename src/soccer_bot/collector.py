@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time as datetime_time, timedelta, timezone
 import json
 from pathlib import Path
@@ -30,6 +30,7 @@ from .collection_planner import (
     discovery_date_window,
     discovery_job_for_date,
     fixture_refresh_job_key,
+    lineup_stage_plans,
 )
 from .database import Warehouse, json_text, normalized_name
 from .http import HttpClient, HttpResponse
@@ -107,6 +108,8 @@ class DetailJob:
     job_type: str
     fixture: FixtureRecord
     scheduled_for: datetime
+    schedule_version: str | None = None
+    schedule_observation_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -814,44 +817,160 @@ class Collector:
 
     def _plan_detail_jobs(self, fixtures: list[FixtureRecord], now: datetime) -> list[DetailJob]:
         jobs: list[DetailJob] = []
-        first_lineup = int(self.api_config["lineup_first_check_minutes"])
-        retry_lineup = int(self.api_config["lineup_retry_minutes"])
+        lineup_offsets = self.api_config.get("lineup_stage_offsets", [50, 35, 20, 5])
         first_post = int(self.api_config["post_match_first_check_minutes"])
         retry_post = int(self.api_config["post_match_retry_minutes"])
         for fixture in fixtures:
-            kickoff_key = int(fixture.kickoff.timestamp())
-            lineup_primary = f"api_football:lineup_primary:{fixture.source_id}:{kickoff_key}"
-            lineup_retry = f"api_football:lineup_retry:{fixture.source_id}:{kickoff_key}"
-            stage = lineup_stage(
-                now=now, kickoff=fixture.kickoff,
-                lineup_complete=self._lineup_complete(fixture.internal_id),
-                primary_attempted=self._checkpoint_attempted(lineup_primary),
-                retry_attempted=self._checkpoint_attempted(lineup_retry),
-                first_check_minutes=first_lineup, retry_minutes=retry_lineup,
+            schedule_version, schedule_observation_id, kickoff = (
+                self._lineup_schedule_version(fixture)
             )
-            if stage:
-                key = lineup_primary if stage == "lineup_primary" else lineup_retry
-                scheduled = fixture.kickoff - timedelta(
-                    minutes=first_lineup if stage == "lineup_primary" else retry_lineup
+            self._supersede_obsolete_lineup_jobs(
+                fixture, schedule_version, kickoff, now
+            )
+            stage_keys = self.connection.execute(
+                """
+                SELECT job_key
+                FROM collection_checkpoint
+                WHERE (fixture_id = ? OR fixture_source_id = ?)
+                  AND job_type = 'lineup_stage'
+                """,
+                [fixture.internal_id, fixture.source_id],
+            ).fetchall()
+            attempted_stage_keys = {row[0] for row in stage_keys}
+            schedule_fixture = replace(fixture, kickoff=kickoff)
+            stage_plans = lineup_stage_plans(
+                fixture_source_id=fixture.source_id,
+                schedule_version=schedule_version,
+                kickoff=kickoff,
+                now=now,
+                offsets=lineup_offsets,
+                attempted_job_keys=attempted_stage_keys,
+                lineup_complete=self._lineup_complete(
+                    fixture.internal_id,
+                    now,
+                    schedule_kickoff=kickoff,
+                ),
+            )
+            jobs.extend(
+                DetailJob(
+                    plan.job_key,
+                    "lineup_stage",
+                    schedule_fixture,
+                    plan.stage_time,
+                    plan.schedule_version,
+                    schedule_observation_id,
                 )
-                jobs.append(DetailJob(key, stage, fixture, scheduled))
+                for plan in stage_plans
+            )
 
+            kickoff_key = int(kickoff.timestamp())
             post_primary = f"api_football:postmatch_primary:{fixture.source_id}:{kickoff_key}"
             post_retry = f"api_football:postmatch_retry:{fixture.source_id}:{kickoff_key}"
             post_stage = postmatch_stage(
-                now=now, kickoff=fixture.kickoff,
-                data_complete=self._postmatch_complete(fixture.internal_id),
+                now=now, kickoff=kickoff,
+                data_complete=self._postmatch_complete(fixture.internal_id, now),
                 primary_attempted=self._checkpoint_attempted(post_primary),
                 retry_attempted=self._checkpoint_attempted(post_retry),
                 first_check_minutes=first_post, retry_minutes=retry_post,
             )
             if post_stage:
                 key = post_primary if post_stage == "postmatch_primary" else post_retry
-                scheduled = fixture.kickoff + timedelta(
+                scheduled = kickoff + timedelta(
                     minutes=first_post if post_stage == "postmatch_primary" else retry_post
                 )
-                jobs.append(DetailJob(key, post_stage, fixture, scheduled))
+                jobs.append(DetailJob(key, post_stage, schedule_fixture, scheduled))
         return jobs
+
+    def _lineup_schedule_version(
+        self, fixture: FixtureRecord
+    ) -> tuple[str, str | None, datetime]:
+        row = self.connection.execute(
+            """
+            SELECT schedule_observation_id, scheduled_kickoff
+            FROM fixture_schedule_observation
+            WHERE fixture_id = ? AND source_code = 'api_football'
+            ORDER BY retrieved_at DESC, schedule_observation_id DESC
+            LIMIT 1
+            """,
+            [fixture.internal_id],
+        ).fetchone()
+        if row and row[0]:
+            kickoff = (row[1] or fixture.kickoff).astimezone(timezone.utc)
+            return f"kickoff-{int(kickoff.timestamp())}", str(row[0]), kickoff
+        kickoff = fixture.kickoff.astimezone(timezone.utc)
+        return f"kickoff-{int(kickoff.timestamp())}", None, kickoff
+
+    def _supersede_obsolete_lineup_jobs(
+        self,
+        fixture: FixtureRecord,
+        schedule_version: str,
+        kickoff: datetime,
+        now: datetime,
+    ) -> None:
+        rows = self.connection.execute(
+            """
+            SELECT job_key, job_type, status, terminal_reason, metadata
+            FROM collection_checkpoint
+            WHERE (fixture_id = ? OR fixture_source_id = ?)
+              AND job_type IN ('lineup_primary', 'lineup_retry', 'lineup_stage')
+            """,
+            [fixture.internal_id, fixture.source_id],
+        ).fetchall()
+        current_kickoff_key = str(int(kickoff.timestamp()))
+        schedule_superseded = False
+        for job_key, job_type, status, terminal_reason, metadata in rows:
+            if job_type == "lineup_stage" and f":{schedule_version}:" in job_key:
+                continue
+            if job_type in {"lineup_primary", "lineup_retry"}:
+                reason = (
+                    "legacy_stage_replaced"
+                    if job_key.endswith(f":{current_kickoff_key}")
+                    else "schedule_superseded"
+                )
+            else:
+                reason = "schedule_superseded"
+            if status == "terminal" and terminal_reason == reason:
+                continue
+            schedule_superseded = schedule_superseded or reason == "schedule_superseded"
+            details = metadata
+            if isinstance(details, str):
+                try:
+                    details = json.loads(details)
+                except json.JSONDecodeError:
+                    details = {}
+            if not isinstance(details, dict):
+                details = {}
+            details.update({
+                "schedule_version": schedule_version,
+                "superseded_at": now.isoformat(),
+                "superseded_reason": reason,
+            })
+            self.connection.execute(
+                """
+                UPDATE collection_checkpoint
+                SET status = 'terminal', completed_at = coalesce(completed_at, ?),
+                    next_attempt_at = NULL, terminal_reason = ?, metadata = ?,
+                    updated_at = ?, last_run_id = ?
+                WHERE job_key = ?
+                """,
+                [now, reason, json_text(details), now, self.current_run_id, job_key],
+            )
+        if schedule_superseded:
+            self.connection.execute(
+                """
+                UPDATE fixture_collection_component
+                SET state = 'pending', reason_code = 'schedule_superseded',
+                    details = ?, validated_at = NULL, last_raw_artifact_id = NULL,
+                    updated_at = ?
+                WHERE fixture_id = ? AND source_code = 'api_football'
+                  AND component_code = 'pregame_lineup_capture'
+                """,
+                [
+                    json_text({"schedule_version": schedule_version}),
+                    now,
+                    fixture.internal_id,
+                ],
+            )
 
     def _execute_detail_jobs(self, jobs: list[DetailJob], now: datetime) -> None:
         if not jobs:
@@ -902,6 +1021,14 @@ class Collector:
                         fixture_id=job.fixture.internal_id,
                     )
                 raise
+            lineup_schedule_ids = {
+                job.fixture.source_id: job.schedule_observation_id
+                for job in batch_jobs
+                if job.job_type == "lineup_stage"
+                and job.schedule_observation_id
+            }
+            if lineup_schedule_ids:
+                item["_lineup_schedule_observation_ids"] = lineup_schedule_ids
             self.loader.load_api_football_payload(payload, item, "fixture_details_batch")
             returned_ids = {
                 str(match.get("fixture", {}).get("id"))
@@ -935,9 +1062,26 @@ class Collector:
                         state = "incomplete"
                         metadata = {"reason": "fixture_missing_from_batch_response"}
                     elif job.job_type.startswith("lineup"):
-                        result = fixture_results[job.fixture.internal_id]["lineups"]
+                        result = validate_lineups(
+                            self.connection,
+                            job.fixture.internal_id,
+                            "api_football",
+                            now,
+                            schedule_kickoff=job.fixture.kickoff,
+                        )
                         state = self._checkpoint_state_for_component(result)
-                        metadata = {"lineup_state": result.state, **result.details}
+                        if state == "succeeded":
+                            self._record_pregame_lineup_capture(
+                                job.fixture,
+                                result,
+                                now,
+                                job.schedule_observation_id,
+                            )
+                        metadata = {
+                            "lineup_state": result.state,
+                            "lineup_job_key": job.job_key,
+                            **result.details,
+                        }
                     else:
                         results = fixture_results[job.fixture.internal_id]
                         complete = all(
@@ -1026,6 +1170,44 @@ class Collector:
             now=now,
         )
 
+    def _record_pregame_lineup_capture(
+        self,
+        fixture: FixtureRecord,
+        result: ValidationResult,
+        now: datetime,
+        schedule_observation_id: str | None = None,
+    ) -> None:
+        if result.state != "complete":
+            return
+        row = self.connection.execute(
+            """
+            SELECT 1
+            FROM lineup_snapshot
+            WHERE fixture_id = ? AND source_code = ?
+              AND raw_artifact_id = ? AND captured_before_kickoff = true
+            LIMIT 1
+            """,
+            [fixture.internal_id, "api_football", result.last_raw_artifact_id],
+        ).fetchone()
+        if not row:
+            return
+        record_component_result(
+            self.connection,
+            fixture_id=fixture.internal_id,
+            source_code="api_football",
+            component_code="pregame_lineup_capture",
+            result=ValidationResult(
+                "complete",
+                None,
+                {
+                    "captured_before_kickoff": True,
+                    "schedule_observation_id": schedule_observation_id,
+                },
+                result.last_raw_artifact_id,
+            ),
+            now=now,
+        )
+
     def _plan_market_jobs(self, fixtures: list[FixtureRecord], now: datetime) -> list[DetailJob]:
         jobs: list[DetailJob] = []
         prekick_minutes = int(self.polymarket_config["prekick_snapshot_minutes"])
@@ -1035,7 +1217,7 @@ class Collector:
             kickoff_key = int(fixture.kickoff.timestamp())
             lineup_key = f"polymarket:lineup_snapshot:{fixture.source_id}:{kickoff_key}"
             if (
-                self._lineup_complete(fixture.internal_id)
+                self._lineup_complete(fixture.internal_id, now)
                 and now < fixture.kickoff
                 and not self._checkpoint_done(lineup_key)
             ):
@@ -1125,8 +1307,10 @@ class Collector:
         self, fixtures: list[FixtureRecord], now: datetime
     ) -> None:
         for fixture in fixtures:
-            if now < fixture.kickoff:
+            _, _, kickoff = self._lineup_schedule_version(fixture)
+            if now < kickoff:
                 continue
+            schedule_fixture = replace(fixture, kickoff=kickoff)
             status = latest_fixture_status(
                 self.connection, fixture.internal_id, "api_football"
             )
@@ -1135,7 +1319,11 @@ class Collector:
             }:
                 continue
             lineup = validate_lineups(
-                self.connection, fixture.internal_id, "api_football", now
+                self.connection,
+                fixture.internal_id,
+                "api_football",
+                now,
+                schedule_kickoff=kickoff,
             )
             lineup_captured_before_kickoff = False
             if lineup.state == "complete" and lineup.last_raw_artifact_id:
@@ -1144,17 +1332,17 @@ class Collector:
                     [lineup.last_raw_artifact_id],
                 ).fetchone()
                 lineup_captured_before_kickoff = bool(
-                    row and row[0].astimezone(timezone.utc) < fixture.kickoff
+                    row and row[0].astimezone(timezone.utc) < kickoff
                 )
             self._mark_pregame_component(
-                fixture,
+                schedule_fixture,
                 "pregame_lineup_capture",
                 complete=lineup_captured_before_kickoff,
                 now=now,
                 complete_reason="valid_lineup_retrieved_before_kickoff",
                 missed_reason="kickoff_passed_without_pregame_lineup",
             )
-            if self._fixture_has_any_market_tokens(fixture.internal_id):
+            if self._fixture_has_any_market_tokens(schedule_fixture.internal_id):
                 market_captured_before_kickoff = bool(
                     self.connection.execute(
                         """
@@ -1169,11 +1357,11 @@ class Collector:
                         WHERE e.fixture_id = ? AND ob.retrieved_at < ?
                         LIMIT 1
                         """,
-                        [fixture.internal_id, fixture.kickoff],
+                        [schedule_fixture.internal_id, kickoff],
                     ).fetchone()
                 )
                 self._mark_pregame_component(
-                    fixture,
+                    schedule_fixture,
                     "pregame_market_capture",
                     complete=market_captured_before_kickoff,
                     now=now,
@@ -1277,14 +1465,27 @@ class Collector:
     def _competition_key(country: str, name: str) -> str:
         return f"{normalized_name(country)}|{normalized_name(name)}"
 
-    def _lineup_complete(self, fixture_id: str) -> bool:
+    def _lineup_complete(
+        self,
+        fixture_id: str,
+        now: datetime | None = None,
+        schedule_observation_id: str | None = None,
+        schedule_kickoff: datetime | None = None,
+    ) -> bool:
         result = validate_lineups(
-            self.connection, fixture_id, "api_football", datetime.now(timezone.utc)
+            self.connection,
+            fixture_id,
+            "api_football",
+            now or datetime.now(timezone.utc),
+            schedule_observation_id=schedule_observation_id,
+            schedule_kickoff=schedule_kickoff,
         )
         return result.state == "complete"
 
-    def _postmatch_complete(self, fixture_id: str) -> bool:
-        now = datetime.now(timezone.utc)
+    def _postmatch_complete(
+        self, fixture_id: str, now: datetime | None = None
+    ) -> bool:
+        now = now or datetime.now(timezone.utc)
         results = {
             "result": validate_result(self.connection, fixture_id, "api_football"),
             "lineups": validate_lineups(
