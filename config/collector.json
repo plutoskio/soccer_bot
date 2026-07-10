@@ -1,5 +1,12 @@
 {
   "timezone": "Europe/Luxembourg",
+  "discovery": {
+    "recovery_days": 14,
+    "planning_days": 7,
+    "today_tomorrow_refresh_hours": 6,
+    "near_kickoff_refresh_minutes": 120,
+    "postponed_cancelled_refresh_hours": 6
+  },
   "api_football": {
     "daily_limit": 7500,
     "reserve_calls": 250,
@@ -9,8 +16,7 @@
     "lineup_first_check_minutes": 50,
     "lineup_retry_minutes": 35,
     "post_match_first_check_minutes": 150,
-    "post_match_retry_minutes": 1590,
-    "post_match_lookback_days": 2
+    "post_match_retry_minutes": 1590
   },
   "polymarket": {
     "soccer_tag_id": 100350,

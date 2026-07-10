@@ -135,6 +135,8 @@ class CollectorIntegrationTests(unittest.TestCase):
 
     def test_live_cycle_uses_paid_ids_batch_and_second_run_is_idempotent(self):
         self.config["api_football"]["minimum_interval_seconds"] = 0
+        self.config["discovery"]["recovery_days"] = 0
+        self.config["discovery"]["planning_days"] = 0
         now = datetime(2026, 7, 3, 20, 0, tzinfo=timezone.utc)
         base_match = {
             "fixture": {

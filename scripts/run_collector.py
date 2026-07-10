@@ -26,6 +26,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Plan currently due work without making network requests or changing collector state",
     )
+    parser.add_argument(
+        "--catch-up-days",
+        type=int,
+        default=None,
+        help="Expand the discovery recovery window for this run; cannot reduce configured recovery_days",
+    )
     return parser.parse_args()
 
 
@@ -48,7 +54,10 @@ def main() -> int:
             api_key=env.get("API_FOOTBALL_KEY", ""),
             config=config,
         )
-        summary = collector.run(dry_run=args.dry_run)
+        summary = collector.run(
+            dry_run=args.dry_run,
+            catch_up_days=args.catch_up_days,
+        )
         print(json.dumps(summary, indent=2, sort_keys=True))
         return 0
     finally:

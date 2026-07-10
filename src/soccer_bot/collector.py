@@ -10,10 +10,12 @@ import uuid
 from zoneinfo import ZoneInfo
 
 from .collection_state import (
+    ValidationResult,
     checkpoint_is_stopping,
     component_for_job_type,
     component_is_terminally_done,
     events_processing_result,
+    latest_fixture_status,
     reconcile_fixture_components,
     record_component_result,
     validate_lineups,
@@ -21,6 +23,13 @@ from .collection_state import (
     validate_player_statistics,
     validate_result,
     validate_team_statistics,
+)
+from .collection_planner import (
+    DiscoveryJob,
+    discovery_date_from_checkpoint,
+    discovery_date_window,
+    discovery_job_for_date,
+    fixture_refresh_job_key,
 )
 from .database import Warehouse, json_text, normalized_name
 from .http import HttpClient, HttpResponse
@@ -100,6 +109,15 @@ class DetailJob:
     scheduled_for: datetime
 
 
+@dataclass(frozen=True)
+class FixtureRefreshJob:
+    job_key: str
+    fixture: FixtureRecord
+    reason: str
+    slot: str
+    scheduled_for: datetime
+
+
 class Collector:
     API_FOOTBALL_URL = "https://v3.football.api-sports.io"
     POLYMARKET_GAMMA_URL = "https://gamma-api.polymarket.com"
@@ -123,6 +141,7 @@ class Collector:
         self.api_key = api_key
         self.config = config
         self.zone = ZoneInfo(config["timezone"])
+        self.discovery_config = config.get("discovery", {})
         self.api_config = config["api_football"]
         self.polymarket_config = config["polymarket"]
         competitions = config["competitions"]
@@ -143,7 +162,13 @@ class Collector:
             "linked_polymarket_events": 0,
         }
 
-    def run(self, *, now: datetime | None = None, dry_run: bool = False) -> dict[str, object]:
+    def run(
+        self,
+        *,
+        now: datetime | None = None,
+        dry_run: bool = False,
+        catch_up_days: int | None = None,
+    ) -> dict[str, object]:
         now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         run_id = str(uuid.uuid4())
         self.current_run_id = run_id
@@ -158,21 +183,43 @@ class Collector:
             )
         try:
             local_date = now.astimezone(self.zone).date()
-            self._discover_fixtures(local_date, now, dry_run)
-            today_fixtures = self._monitored_fixtures(local_date, lookback_days=0)
-            fixtures = self._monitored_fixtures(
-                local_date,
-                lookback_days=int(self.api_config.get("post_match_lookback_days", 2)),
+            start_date, end_date, target_dates, past_days = self._discovery_window(
+                local_date, catch_up_days
             )
+            self.summary["discovery_window"] = {
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "past_days": past_days,
+                "planning_days": (end_date - local_date).days,
+            }
+            discovery_jobs = self._plan_discovery_jobs(
+                target_dates, local_date, now
+            )
+            self._execute_discovery_jobs(discovery_jobs, now, dry_run)
+            fixtures = self._monitored_fixtures(
+                local_date, start_date=start_date, end_date=end_date
+            )
+            fixture_refresh_jobs = self._plan_fixture_refresh_jobs(fixtures, now)
+            self._execute_fixture_refresh_jobs(fixture_refresh_jobs, now, dry_run)
+            if fixture_refresh_jobs and not dry_run:
+                fixtures = self._monitored_fixtures(
+                    local_date, start_date=start_date, end_date=end_date
+                )
+            today_fixtures = [
+                fixture for fixture in fixtures
+                if fixture.kickoff.astimezone(self.zone).date() == local_date
+            ]
             self.summary["selected_fixtures"] = len(fixtures)
             self._discover_polymarket(local_date, today_fixtures, now, dry_run)
             if not dry_run:
                 self._reconcile_fixture_components(fixtures, now)
+                self._mark_expired_pregame_components(fixtures, now)
             detail_jobs = self._plan_detail_jobs(fixtures, now)
             self.summary["planned_jobs"].extend(job.job_key for job in detail_jobs)
             if not dry_run:
                 self._execute_detail_jobs(detail_jobs, now)
                 self._reconcile_fixture_components(fixtures, now)
+                self._mark_expired_pregame_components(fixtures, now)
                 self.summary["linked_polymarket_events"] = self._link_polymarket_events(fixtures)
             market_jobs = self._plan_market_jobs(fixtures, now)
             self.summary["planned_jobs"].extend(job.job_key for job in market_jobs)
@@ -349,55 +396,343 @@ class Collector:
                 ],
             )
 
-    def _discover_fixtures(self, local_date: date, now: datetime, dry_run: bool) -> None:
-        job_key = f"api_football:fixture_discovery:{local_date.isoformat()}"
-        if self._checkpoint_done(job_key):
-            return
+    def _discovery_window(
+        self, local_date: date, catch_up_days: int | None
+    ) -> tuple[date, date, list[date], int]:
+        configured_recovery = int(self.discovery_config.get("recovery_days", 14))
+        planning_days = int(self.discovery_config.get("planning_days", 7))
+        completed_frontier_days = self._completed_frontier_days(local_date)
+        start_date, end_date, target_dates = discovery_date_window(
+            local_date,
+            recovery_days=configured_recovery,
+            planning_days=planning_days,
+            catch_up_days=catch_up_days,
+            completed_frontier_days=completed_frontier_days,
+        )
+        return start_date, end_date, target_dates, (local_date - start_date).days
+
+    def _completed_frontier_days(self, local_date: date) -> int | None:
+        """Use the latest monitored final fixture as a recovery expansion hint.
+
+        A completed fixture does not prove discovery coverage for surrounding
+        dates, so the configured recovery window remains in force. This only
+        expands the window when the database's latest monitored final fixture
+        is older than that safety window.
+        """
+        rows = self.connection.execute(
+            """
+            SELECT f.scheduled_kickoff, cm.source_entity_id, c.country_code, c.name
+            FROM fixture f
+            LEFT JOIN competition c ON c.competition_id = f.competition_id
+            LEFT JOIN source_entity_map cm
+              ON cm.internal_entity_id = c.competition_id
+             AND cm.source_code = 'api_football'
+             AND cm.entity_type = 'competition'
+            WHERE f.scheduled_kickoff IS NOT NULL
+              AND f.status IN ('completed', 'FT', 'AET', 'PEN')
+            """
+        ).fetchall()
+        latest: date | None = None
+        for kickoff, league_id, country, name in rows:
+            if not self._is_monitored_competition(league_id, country, name):
+                continue
+            fixture_date = kickoff.astimezone(self.zone).date()
+            if fixture_date <= local_date and (latest is None or fixture_date > latest):
+                latest = fixture_date
+        if latest is None:
+            return None
+        return (local_date - latest).days
+
+    def _plan_discovery_jobs(
+        self, target_dates: list[date], today: date, now: datetime
+    ) -> list[DiscoveryJob]:
+        jobs: list[DiscoveryJob] = []
+        for target_date in target_dates:
+            job = discovery_job_for_date(
+                target_date,
+                today=today,
+                now=now,
+                zone=self.zone,
+                today_tomorrow_hours=int(
+                    self.discovery_config.get("today_tomorrow_refresh_hours", 6)
+                ),
+            )
+            if job.cadence == "recovery":
+                required = not self._successful_discovery_for_date(target_date)
+            else:
+                required = not self._checkpoint_succeeded(job.job_key)
+            if required:
+                jobs.append(job)
+        return sorted(jobs, key=lambda job: (job.priority, job.target_date, job.job_key))
+
+    def _successful_discovery_for_date(self, target_date: date) -> bool:
+        rows = self.connection.execute(
+            """
+            SELECT job_key, metadata
+            FROM collection_checkpoint
+            WHERE source_code = 'api_football'
+              AND job_type = 'fixture_discovery'
+              AND status = 'succeeded'
+            """
+        ).fetchall()
+        for job_key, metadata in rows:
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except json.JSONDecodeError:
+                    metadata = None
+            if discovery_date_from_checkpoint(job_key, metadata) == target_date:
+                return True
+        return False
+
+    def _checkpoint_succeeded(self, job_key: str) -> bool:
+        row = self.connection.execute(
+            "SELECT status FROM collection_checkpoint WHERE job_key = ?", [job_key]
+        ).fetchone()
+        return bool(row and row[0] == "succeeded")
+
+    def _execute_discovery_jobs(
+        self, jobs: list[DiscoveryJob], now: datetime, dry_run: bool
+    ) -> None:
+        for job in jobs:
+            self._discover_fixtures(job, now, dry_run)
+
+    def _discover_fixtures(
+        self, job: DiscoveryJob, now: datetime, dry_run: bool
+    ) -> None:
+        job_key = job.job_key
         self.summary["planned_jobs"].append(job_key)
         if dry_run:
             return
         request_metadata = {
-            "date": local_date.isoformat(),
+            "date": job.target_date.isoformat(),
+            "target_date": job.target_date.isoformat(),
             "timezone": self.config["timezone"],
+            "cadence": job.cadence,
+            "slot": job.slot,
+            "reason": job.reason,
         }
         attempt_id = self._begin_attempt_record(
             job_key, "api_football", "fixture_discovery", None, now, request_metadata
         )
         try:
             payload, item, status = self._api_get(
-                "fixtures_by_date", "/fixtures", request_metadata, now
+                "fixtures_by_date",
+                "/fixtures",
+                {"date": job.target_date.isoformat(), "timezone": self.config["timezone"]},
+                now,
             )
+            matches, selected = self._filtered_discovery_matches(payload)
+            self._validate_discovery_matches(selected)
+            filtered_payload = dict(payload)
+            filtered_payload["response"] = selected
+            metadata = {
+                **request_metadata,
+                "returned": len(matches),
+                "selected": len(selected),
+            }
+            with self.warehouse.transaction():
+                self.loader.load_api_football_payload(
+                    filtered_payload, item, "fixtures_by_date"
+                )
+                self._record_checkpoint(
+                    job_key,
+                    "api_football",
+                    "fixture_discovery",
+                    None,
+                    job.scheduled_for,
+                    "succeeded",
+                    status,
+                    metadata,
+                    priority=job.priority,
+                )
         except Exception as error:
             self._finish_attempts(
                 {job_key: attempt_id} if attempt_id else {},
                 status="retryable_error",
-                finished_at=datetime.now(timezone.utc),
+                finished_at=now,
                 error=error,
                 metadata=request_metadata,
             )
             self._record_checkpoint(
-                job_key, "api_football", "fixture_discovery", None, now,
-                "failed", None, request_metadata, error=str(error),
+                job_key,
+                "api_football",
+                "fixture_discovery",
+                None,
+                job.scheduled_for,
+                "failed",
+                None,
+                request_metadata,
+                error=str(error),
+                priority=job.priority,
             )
             raise
-        matches = payload.get("response", []) if isinstance(payload, dict) else []
-        selected = [match for match in matches if self._is_monitored_match(match)]
-        filtered_payload = dict(payload)
-        filtered_payload["response"] = selected
-        self.loader.load_api_football_payload(filtered_payload, item, "fixtures_by_date")
-        self._record_checkpoint(
-            job_key, "api_football", "fixture_discovery", None, now,
-            "succeeded", status, {"returned": len(matches), "selected": len(selected)},
-        )
         self._finish_attempts(
             {job_key: attempt_id} if attempt_id else {},
             status="succeeded",
-            finished_at=datetime.now(timezone.utc),
+            finished_at=now,
             http_status=status,
             raw_artifact_id=item.get("_raw_artifact_id"),
-            metadata={"returned": len(matches), "selected": len(selected)},
+            metadata=metadata,
         )
         self.summary["executed_jobs"].append(job_key)
+
+    def _filtered_discovery_matches(
+        self, payload: object
+    ) -> tuple[list[dict], list[dict]]:
+        if not isinstance(payload, dict) or not isinstance(payload.get("response"), list):
+            raise RuntimeError("API-Football discovery response has no fixture list")
+        if any(not isinstance(match, dict) for match in payload["response"]):
+            raise RuntimeError("API-Football discovery response contains a non-object fixture")
+        matches = list(payload["response"])
+        self._validate_discovery_matches(matches)
+        selected = [match for match in matches if self._is_monitored_match(match)]
+        return matches, selected
+
+    @staticmethod
+    def _validate_discovery_matches(matches: list[dict]) -> None:
+        for match in matches:
+            fixture = match.get("fixture") or {}
+            if fixture.get("id") is None:
+                raise RuntimeError("API-Football discovery returned a fixture without an ID")
+            if not fixture.get("date"):
+                raise RuntimeError(
+                    f"API-Football fixture {fixture['id']} has no scheduled date"
+                )
+
+    def _plan_fixture_refresh_jobs(
+        self, fixtures: list[FixtureRecord], now: datetime
+    ) -> list[FixtureRefreshJob]:
+        jobs: list[FixtureRefreshJob] = []
+        near_minutes = int(
+            self.discovery_config.get("near_kickoff_refresh_minutes", 120)
+        )
+        status_hours = int(
+            self.discovery_config.get("postponed_cancelled_refresh_hours", 6)
+        )
+        if status_hours <= 0 or status_hours > 24:
+            raise ValueError("postponed_cancelled_refresh_hours must be between 1 and 24")
+        local_now = now.astimezone(self.zone)
+        status_slot = local_now.replace(
+            hour=local_now.hour - (local_now.hour % status_hours),
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        for fixture in fixtures:
+            minutes_until = (fixture.kickoff - now).total_seconds() / 60
+            if 0 <= minutes_until <= near_minutes:
+                slot = f"near_kickoff:{int(fixture.kickoff.timestamp())}"
+                job_key = fixture_refresh_job_key(
+                    fixture.source_id, reason="near_kickoff", slot=slot
+                )
+                if not self._checkpoint_succeeded(job_key):
+                    jobs.append(
+                        FixtureRefreshJob(
+                            job_key, fixture, "near_kickoff", slot, now
+                        )
+                    )
+            status = latest_fixture_status(
+                self.connection, fixture.internal_id, "api_football"
+            )
+            if status in {"postponed", "cancelled"}:
+                slot = f"status:{status_slot.strftime('%Y-%m-%dT%H:%M')}"
+                job_key = fixture_refresh_job_key(
+                    fixture.source_id, reason=f"{status}_signal", slot=slot
+                )
+                if not self._checkpoint_succeeded(job_key):
+                    jobs.append(
+                        FixtureRefreshJob(job_key, fixture, f"{status}_signal", slot, now)
+                    )
+        return sorted(jobs, key=lambda job: (job.scheduled_for, job.job_key))
+
+    def _execute_fixture_refresh_jobs(
+        self, jobs: list[FixtureRefreshJob], now: datetime, dry_run: bool
+    ) -> None:
+        for job in jobs:
+            self.summary["planned_jobs"].append(job.job_key)
+            if dry_run:
+                continue
+            request_metadata = {
+                "id": job.fixture.source_id,
+                "fixture_source_id": job.fixture.source_id,
+                "reason": job.reason,
+                "slot": job.slot,
+            }
+            attempt_id = self._begin_attempt_record(
+                job.job_key,
+                "api_football",
+                "fixture_refresh",
+                job.fixture.internal_id,
+                now,
+                request_metadata,
+            )
+            try:
+                payload, item, status = self._api_get(
+                    "fixture_by_id", "/fixtures", {"id": job.fixture.source_id}, now
+                )
+                matches, selected = self._filtered_discovery_matches(payload)
+                self._validate_discovery_matches(selected)
+                if job.fixture.source_id not in {
+                    str((match.get("fixture") or {}).get("id")) for match in selected
+                }:
+                    raise RuntimeError(
+                        f"API-Football fixture refresh omitted fixture {job.fixture.source_id}"
+                    )
+                filtered_payload = dict(payload)
+                filtered_payload["response"] = selected
+                metadata = {
+                    **request_metadata,
+                    "returned": len(matches),
+                    "selected": len(selected),
+                }
+                with self.warehouse.transaction():
+                    self.loader.load_api_football_payload(
+                        filtered_payload, item, "fixture_by_id"
+                    )
+                    self._record_checkpoint(
+                        job.job_key,
+                        "api_football",
+                        "fixture_refresh",
+                        job.fixture.source_id,
+                        job.scheduled_for,
+                        "succeeded",
+                        status,
+                        metadata,
+                        fixture_id=job.fixture.internal_id,
+                        priority=1,
+                    )
+            except Exception as error:
+                self._finish_attempts(
+                    {job.job_key: attempt_id} if attempt_id else {},
+                    status="retryable_error",
+                    finished_at=now,
+                    error=error,
+                    metadata=request_metadata,
+                )
+                self._record_checkpoint(
+                    job.job_key,
+                    "api_football",
+                    "fixture_refresh",
+                    job.fixture.source_id,
+                    job.scheduled_for,
+                    "failed",
+                    None,
+                    request_metadata,
+                    error=str(error),
+                    fixture_id=job.fixture.internal_id,
+                    priority=1,
+                )
+                raise
+            self._finish_attempts(
+                {job.job_key: attempt_id} if attempt_id else {},
+                status="succeeded",
+                finished_at=now,
+                http_status=status,
+                raw_artifact_id=item.get("_raw_artifact_id"),
+                metadata=metadata,
+            )
+            self.summary["executed_jobs"].append(job.job_key)
 
     def _discover_polymarket(
         self,
@@ -786,8 +1121,110 @@ class Collector:
                 )
             self.summary["executed_jobs"].append(job.job_key)
 
+    def _mark_expired_pregame_components(
+        self, fixtures: list[FixtureRecord], now: datetime
+    ) -> None:
+        for fixture in fixtures:
+            if now < fixture.kickoff:
+                continue
+            status = latest_fixture_status(
+                self.connection, fixture.internal_id, "api_football"
+            )
+            if status in {
+                "postponed", "cancelled", "abandoned", "administrative_result"
+            }:
+                continue
+            lineup = validate_lineups(
+                self.connection, fixture.internal_id, "api_football", now
+            )
+            lineup_captured_before_kickoff = False
+            if lineup.state == "complete" and lineup.last_raw_artifact_id:
+                row = self.connection.execute(
+                    "SELECT retrieved_at FROM raw_artifact WHERE raw_artifact_id = ?",
+                    [lineup.last_raw_artifact_id],
+                ).fetchone()
+                lineup_captured_before_kickoff = bool(
+                    row and row[0].astimezone(timezone.utc) < fixture.kickoff
+                )
+            self._mark_pregame_component(
+                fixture,
+                "pregame_lineup_capture",
+                complete=lineup_captured_before_kickoff,
+                now=now,
+                complete_reason="valid_lineup_retrieved_before_kickoff",
+                missed_reason="kickoff_passed_without_pregame_lineup",
+            )
+            if self._fixture_has_any_market_tokens(fixture.internal_id):
+                market_captured_before_kickoff = bool(
+                    self.connection.execute(
+                        """
+                        SELECT 1
+                        FROM orderbook_snapshot ob
+                        JOIN prediction_market_outcome o
+                          ON o.source_token_id = ob.source_token_id
+                        JOIN prediction_market m
+                          ON m.prediction_market_id = o.prediction_market_id
+                        JOIN prediction_market_event e
+                          ON e.prediction_market_event_id = m.prediction_market_event_id
+                        WHERE e.fixture_id = ? AND ob.retrieved_at < ?
+                        LIMIT 1
+                        """,
+                        [fixture.internal_id, fixture.kickoff],
+                    ).fetchone()
+                )
+                self._mark_pregame_component(
+                    fixture,
+                    "pregame_market_capture",
+                    complete=market_captured_before_kickoff,
+                    now=now,
+                    complete_reason="market_snapshot_retrieved_before_kickoff",
+                    missed_reason="kickoff_passed_without_pregame_market_snapshot",
+                )
+
+    def _mark_pregame_component(
+        self,
+        fixture: FixtureRecord,
+        component_code: str,
+        *,
+        complete: bool,
+        now: datetime,
+        complete_reason: str,
+        missed_reason: str,
+    ) -> None:
+        row = self.connection.execute(
+            """
+            SELECT state
+            FROM fixture_collection_component
+            WHERE fixture_id = ? AND source_code = ? AND component_code = ?
+            """,
+            [fixture.internal_id, "api_football", component_code],
+        ).fetchone()
+        if row and component_is_terminally_done(row[0]):
+            return
+        if complete:
+            result = ValidationResult(
+                "complete", None, {"reason": complete_reason}
+            )
+        else:
+            result = ValidationResult(
+                "missed", missed_reason, {"kickoff": fixture.kickoff.isoformat()}
+            )
+        record_component_result(
+            self.connection,
+            fixture_id=fixture.internal_id,
+            source_code="api_football",
+            component_code=component_code,
+            result=result,
+            now=now,
+        )
+
     def _monitored_fixtures(
-        self, local_date: date, *, lookback_days: int = 0
+        self,
+        local_date: date,
+        *,
+        lookback_days: int = 0,
+        start_date: date | None = None,
+        end_date: date | None = None,
     ) -> list[FixtureRecord]:
         rows = self.connection.execute(
             """
@@ -807,11 +1244,17 @@ class Collector:
             """
         ).fetchall()
         selected: list[FixtureRecord] = []
-        earliest_date = local_date - timedelta(days=lookback_days)
+        earliest_date = (
+            start_date if start_date is not None
+            else local_date - timedelta(days=lookback_days)
+        )
+        latest_date = end_date if end_date is not None else local_date
+        if earliest_date > latest_date:
+            raise ValueError("Fixture selection start_date must not be after end_date")
         for internal_id, source_id, kickoff, status, home, away, league_id, country, name in rows:
             kickoff = kickoff.astimezone(timezone.utc)
             fixture_date = kickoff.astimezone(self.zone).date()
-            if not earliest_date <= fixture_date <= local_date:
+            if not earliest_date <= fixture_date <= latest_date:
                 continue
             if not self._is_monitored_competition(league_id, country, name):
                 continue
@@ -915,6 +1358,20 @@ class Collector:
 
     def _fixture_has_market_tokens(self, fixture_id: str) -> bool:
         return bool(self._market_tokens(fixture_id))
+
+    def _fixture_has_any_market_tokens(self, fixture_id: str) -> bool:
+        row = self.connection.execute(
+            """
+            SELECT 1
+            FROM prediction_market_event e
+            JOIN prediction_market m USING (prediction_market_event_id)
+            JOIN prediction_market_outcome o USING (prediction_market_id)
+            WHERE e.fixture_id = ? AND o.source_token_id IS NOT NULL
+            LIMIT 1
+            """,
+            [fixture_id],
+        ).fetchone()
+        return bool(row)
 
     def _market_tokens(self, fixture_id: str) -> list[str]:
         rows = self.connection.execute(
