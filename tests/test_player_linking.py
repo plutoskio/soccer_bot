@@ -58,13 +58,32 @@ class PlayerLinkingTests(unittest.TestCase):
         self.assertIsNone(decisions[0].player_id)
         self.assertEqual("raphael", decisions[0].best_candidate_id)
 
-    def test_provider_id_shirt_and_role_can_overcome_name_disagreement(self):
+    def test_provider_id_with_incompatible_name_is_rejected(self):
         decisions = link_team_players(
             [alias(0, 144624, "G. Duru", "substitute", 23)],
             [candidate("duru", 144624, "Chidiebube Duru", 31, False, 23)],
         )
+        self.assertIsNone(decisions[0].player_id)
+        self.assertEqual("provider_id_name_conflict", decisions[0].unresolved_reason)
+
+    def test_provider_id_with_compatible_name_is_accepted(self):
+        decisions = link_team_players(
+            [alias(0, 144624, "C. Duru", "substitute", 23)],
+            [candidate("duru", 144624, "Chidiebube Duru", 31, False, 23)],
+        )
         self.assertEqual("duru", decisions[0].player_id)
         self.assertIn("provider_id", decisions[0].evidence)
+
+    def test_recent_same_team_candidate_requires_compatible_name(self):
+        decisions = link_team_players(
+            [alias(0, 777, "A. Sæther", "starter", None)],
+            [StatCandidate(
+                "adrian", (), "Adrian Saether", None, None, None, "G",
+                recent_same_team=True,
+            )],
+        )
+        self.assertEqual("adrian", decisions[0].player_id)
+        self.assertIn("recent_same_team", decisions[0].evidence)
 
     def test_equal_candidates_are_not_guessed(self):
         decisions = link_team_players(

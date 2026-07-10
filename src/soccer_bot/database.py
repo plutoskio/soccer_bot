@@ -344,9 +344,33 @@ class Warehouse:
         *,
         nationality_code: str | None = None,
         primary_position: str | None = None,
+        identity_placeholder: bool = False,
     ) -> str:
-        mapped = self._mapped_id(source_code, "player", source_id)
-        if mapped:
+        mapping = self.connection.execute(
+            """
+            SELECT internal_entity_id, match_method, review_status
+            FROM source_entity_map
+            WHERE source_code=? AND entity_type='player' AND source_entity_id=?
+            """,
+            [source_code, str(source_id)],
+        ).fetchone()
+        if mapping:
+            mapped = mapping[0]
+            if identity_placeholder and (
+                mapping[1] == "unresolved_alias" and mapping[2] == "pending"
+            ):
+                self.connection.execute(
+                    """
+                    INSERT INTO player_identity_state (
+                        player_id, is_identity_placeholder, reason
+                    ) VALUES (?, true, 'unresolved_api_football_lineup_alias')
+                    ON CONFLICT (player_id) DO UPDATE SET
+                        is_identity_placeholder=true,
+                        reason=excluded.reason,
+                        updated_at=now()
+                    """,
+                    [mapped],
+                )
             return mapped
         norm = normalized_name(name)
         # Provider player IDs are authoritative identities. Display names are
@@ -360,8 +384,10 @@ class Warehouse:
         )
         self.connection.execute(
             """
-            INSERT INTO player (player_id, full_name, normalized_name, nationality_code, primary_position)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO player (
+                player_id, full_name, normalized_name, nationality_code,
+                primary_position
+            ) VALUES (?, ?, ?, ?, ?)
             ON CONFLICT (player_id) DO UPDATE SET
                 full_name = excluded.full_name,
                 nationality_code = coalesce(excluded.nationality_code, player.nationality_code),
@@ -369,6 +395,19 @@ class Warehouse:
             """,
             [internal_id, name, norm, nationality_code, primary_position],
         )
+        if identity_placeholder:
+            self.connection.execute(
+                """
+                INSERT INTO player_identity_state (
+                    player_id, is_identity_placeholder, reason
+                ) VALUES (?, true, 'unresolved_api_football_lineup_alias')
+                ON CONFLICT (player_id) DO UPDATE SET
+                    is_identity_placeholder=true,
+                    reason=excluded.reason,
+                    updated_at=now()
+                """,
+                [internal_id],
+            )
         if source_id is not None:
             self._map_entity(
                 source_code, "player", source_id, internal_id, name,

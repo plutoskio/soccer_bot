@@ -268,6 +268,93 @@ class LineupLoaderTests(unittest.TestCase):
             ).fetchone()[0],
         )
 
+    def test_postmatch_stats_reconcile_unresolved_alias_without_global_merge(self):
+        pregame = self.payload()
+        self.loader.load_api_football_payload(
+            pregame,
+            self.item("2026-07-10T17:00:00+00:00", "artifact-pregame", "pregame"),
+            "fixture_details_batch",
+        )
+        pending = self.warehouse.connection.execute(
+            """
+            SELECT m.internal_entity_id, p.is_identity_placeholder
+            FROM source_entity_map m
+            JOIN player_identity_state p ON p.player_id=m.internal_entity_id
+            WHERE m.source_code='api_football_lineup'
+              AND m.source_entity_id='900|101|alpha player 1'
+              AND m.review_status='pending'
+            """
+        ).fetchone()
+        self.assertIsNotNone(pending)
+        self.assertTrue(pending[1])
+        placeholder_id = pending[0]
+
+        postmatch = self.payload()
+        postmatch["response"][0]["players"] = [{
+            "team": {"id": 1, "name": "Alpha FC"},
+            "players": [{
+                "player": {"id": 101, "name": "Alpha Player 1"},
+                "statistics": [{
+                    "games": {
+                        "minutes": 90, "position": "F", "substitute": False,
+                        "number": 1,
+                    },
+                    "goals": {}, "shots": {}, "passes": {}, "cards": {},
+                }],
+            }],
+        }]
+        self.loader.load_api_football_payload(
+            postmatch,
+            self.item("2026-07-10T20:00:00+00:00", "artifact-postmatch", "postmatch"),
+            "fixture_details_batch",
+        )
+
+        canonical_id = self.warehouse.connection.execute(
+            """
+            SELECT internal_entity_id
+            FROM source_entity_map
+            WHERE source_code='api_football'
+              AND source_entity_id='101|alpha player 1'
+            """
+        ).fetchone()[0]
+        lineup_canonical_count = self.warehouse.connection.execute(
+            """
+            SELECT count(*)
+            FROM lineup_snapshot ls
+            JOIN lineup_player lp USING (lineup_snapshot_id)
+            WHERE ls.fixture_id=(
+                SELECT internal_entity_id FROM source_entity_map
+                WHERE source_code='api_football' AND entity_type='fixture'
+                  AND source_entity_id='900'
+            )
+              AND lp.player_id=?
+            """
+            , [canonical_id]
+        ).fetchone()[0]
+        self.assertGreaterEqual(lineup_canonical_count, 1)
+        self.assertNotEqual(placeholder_id, canonical_id)
+        self.assertEqual(
+            (canonical_id, 'automatic'),
+            self.warehouse.connection.execute(
+                """
+                SELECT internal_entity_id, review_status
+                FROM source_entity_map
+                WHERE source_code='api_football_lineup'
+                  AND source_entity_id='900|101|alpha player 1'
+                """
+            ).fetchone(),
+        )
+        self.assertEqual(
+            0,
+            self.warehouse.connection.execute(
+                """
+                SELECT count(*) FROM player_match_stat_observation pm
+                JOIN player_identity_state s ON s.player_id=pm.player_id
+                WHERE s.is_identity_placeholder
+                """
+            ).fetchone()[0],
+        )
+
 
 class ScheduleAwareCollectorTests(unittest.TestCase):
     def setUp(self):

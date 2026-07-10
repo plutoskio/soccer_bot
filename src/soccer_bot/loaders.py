@@ -26,6 +26,7 @@ from .player_names import (
 from .player_linking import (
     LineupAlias,
     StatCandidate,
+    can_auto_reconcile,
     deduplicate_api_lineup_entries,
     link_team_players,
 )
@@ -253,6 +254,9 @@ class WarehouseLoader:
         self._api_stat_candidate_cache: dict[
             tuple[str, str, str], list[StatCandidate]
         ] | None = None
+        self._api_recent_team_candidate_cache: dict[
+            tuple[str, str], list[StatCandidate]
+        ] = {}
         self._api_fixture_id_cache: dict[str, str] = {}
         self._api_team_id_cache: dict[str, str] = {}
         self._api_player_id_cache: dict[str, tuple[str, str]] = {}
@@ -321,6 +325,11 @@ class WarehouseLoader:
               ON m.internal_entity_id=p.player_id
              AND m.source_code='api_football' AND m.entity_type='player'
             WHERE s.source_code='api_football'
+              AND NOT EXISTS (
+                  SELECT 1 FROM player_identity_state ids
+                  WHERE ids.player_id=p.player_id
+                    AND ids.is_identity_placeholder
+              )
             GROUP BY s.fixture_id, s.team_id, s.raw_artifact_id, s.player_id,
                      p.full_name, s.minutes_played, s.started, s.shirt_number,
                      s.position_code
@@ -1040,6 +1049,7 @@ class WarehouseLoader:
             )
             mapping_rows: list[tuple] = []
             lineup_rows: list[list] = []
+            unresolved_details: list[dict] = []
             for alias, (role, entry) in zip(aliases, entries):
                 player = entry.get("player", {})
                 decision = decisions[alias.index]
@@ -1057,10 +1067,18 @@ class WarehouseLoader:
                         "api_football_lineup", alias_source_id,
                         player.get("name", "Unknown"),
                         primary_position=player.get("pos"),
+                        identity_placeholder=True,
                     )
                     match_method = "unresolved_alias"
                     confidence = 0.0
                     review_status = "pending"
+                    unresolved_details.append({
+                        "source_player_id": player.get("id"),
+                        "name": player.get("name", "Unknown"),
+                        "reason": decision.unresolved_reason,
+                        "best_candidate_id": decision.best_candidate_id,
+                        "evidence": list(decision.evidence),
+                    })
                 mapping_rows.append((
                     "api_football_lineup", "player", alias_source_id,
                     player_id, player.get("name", "Unknown"), match_method,
@@ -1081,6 +1099,27 @@ class WarehouseLoader:
                     "INSERT OR REPLACE INTO lineup_player VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     lineup_rows,
                 )
+            if unresolved_details:
+                self.connection.execute(
+                    """
+                    INSERT OR REPLACE INTO data_quality_issue (
+                        issue_id, rule_code, severity, entity_type, internal_entity_id,
+                        source_code, raw_artifact_id, details, status
+                    ) VALUES (?, 'api_unresolved_lineup_alias', 'warning', 'fixture', ?,
+                              'api_football', ?, ?, 'open')
+                    """,
+                    [
+                        stable_id(
+                            "quality_issue", "api_unresolved_lineup_alias",
+                            fixture_id, team_id, item["_raw_artifact_id"]
+                        ),
+                        fixture_id,
+                        item["_raw_artifact_id"],
+                        json_text({"team_id": team_id, "aliases": unresolved_details}),
+                    ],
+                )
+        self._reconcile_api_lineup_aliases(fixture_id)
+        self._refresh_unresolved_identity_issues(fixture_id)
 
     def _load_api_events(self, records: object, fixture_source_id: object, fixture_id: str, item: dict) -> None:
         if not isinstance(records, list):
@@ -1224,15 +1263,18 @@ class WarehouseLoader:
                      optional_int(games.get("minutes")), games.get("position"),
                      optional_int(games.get("number")), optional_float(games.get("rating")), retrieved_at],
                 )
+        self._reconcile_api_lineup_aliases(fixture_id)
+        self._refresh_unresolved_identity_issues(fixture_id)
 
     def _api_stat_candidates_for_team(
         self, fixture_id: str, team_id: str, raw_artifact_id: str
     ) -> list[StatCandidate]:
+        current: list[StatCandidate]
         if self._api_stat_candidate_cache is not None:
-            return self._api_stat_candidate_cache.get(
+            current = self._api_stat_candidate_cache.get(
                 (fixture_id, team_id, raw_artifact_id), []
             )
-        if self._use_runtime_api_player_id_cache:
+        elif self._use_runtime_api_player_id_cache:
             rows = self.connection.execute(
                 """
                 SELECT s.player_id, p.full_name, s.minutes_played, s.started,
@@ -1241,11 +1283,16 @@ class WarehouseLoader:
                 JOIN player p USING (player_id)
                 WHERE s.fixture_id=? AND s.team_id=?
                   AND s.source_code='api_football' AND s.raw_artifact_id=?
+                  AND NOT EXISTS (
+                      SELECT 1 FROM player_identity_state ids
+                      WHERE ids.player_id=p.player_id
+                        AND ids.is_identity_placeholder
+                  )
                 ORDER BY s.player_id
                 """,
                 [fixture_id, team_id, raw_artifact_id],
             ).fetchall()
-            return [
+            current = [
                 StatCandidate(
                     player_id=row[0], name=row[1], minutes_played=row[2],
                     started=row[3], shirt_number=row[4], position=row[5],
@@ -1255,10 +1302,118 @@ class WarehouseLoader:
                 )
                 for row in rows
             ]
+        else:
+            rows = self.connection.execute(
+                """
+                SELECT s.player_id, p.full_name, s.minutes_played, s.started,
+                       s.shirt_number, s.position_code,
+                       list(m.source_entity_id ORDER BY m.source_entity_id)
+                FROM player_match_stat_observation s
+                JOIN player p USING (player_id)
+                LEFT JOIN source_entity_map m
+                  ON m.internal_entity_id=p.player_id
+                 AND m.source_code='api_football' AND m.entity_type='player'
+                WHERE s.fixture_id=? AND s.team_id=? AND s.source_code='api_football'
+                  AND s.raw_artifact_id=?
+                  AND NOT EXISTS (
+                      SELECT 1 FROM player_identity_state ids
+                      WHERE ids.player_id=p.player_id
+                        AND ids.is_identity_placeholder
+                  )
+                GROUP BY s.player_id, p.full_name, s.minutes_played, s.started,
+                         s.shirt_number, s.position_code
+                ORDER BY s.player_id
+                """,
+                [fixture_id, team_id, raw_artifact_id],
+            ).fetchall()
+            current = [
+                StatCandidate(
+                    player_id=row[0], name=row[1], minutes_played=row[2],
+                    started=row[3], shirt_number=row[4], position=row[5],
+                    source_player_ids=tuple(value for value in row[6] if value is not None),
+                )
+                for row in rows
+            ]
+
+        # A complete/current player-stat block is the stronger evidence and
+        # avoids repeatedly scanning historical appearances during a bulk
+        # replay.  Historical roster evidence is the fallback used for
+        # pregame lineup payloads that do not contain current-match stats.
+        historical = (
+            self._api_recent_team_candidates(team_id, fixture_id)
+            if not current and not self._use_runtime_api_player_id_cache else []
+        )
+        seen = {candidate.player_id for candidate in current}
+        return current + [candidate for candidate in historical if candidate.player_id not in seen]
+
+    def _api_recent_team_candidates(
+        self, team_id: str, fixture_id: str
+    ) -> list[StatCandidate]:
+        """Return canonical API players recently observed for a team.
+
+        These are identity candidates only.  They intentionally carry no
+        current-match starter or shirt evidence, so a historical appearance
+        cannot masquerade as confirmed current-match facts.
+        """
+        cache_key = (team_id, fixture_id)
+        cached = self._api_recent_team_candidate_cache.get(cache_key)
+        if cached is None:
+            rows = self.connection.execute(
+                """
+                SELECT a.player_id, p.full_name,
+                       arg_max(a.position_code, a.retrieved_at),
+                       count(*), max(a.retrieved_at),
+                       list(m.source_entity_id ORDER BY m.source_entity_id)
+                FROM appearance a
+                JOIN player p USING (player_id)
+                JOIN fixture appeared_fixture ON appeared_fixture.fixture_id=a.fixture_id
+                JOIN fixture current_fixture ON current_fixture.fixture_id=?
+                LEFT JOIN source_entity_map m
+                  ON m.internal_entity_id=p.player_id
+                 AND m.source_code='api_football' AND m.entity_type='player'
+                WHERE a.source_code='api_football'
+                  AND a.team_id=?
+                  AND a.fixture_id<>?
+                  AND (
+                      current_fixture.scheduled_kickoff IS NULL
+                      OR appeared_fixture.scheduled_kickoff IS NULL
+                      OR appeared_fixture.scheduled_kickoff < current_fixture.scheduled_kickoff
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM player_identity_state ids
+                      WHERE ids.player_id=p.player_id
+                        AND ids.is_identity_placeholder
+                  )
+                GROUP BY a.player_id, p.full_name
+                ORDER BY max(appeared_fixture.scheduled_kickoff) DESC NULLS LAST,
+                         max(a.retrieved_at) DESC, a.player_id
+                LIMIT 50
+                """,
+                [fixture_id, team_id, fixture_id],
+            ).fetchall()
+            cached = [
+                StatCandidate(
+                    player_id=row[0], source_player_ids=tuple(
+                        value for value in row[5] if value is not None
+                    ), name=row[1], minutes_played=None, started=None,
+                    shirt_number=None, position=row[2], recent_same_team=True,
+                )
+                for row in rows
+            ]
+            self._api_recent_team_candidate_cache[cache_key] = cached
+        return cached
+
+    def _api_fixture_stat_candidates(
+        self, fixture_id: str, team_id: str
+    ) -> list[StatCandidate]:
+        """Aggregate all canonical post-match API player evidence for a fixture."""
         rows = self.connection.execute(
             """
-            SELECT s.player_id, p.full_name, s.minutes_played, s.started,
-                   s.shirt_number, s.position_code,
+            SELECT s.player_id, p.full_name,
+                   arg_max(s.minutes_played, s.retrieved_at),
+                   arg_max(s.started, s.retrieved_at),
+                   arg_max(s.shirt_number, s.retrieved_at),
+                   arg_max(s.position_code, s.retrieved_at),
                    list(m.source_entity_id ORDER BY m.source_entity_id)
             FROM player_match_stat_observation s
             JOIN player p USING (player_id)
@@ -1266,12 +1421,15 @@ class WarehouseLoader:
               ON m.internal_entity_id=p.player_id
              AND m.source_code='api_football' AND m.entity_type='player'
             WHERE s.fixture_id=? AND s.team_id=? AND s.source_code='api_football'
-              AND s.raw_artifact_id=?
-            GROUP BY s.player_id, p.full_name, s.minutes_played, s.started,
-                     s.shirt_number, s.position_code
+              AND NOT EXISTS (
+                  SELECT 1 FROM player_identity_state ids
+                  WHERE ids.player_id=p.player_id
+                    AND ids.is_identity_placeholder
+              )
+            GROUP BY s.player_id, p.full_name
             ORDER BY s.player_id
             """,
-            [fixture_id, team_id, raw_artifact_id],
+            [fixture_id, team_id],
         ).fetchall()
         return [
             StatCandidate(
@@ -1281,6 +1439,145 @@ class WarehouseLoader:
             )
             for row in rows
         ]
+
+    def _reconcile_api_lineup_aliases(self, fixture_id: str) -> None:
+        """Relink unresolved lineup aliases when post-match evidence arrives."""
+        rows = self.connection.execute(
+            """
+            SELECT DISTINCT m.source_entity_id, m.internal_entity_id,
+                   m.source_name, ls.team_id, lp.selection_role,
+                   lp.shirt_number, lp.position_code
+            FROM source_entity_map m
+            JOIN lineup_player lp ON lp.player_id=m.internal_entity_id
+            JOIN lineup_snapshot ls USING (lineup_snapshot_id)
+            WHERE m.source_code='api_football_lineup'
+              AND m.entity_type='player'
+              AND m.review_status='pending'
+              AND ls.fixture_id=?
+            ORDER BY m.source_entity_id, ls.team_id
+            """,
+            [fixture_id],
+        ).fetchall()
+        aliases_by_team: dict[str, list[tuple[LineupAlias, str, str]]] = {}
+        seen_aliases: set[tuple[str, str]] = set()
+        for source_entity_id, placeholder_id, source_name, team_id, role, shirt, position in rows:
+            parts = str(source_entity_id).split("|", 2)
+            if len(parts) != 3:
+                continue
+            alias_key = (str(source_entity_id), str(team_id))
+            if alias_key in seen_aliases:
+                continue
+            seen_aliases.add(alias_key)
+            aliases_by_team.setdefault(str(team_id), []).append((
+                LineupAlias(
+                    index=len(aliases_by_team.get(str(team_id), [])),
+                    source_player_id=parts[1], name=source_name or parts[2],
+                    role=role, shirt_number=shirt, position=position,
+                ),
+                str(source_entity_id), str(placeholder_id),
+            ))
+
+        for team_id, alias_rows in aliases_by_team.items():
+            aliases = [row[0] for row in alias_rows]
+            decisions = link_team_players(
+                aliases, self._api_fixture_stat_candidates(fixture_id, team_id)
+            )
+            for alias, source_entity_id, placeholder_id in alias_rows:
+                decision = decisions[alias.index]
+                if not can_auto_reconcile(decision):
+                    continue
+                canonical_id = decision.player_id
+                if not canonical_id or canonical_id == placeholder_id:
+                    continue
+                snapshot_rows = self.connection.execute(
+                    """
+                    SELECT lp.lineup_snapshot_id
+                    FROM lineup_snapshot ls
+                    JOIN lineup_player lp USING (lineup_snapshot_id)
+                    WHERE ls.fixture_id=? AND lp.player_id=?
+                    """,
+                    [fixture_id, placeholder_id],
+                ).fetchall()
+                for (snapshot_id,) in snapshot_rows:
+                    collision = self.connection.execute(
+                        """
+                        SELECT 1 FROM lineup_player
+                        WHERE lineup_snapshot_id=? AND player_id=?
+                        """,
+                        [snapshot_id, canonical_id],
+                    ).fetchone()
+                    if collision:
+                        self.connection.execute(
+                            "DELETE FROM lineup_player WHERE lineup_snapshot_id=? AND player_id=?",
+                            [snapshot_id, placeholder_id],
+                        )
+                    else:
+                        self.connection.execute(
+                            """
+                            UPDATE lineup_player SET player_id=?
+                            WHERE lineup_snapshot_id=? AND player_id=?
+                            """,
+                            [canonical_id, snapshot_id, placeholder_id],
+                        )
+                self.connection.execute(
+                    """
+                    UPDATE source_entity_map
+                    SET internal_entity_id=?, match_method=?, confidence=?, review_status='automatic'
+                    WHERE source_code='api_football_lineup' AND entity_type='player'
+                      AND source_entity_id=? AND internal_entity_id=?
+                    """,
+                    [canonical_id, f"reconciled:evidence:{decision.method}",
+                     decision.confidence, source_entity_id, placeholder_id],
+                )
+
+        self.connection.execute(
+            """
+            UPDATE lineup_snapshot ls
+            SET identity_state = (
+                SELECT CASE
+                    WHEN count(*) FILTER (
+                        WHERE ids.is_identity_placeholder
+                    ) = 0 THEN 'resolved'
+                    WHEN count(*) FILTER (
+                        WHERE NOT coalesce(ids.is_identity_placeholder, false)
+                    ) = 0 THEN 'unresolved'
+                    ELSE 'partially_resolved'
+                END
+                FROM lineup_player lp
+                JOIN player p ON p.player_id=lp.player_id
+                LEFT JOIN player_identity_state ids
+                  ON ids.player_id=p.player_id
+                WHERE lp.lineup_snapshot_id=ls.lineup_snapshot_id
+            )
+            WHERE ls.fixture_id=?
+            """,
+            [fixture_id],
+        )
+
+    def _refresh_unresolved_identity_issues(self, fixture_id: str) -> None:
+        """Close raw-artifact warnings only after every alias is relinked."""
+        self.connection.execute(
+            """
+            UPDATE data_quality_issue issue
+            SET status='resolved'
+            WHERE issue.rule_code='api_unresolved_lineup_alias'
+              AND issue.entity_type='fixture'
+              AND issue.internal_entity_id=?
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM source_entity_map m
+                  JOIN lineup_player lp ON lp.player_id=m.internal_entity_id
+                  JOIN lineup_snapshot ls USING (lineup_snapshot_id)
+                  WHERE m.source_code='api_football_lineup'
+                    AND m.entity_type='player'
+                    AND m.review_status='pending'
+                    AND ls.fixture_id=issue.internal_entity_id
+                    AND coalesce(ls.raw_artifact_id, '') =
+                        coalesce(issue.raw_artifact_id, '')
+              )
+            """,
+            [fixture_id],
+        )
 
     def _resolve_api_event_player(
         self,

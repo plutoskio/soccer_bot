@@ -18,6 +18,7 @@ COUNT_TABLES = (
     "raw_artifact",
     "fixture",
     "fixture_result_observation",
+    "player_identity_state",
     "lineup_snapshot",
     "lineup_player",
     "appearance",

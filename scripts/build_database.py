@@ -21,6 +21,7 @@ COUNT_TABLES = [
     "season",
     "team",
     "player",
+    "player_identity_state",
     "source_entity_map",
     "fixture",
     "fixture_schedule_observation",
@@ -93,6 +94,24 @@ def run_quality_checks(
             HAVING count(*) FILTER (WHERE p.selection_role = 'starter') != 11
             """,
             "Confirmed lineup does not have exactly eleven starters",
+        ),
+        (
+            "api_unresolved_lineup_alias",
+            "warning",
+            "fixture",
+            """
+            SELECT DISTINCT ls.fixture_id
+            FROM lineup_snapshot ls
+            JOIN lineup_player lp USING (lineup_snapshot_id)
+            JOIN source_entity_map m
+              ON m.internal_entity_id=lp.player_id
+             AND m.source_code='api_football_lineup'
+             AND m.entity_type='player'
+             AND m.review_status='pending'
+            WHERE ls.source_code='api_football'
+            """,
+            "At least one API-Football lineup player remains an unresolved, "
+            "fixture-local identity alias; exclude that player from player-level features",
         ),
         (
             "negative_match_stat",

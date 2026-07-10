@@ -70,6 +70,7 @@ class StatCandidate:
     started: bool | None
     shirt_number: int | None
     position: str | None
+    recent_same_team: bool = False
 
 
 @dataclass(frozen=True)
@@ -90,6 +91,7 @@ class LinkDecision:
     method: str
     evidence: tuple[str, ...]
     best_candidate_id: str | None = None
+    unresolved_reason: str = "resolved"
 
 
 def _numeric_source_id(value: str) -> str:
@@ -121,20 +123,39 @@ def score_candidate(alias: LineupAlias, candidate: StatCandidate) -> CandidateSc
 
     alias_name = api_player_comparison_name(alias.name)
     candidate_name = api_player_comparison_name(candidate.name)
+    name_evidence: str | None = None
     if alias_name and alias_name == candidate_name:
         score += 100
         evidence.append("exact_name")
+        name_evidence = "exact_name"
     elif compatible_api_player_names(alias.name, candidate.name):
         score += 70
         evidence.append("abbreviated_name")
+        name_evidence = "abbreviated_name"
     elif compatible_api_player_compound_names(alias.name, candidate.name):
         score += 50
         evidence.append("compound_name")
+        name_evidence = "compound_name"
 
     alias_source_id = str(alias.source_player_id)
-    if any(_numeric_source_id(value) == alias_source_id for value in candidate.source_player_ids):
+    provider_id_match = alias_source_id not in {"", "None"} and any(
+        _numeric_source_id(value) == alias_source_id
+        for value in candidate.source_player_ids
+    )
+    if provider_id_match and name_evidence is None:
+        return CandidateScore(
+            alias.index, candidate.player_id, -1000, tuple(evidence),
+            "provider_id_name_conflict",
+        )
+    if provider_id_match:
         score += 60
         evidence.append("provider_id")
+
+    if candidate.recent_same_team and name_evidence in {
+        "exact_name", "abbreviated_name"
+    }:
+        score += 55
+        evidence.append("recent_same_team")
 
     if candidate.minutes_played is not None and int(candidate.minutes_played) > 0:
         score += 10
@@ -198,14 +219,21 @@ def link_team_players(
         for edge in sorted(pairs, key=lambda value: value.alias_index):
             if edge.alias_index not in remaining_aliases or edge.player_id not in remaining_players:
                 continue
-            method = next(
-                (
-                    name for name in (
-                        "exact_name", "provider_id", "abbreviated_name", "compound_name"
-                    ) if name in edge.evidence
-                ),
-                "contextual_evidence",
-            )
+            if "provider_id" in edge.evidence and "exact_name" in edge.evidence:
+                method = "exact_provider_identity"
+            elif "provider_id" in edge.evidence:
+                method = "provider_id_compatible_name"
+            elif "recent_same_team" in edge.evidence:
+                method = "recent_same_team"
+            else:
+                method = next(
+                    (
+                        name for name in (
+                            "exact_name", "abbreviated_name", "compound_name"
+                        ) if name in edge.evidence
+                    ),
+                    "contextual_evidence",
+                )
             decisions[edge.alias_index] = LinkDecision(
                 alias_index=edge.alias_index,
                 player_id=edge.player_id,
@@ -214,6 +242,7 @@ def link_team_players(
                 method=method,
                 evidence=edge.evidence,
                 best_candidate_id=edge.player_id,
+                unresolved_reason="resolved",
             )
             remaining_aliases.remove(edge.alias_index)
             remaining_players.remove(edge.player_id)
@@ -230,6 +259,21 @@ def link_team_players(
             key=lambda edge: (-edge.score, edge.player_id),
         )
         best = options[0] if options else None
+        qualified = [edge for edge in options if edge.score >= MINIMUM_LINK_SCORE]
+        rejected_reasons = {
+            edge.rejected_reason for edge in all_scores
+            if edge.alias_index == alias.index and edge.rejected_reason
+        }
+        if "provider_id_name_conflict" in rejected_reasons:
+            unresolved_reason = "provider_id_name_conflict"
+        elif qualified:
+            unresolved_reason = "ambiguous_candidates"
+        elif best:
+            unresolved_reason = "below_threshold"
+        elif rejected_reasons:
+            unresolved_reason = sorted(rejected_reasons)[0]
+        else:
+            unresolved_reason = "no_candidate"
         decisions[alias.index] = LinkDecision(
             alias_index=alias.index,
             player_id=None,
@@ -238,5 +282,23 @@ def link_team_players(
             method="unresolved_alias",
             evidence=best.evidence if best else (),
             best_candidate_id=best.player_id if best else None,
+            unresolved_reason=unresolved_reason,
         )
     return decisions
+
+
+def can_auto_reconcile(decision: LinkDecision) -> bool:
+    """Return whether a post-match alias can be relinked without review.
+
+    Provider identity plus a compatible name is the strongest evidence.  An
+    exact name can also be accepted when the same fixture supplies lineup
+    context (shirt or starter status).  Historical same-team evidence alone
+    remains a review candidate and never silently rewrites a lineup link.
+    """
+    if decision.player_id is None or "recent_same_team" in decision.evidence:
+        return False
+    if "provider_id" in decision.evidence:
+        return True
+    return "exact_name" in decision.evidence and bool(
+        {"shirt_number", "starter_status"} & set(decision.evidence)
+    )
