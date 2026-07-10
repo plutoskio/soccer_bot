@@ -1,8 +1,9 @@
 # Collector Phase 1 Review and Phase 2 Plan
 
-Status: Phase 1 implemented and verified; Phase 2 not started
+Status: Phase 1 and Phase 2 core state foundation implemented and verified;
+later collector phases not started
 Prepared: 10 July 2026
-Scope: schedule-observation history and the next component-state phase
+Scope: schedule history, component state, validators, and checkpoint evidence
 
 ## 1. Purpose of this document
 
@@ -15,8 +16,9 @@ This document is a review aid for another model or human reviewer. It records:
 - what Phase 2 will change and how it will be tested.
 
 The collector implementation plan remains the broader roadmap:
-`COLLECTOR_IMPLEMENTATION_PLAN.md`. This document covers only the completed
-Phase 1 slice and the proposed next phase.
+`COLLECTOR_IMPLEMENTATION_PLAN.md`. This document covers the completed Phase 1
+slice, the implemented Phase 2 core state foundation, and the later work that
+still requires implementation.
 
 ## 2. Phase 1 in one sentence
 
@@ -241,12 +243,12 @@ zero rows after migration.
 The full suite passed:
 
 ```text
-Ran 56 tests
+Ran 62 tests
 OK
 ```
 
-This includes the original 53 tests plus three Phase 1 schedule-observation
-tests. `git diff --check` also passed.
+This includes the original 53 tests, three Phase 1 schedule-observation tests,
+and six Phase 2 component-state tests. `git diff --check` also passed.
 
 ## 10. Phase 1 review checklist
 
@@ -445,11 +447,43 @@ Phase 2 must pass tests proving:
 - repeated planning is deterministic and makes no unnecessary requests;
 - model eligibility remains independent from collector component state.
 
-## 12. Approval boundary
+## 12. Phase 2 implementation status
 
-Phase 1 is complete. Phase 2 should begin only after the reviewer is satisfied
-with the component contracts, retryable/stopping state definitions, and
-checkpoint reconciliation rules above.
+The Phase 2 core state foundation described above is now implemented through:
+
+- `migrations/008_component_collection_state.sql`;
+- `src/soccer_bot/collection_state.py`;
+- fact-first reconciliation in `src/soccer_bot/collector.py`;
+- component and attempt-ledger tests in `tests/test_collection_state.py` and
+  `tests/test_collector.py`.
+
+Verified behavior includes:
+
+- component validators for results, lineups, team statistics, player
+  statistics, events, and identity linking;
+- retryable versus stopping checkpoint semantics;
+- checkpoint reopening when stored facts do not satisfy validators;
+- attempt records for discovery, detail, and Polymarket requests;
+- valid empty event responses recorded as complete;
+- unchanged model eligibility flags;
+- copied and live additive migration checks.
+
+The following remain later phases and were not implemented here:
+
+- rolling discovery and downtime catch-up;
+- four-stage lineup polling;
+- status-aware post-match polling and correction scheduling;
+- centralized HTTP backoff and rate-limit policy;
+- collector locking;
+- repeated Polymarket cadence and closed-market refreshes;
+- daily health reports and `launchd` operations.
+
+## 13. Approval boundary
+
+The Phase 2 core state foundation is complete. A reviewer should verify the
+component contracts, retryable/stopping state definitions, checkpoint
+reconciliation behavior, and attempt evidence before the later scheduling and
+retry phases are started.
 
 No Phase 2 code should be implemented merely because a checkpoint exists. The
 next phase must continue to preserve immutable raw evidence, canonical IDs,

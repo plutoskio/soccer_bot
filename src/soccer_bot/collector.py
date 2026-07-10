@@ -9,6 +9,19 @@ from typing import Iterable
 import uuid
 from zoneinfo import ZoneInfo
 
+from .collection_state import (
+    checkpoint_is_stopping,
+    component_for_job_type,
+    component_is_terminally_done,
+    events_processing_result,
+    reconcile_fixture_components,
+    record_component_result,
+    validate_lineups,
+    validate_events,
+    validate_player_statistics,
+    validate_result,
+    validate_team_statistics,
+)
 from .database import Warehouse, json_text, normalized_name
 from .http import HttpClient, HttpResponse
 from .loaders import RawCatalog, WarehouseLoader, metadata_artifact_id, parse_datetime
@@ -122,6 +135,7 @@ class Collector:
         self.last_api_request_at: float | None = None
         self.api_calls = 0
         self.polymarket_calls = 0
+        self.current_run_id: str | None = None
         self.summary: dict[str, object] = {
             "planned_jobs": [],
             "executed_jobs": [],
@@ -132,6 +146,7 @@ class Collector:
     def run(self, *, now: datetime | None = None, dry_run: bool = False) -> dict[str, object]:
         now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         run_id = str(uuid.uuid4())
+        self.current_run_id = run_id
         if not dry_run:
             self.connection.execute(
                 """
@@ -151,10 +166,13 @@ class Collector:
             )
             self.summary["selected_fixtures"] = len(fixtures)
             self._discover_polymarket(local_date, today_fixtures, now, dry_run)
+            if not dry_run:
+                self._reconcile_fixture_components(fixtures, now)
             detail_jobs = self._plan_detail_jobs(fixtures, now)
             self.summary["planned_jobs"].extend(job.job_key for job in detail_jobs)
             if not dry_run:
                 self._execute_detail_jobs(detail_jobs, now)
+                self._reconcile_fixture_components(fixtures, now)
                 self.summary["linked_polymarket_events"] = self._link_polymarket_events(fixtures)
             market_jobs = self._plan_market_jobs(fixtures, now)
             self.summary["planned_jobs"].extend(job.job_key for job in market_jobs)
@@ -186,6 +204,151 @@ class Collector:
                 )
             raise
 
+    def _reconcile_fixture_components(
+        self, fixtures: list[FixtureRecord], now: datetime
+    ) -> None:
+        for fixture in fixtures:
+            results = reconcile_fixture_components(
+                self.connection, fixture.internal_id, "api_football", now
+            )
+            self._reopen_checkpoint_fact_mismatches(fixture, results, now)
+
+    def _reopen_checkpoint_fact_mismatches(
+        self, fixture: FixtureRecord, results: dict[str, object], now: datetime
+    ) -> None:
+        rows = self.connection.execute(
+            """
+            SELECT job_key, status, job_type, metadata
+            FROM collection_checkpoint
+            WHERE fixture_id = ? OR fixture_source_id = ?
+            """,
+            [fixture.internal_id, fixture.source_id],
+        ).fetchall()
+        for job_key, status, job_type, metadata in rows:
+            if not checkpoint_is_stopping(status):
+                continue
+            component = component_for_job_type(job_type)
+            if component:
+                component_result = results.get(component)
+                mismatch = not component_result or not component_is_terminally_done(
+                    component_result.state
+                )
+            elif job_type.startswith("postmatch"):
+                mismatch = any(
+                    not component_is_terminally_done(results[name].state)
+                    for name in (
+                        "result", "lineups", "team_statistics",
+                        "player_statistics", "events",
+                    )
+                )
+            else:
+                continue
+            if not mismatch:
+                continue
+            details = metadata
+            if isinstance(details, str):
+                try:
+                    details = json.loads(details)
+                except json.JSONDecodeError:
+                    details = {}
+            if not isinstance(details, dict):
+                details = {}
+            details["checkpoint_fact_mismatch"] = True
+            self.connection.execute(
+                """
+                UPDATE collection_checkpoint
+                SET status = 'incomplete', completed_at = NULL,
+                    next_attempt_at = ?, terminal_reason = NULL,
+                    last_error = 'checkpoint_fact_mismatch',
+                    metadata = ?, last_run_id = ?, updated_at = ?
+                WHERE job_key = ?
+                """,
+                [now, json_text(details), self.current_run_id, now, job_key],
+            )
+
+    def _begin_attempts(
+        self, jobs: list[DetailJob], source: str, now: datetime, metadata: dict
+    ) -> dict[str, str]:
+        attempt_ids: dict[str, str] = {}
+        for job in jobs:
+            attempt_id = self._begin_attempt_record(
+                job.job_key,
+                source,
+                job.job_type,
+                job.fixture.internal_id,
+                now,
+                metadata,
+            )
+            if attempt_id:
+                attempt_ids[job.job_key] = attempt_id
+        return attempt_ids
+
+    def _begin_attempt_record(
+        self,
+        job_key: str,
+        source: str,
+        job_type: str,
+        fixture_id: str | None,
+        now: datetime,
+        metadata: dict,
+    ) -> str | None:
+        if not self.current_run_id:
+            return None
+        number = self.connection.execute(
+            """
+            SELECT coalesce(max(attempt_number), 0) + 1
+            FROM collection_attempt WHERE job_key = ?
+            """,
+            [job_key],
+        ).fetchone()[0]
+        attempt_id = str(uuid.uuid4())
+        self.connection.execute(
+            """
+            INSERT INTO collection_attempt (
+                collection_attempt_id, job_key, collection_run_id,
+                attempt_number, source_code, job_type, fixture_id,
+                started_at, status, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)
+            """,
+            [
+                attempt_id, job_key, self.current_run_id, number,
+                source, job_type, fixture_id, now, json_text(metadata),
+            ],
+        )
+        return attempt_id
+
+    def _finish_attempts(
+        self,
+        attempt_ids: dict[str, str],
+        *,
+        status: str,
+        finished_at: datetime,
+        http_status: int | None = None,
+        raw_artifact_id: str | None = None,
+        error: Exception | None = None,
+        metadata: dict | None = None,
+    ) -> None:
+        if not attempt_ids:
+            return
+        error_class = type(error).__name__ if error else None
+        error_message = str(error) if error else None
+        for attempt_id in attempt_ids.values():
+            self.connection.execute(
+                """
+                UPDATE collection_attempt
+                SET finished_at = ?, status = ?, http_status = ?,
+                    raw_artifact_id = ?, error_class = ?, error_message = ?,
+                    metadata = coalesce(?, metadata)
+                WHERE collection_attempt_id = ?
+                """,
+                [
+                    finished_at, status, http_status, raw_artifact_id,
+                    error_class, error_message,
+                    json_text(metadata) if metadata is not None else None,
+                    attempt_id,
+                ],
+            )
+
     def _discover_fixtures(self, local_date: date, now: datetime, dry_run: bool) -> None:
         job_key = f"api_football:fixture_discovery:{local_date.isoformat()}"
         if self._checkpoint_done(job_key):
@@ -193,12 +356,30 @@ class Collector:
         self.summary["planned_jobs"].append(job_key)
         if dry_run:
             return
-        payload, item, status = self._api_get(
-            "fixtures_by_date",
-            "/fixtures",
-            {"date": local_date.isoformat(), "timezone": self.config["timezone"]},
-            now,
+        request_metadata = {
+            "date": local_date.isoformat(),
+            "timezone": self.config["timezone"],
+        }
+        attempt_id = self._begin_attempt_record(
+            job_key, "api_football", "fixture_discovery", None, now, request_metadata
         )
+        try:
+            payload, item, status = self._api_get(
+                "fixtures_by_date", "/fixtures", request_metadata, now
+            )
+        except Exception as error:
+            self._finish_attempts(
+                {job_key: attempt_id} if attempt_id else {},
+                status="retryable_error",
+                finished_at=datetime.now(timezone.utc),
+                error=error,
+                metadata=request_metadata,
+            )
+            self._record_checkpoint(
+                job_key, "api_football", "fixture_discovery", None, now,
+                "failed", None, request_metadata, error=str(error),
+            )
+            raise
         matches = payload.get("response", []) if isinstance(payload, dict) else []
         selected = [match for match in matches if self._is_monitored_match(match)]
         filtered_payload = dict(payload)
@@ -207,6 +388,14 @@ class Collector:
         self._record_checkpoint(
             job_key, "api_football", "fixture_discovery", None, now,
             "succeeded", status, {"returned": len(matches), "selected": len(selected)},
+        )
+        self._finish_attempts(
+            {job_key: attempt_id} if attempt_id else {},
+            status="succeeded",
+            finished_at=datetime.now(timezone.utc),
+            http_status=status,
+            raw_artifact_id=item.get("_raw_artifact_id"),
+            metadata={"returned": len(matches), "selected": len(selected)},
         )
         self.summary["executed_jobs"].append(job_key)
 
@@ -230,7 +419,7 @@ class Collector:
         cursor = None
         event_count = 0
         statuses: list[int] = []
-        for _ in range(self.polymarket_config["maximum_event_pages"]):
+        for page in range(self.polymarket_config["maximum_event_pages"]):
             params: dict[str, object] = {
                 "tag_id": self.polymarket_config["soccer_tag_id"],
                 "active": "true",
@@ -241,8 +430,38 @@ class Collector:
             }
             if cursor:
                 params["after_cursor"] = cursor
-            payload, item, status = self._polymarket_get(
-                "soccer_events", "/events/keyset", params
+            attempt_id = self._begin_attempt_record(
+                job_key,
+                "polymarket_gamma",
+                "event_discovery",
+                None,
+                now,
+                {"page": page, "parameters": params},
+            )
+            try:
+                payload, item, status = self._polymarket_get(
+                    "soccer_events", "/events/keyset", params
+                )
+            except Exception as error:
+                self._finish_attempts(
+                    {job_key: attempt_id} if attempt_id else {},
+                    status="retryable_error",
+                    finished_at=datetime.now(timezone.utc),
+                    error=error,
+                    metadata={"page": page, "parameters": params},
+                )
+                self._record_checkpoint(
+                    job_key, "polymarket_gamma", "event_discovery", None, now,
+                    "failed", None, {"page": page}, error=str(error),
+                )
+                raise
+            self._finish_attempts(
+                {job_key: attempt_id} if attempt_id else {},
+                status="succeeded",
+                finished_at=datetime.now(timezone.utc),
+                http_status=status,
+                raw_artifact_id=item.get("_raw_artifact_id"),
+                metadata={"page": page, "parameters": params},
             )
             statuses.append(status)
             self.loader.load_polymarket_payload("soccer_events", payload, item)
@@ -271,8 +490,8 @@ class Collector:
             stage = lineup_stage(
                 now=now, kickoff=fixture.kickoff,
                 lineup_complete=self._lineup_complete(fixture.internal_id),
-                primary_attempted=self._checkpoint_done(lineup_primary),
-                retry_attempted=self._checkpoint_done(lineup_retry),
+                primary_attempted=self._checkpoint_attempted(lineup_primary),
+                retry_attempted=self._checkpoint_attempted(lineup_retry),
                 first_check_minutes=first_lineup, retry_minutes=retry_lineup,
             )
             if stage:
@@ -287,8 +506,8 @@ class Collector:
             post_stage = postmatch_stage(
                 now=now, kickoff=fixture.kickoff,
                 data_complete=self._postmatch_complete(fixture.internal_id),
-                primary_attempted=self._checkpoint_done(post_primary),
-                retry_attempted=self._checkpoint_done(post_retry),
+                primary_attempted=self._checkpoint_attempted(post_primary),
+                retry_attempted=self._checkpoint_attempted(post_retry),
                 first_check_minutes=first_post, retry_minutes=retry_post,
             )
             if post_stage:
@@ -312,34 +531,165 @@ class Collector:
             if not self._api_budget_available(now):
                 self.summary.setdefault("warnings", []).append("API-Football daily reserve reached")
                 return
-            params = {"ids": "-".join(batch)} if supports_batch else {"id": batch[0]}
-            payload, item, status = self._api_get(
-                "fixture_details_batch", "/fixtures", params, now
+            batch_jobs = [
+                job for source_id in batch for job in by_source_id[source_id]
+            ]
+            attempt_ids = self._begin_attempts(
+                batch_jobs,
+                "api_football",
+                now,
+                {"fixture_source_ids": batch},
             )
+            params = {"ids": "-".join(batch)} if supports_batch else {"id": batch[0]}
+            try:
+                payload, item, status = self._api_get(
+                    "fixture_details_batch", "/fixtures", params, now
+                )
+            except Exception as error:
+                self._finish_attempts(
+                    attempt_ids,
+                    status="retryable_error",
+                    finished_at=datetime.now(timezone.utc),
+                    error=error,
+                    metadata={"fixture_source_ids": batch},
+                )
+                for job in batch_jobs:
+                    self._record_checkpoint(
+                        job.job_key,
+                        "api_football",
+                        job.job_type,
+                        job.fixture.source_id,
+                        job.scheduled_for,
+                        "failed",
+                        None,
+                        {"fixture_source_ids": batch},
+                        error=str(error),
+                        fixture_id=job.fixture.internal_id,
+                    )
+                raise
             self.loader.load_api_football_payload(payload, item, "fixture_details_batch")
             returned_ids = {
                 str(match.get("fixture", {}).get("id"))
                 for match in payload.get("response", [])
                 if isinstance(match, dict)
             }
+            matches_by_id = {
+                str(match.get("fixture", {}).get("id")): match
+                for match in payload.get("response", [])
+                if isinstance(match, dict)
+            }
+            for source_id in batch:
+                match = matches_by_id.get(source_id)
+                if match is not None:
+                    self._record_event_processing(
+                        by_source_id[source_id][0].fixture,
+                        match,
+                        item,
+                        now,
+                    )
+            fixture_results: dict[str, dict[str, object]] = {}
+            for source_id in batch:
+                fixture = by_source_id[source_id][0].fixture
+                if source_id in returned_ids:
+                    fixture_results[fixture.internal_id] = reconcile_fixture_components(
+                        self.connection, fixture.internal_id, "api_football", now
+                    )
             for source_id in batch:
                 for job in by_source_id[source_id]:
                     if source_id not in returned_ids:
                         state = "incomplete"
                         metadata = {"reason": "fixture_missing_from_batch_response"}
                     elif job.job_type.startswith("lineup"):
-                        complete = self._lineup_complete(job.fixture.internal_id)
-                        state = "succeeded" if complete else "incomplete"
-                        metadata = {"lineup_complete": complete}
+                        result = fixture_results[job.fixture.internal_id]["lineups"]
+                        state = self._checkpoint_state_for_component(result)
+                        metadata = {"lineup_state": result.state, **result.details}
                     else:
-                        complete = self._postmatch_complete(job.fixture.internal_id)
+                        results = fixture_results[job.fixture.internal_id]
+                        complete = all(
+                            component_is_terminally_done(results[name].state)
+                            for name in (
+                                "result", "lineups", "team_statistics",
+                                "player_statistics", "events",
+                            )
+                        )
                         state = "succeeded" if complete else "incomplete"
-                        metadata = {"postmatch_complete": complete}
+                        metadata = {
+                            "postmatch_complete": complete,
+                            "component_states": {
+                                name: results[name].state
+                                for name in (
+                                    "result", "lineups", "team_statistics",
+                                    "player_statistics", "events",
+                                )
+                            },
+                        }
                     self._record_checkpoint(
                         job.job_key, "api_football", job.job_type, source_id,
                         job.scheduled_for, state, status, metadata,
+                        fixture_id=job.fixture.internal_id,
                     )
+                    attempt_id = attempt_ids.get(job.job_key)
+                    if attempt_id:
+                        self._finish_attempts(
+                            {job.job_key: attempt_id},
+                            status="succeeded" if state == "succeeded" else "incomplete",
+                            finished_at=datetime.now(timezone.utc),
+                            http_status=status,
+                            raw_artifact_id=item.get("_raw_artifact_id"),
+                            metadata=metadata,
+                        )
                     self.summary["executed_jobs"].append(job.job_key)
+
+    @staticmethod
+    def _checkpoint_state_for_component(result) -> str:
+        if result.state == "complete":
+            return "succeeded"
+        if result.state in {"terminal", "unavailable", "missed"}:
+            return "terminal"
+        return "incomplete"
+
+    def _record_event_processing(
+        self,
+        fixture: FixtureRecord,
+        match: dict,
+        item: dict,
+        now: datetime,
+    ) -> None:
+        events = match.get("events")
+        raw_artifact_id = item.get("_raw_artifact_id")
+        if not isinstance(events, list):
+            result = events_processing_result(
+                processed=False,
+                event_count=None,
+                raw_artifact_id=raw_artifact_id,
+            )
+        else:
+            invalid_event_count = self.connection.execute(
+                """
+                SELECT count(*)
+                FROM match_event e
+                JOIN fixture f ON f.fixture_id = e.fixture_id
+                WHERE e.fixture_id = ? AND e.source_code = ?
+                  AND e.raw_artifact_id = ?
+                  AND e.team_id IS NOT NULL
+                  AND e.team_id NOT IN (f.home_team_id, f.away_team_id)
+                """,
+                [fixture.internal_id, "api_football", raw_artifact_id],
+            ).fetchone()[0]
+            result = events_processing_result(
+                processed=True,
+                event_count=len(events),
+                invalid_event_count=invalid_event_count,
+                raw_artifact_id=raw_artifact_id,
+            )
+        record_component_result(
+            self.connection,
+            fixture_id=fixture.internal_id,
+            source_code="api_football",
+            component_code="events",
+            result=result,
+            now=now,
+        )
 
     def _plan_market_jobs(self, fixtures: list[FixtureRecord], now: datetime) -> list[DetailJob]:
         jobs: list[DetailJob] = []
@@ -371,10 +721,39 @@ class Collector:
         all_tokens = sorted({token for tokens in tokens_by_fixture.values() for token in tokens})
         received: set[str] = set()
         last_status = None
+        attempt_ids = self._begin_attempts(
+            jobs,
+            "polymarket_clob",
+            now,
+            {"token_count": len(all_tokens)},
+        )
         for batch in chunks(all_tokens, int(self.polymarket_config["orderbook_batch_size"])):
-            payload, item, status = self._polymarket_post(
-                "order_books_batch", "/books", [{"token_id": token} for token in batch]
-            )
+            try:
+                payload, item, status = self._polymarket_post(
+                    "order_books_batch", "/books", [{"token_id": token} for token in batch]
+                )
+            except Exception as error:
+                self._finish_attempts(
+                    attempt_ids,
+                    status="retryable_error",
+                    finished_at=datetime.now(timezone.utc),
+                    error=error,
+                    metadata={"token_count": len(batch)},
+                )
+                for job in jobs:
+                    self._record_checkpoint(
+                        job.job_key,
+                        "polymarket_clob",
+                        job.job_type,
+                        job.fixture.source_id,
+                        job.scheduled_for,
+                        "failed",
+                        None,
+                        {"token_count": len(batch)},
+                        error=str(error),
+                        fixture_id=job.fixture.internal_id,
+                    )
+                raise
             last_status = status
             self.loader.load_polymarket_payload("order_books_batch", payload, item)
             if isinstance(payload, list):
@@ -390,7 +769,21 @@ class Collector:
                 job.job_key, "polymarket_clob", job.job_type, job.fixture.source_id,
                 job.scheduled_for, "succeeded" if complete else "incomplete", last_status,
                 {"requested_tokens": len(tokens), "received_tokens": len(received)},
+                fixture_id=job.fixture.internal_id,
             )
+            attempt_id = attempt_ids.get(job.job_key)
+            if attempt_id:
+                self._finish_attempts(
+                    {job.job_key: attempt_id},
+                    status="succeeded" if complete else "incomplete",
+                    finished_at=datetime.now(timezone.utc),
+                    http_status=last_status,
+                    raw_artifact_id=item.get("_raw_artifact_id"),
+                    metadata={
+                        "requested_tokens": len(tokens),
+                        "received_tokens": len(received),
+                    },
+                )
             self.summary["executed_jobs"].append(job.job_key)
 
     def _monitored_fixtures(
@@ -442,30 +835,35 @@ class Collector:
         return f"{normalized_name(country)}|{normalized_name(name)}"
 
     def _lineup_complete(self, fixture_id: str) -> bool:
-        return self.connection.execute(
-            """
-            SELECT count(DISTINCT team_id) = 2
-            FROM lineup_snapshot
-            WHERE fixture_id = ? AND source_code = 'api_football'
-              AND lineup_type = 'confirmed' AND is_complete
-            """,
-            [fixture_id],
-        ).fetchone()[0]
+        result = validate_lineups(
+            self.connection, fixture_id, "api_football", datetime.now(timezone.utc)
+        )
+        return result.state == "complete"
 
     def _postmatch_complete(self, fixture_id: str) -> bool:
-        result = self.connection.execute(
-            "SELECT count(*) > 0 FROM fixture_result_observation WHERE fixture_id = ? AND source_code = 'api_football'",
-            [fixture_id],
-        ).fetchone()[0]
-        team_stats = self.connection.execute(
-            "SELECT count(DISTINCT team_id) >= 2 FROM team_match_stat_observation WHERE fixture_id = ? AND source_code = 'api_football'",
-            [fixture_id],
-        ).fetchone()[0]
-        player_stats = self.connection.execute(
-            "SELECT count(*) > 0 FROM player_match_stat_observation WHERE fixture_id = ? AND source_code = 'api_football'",
-            [fixture_id],
-        ).fetchone()[0]
-        return bool(result and team_stats and player_stats)
+        now = datetime.now(timezone.utc)
+        results = {
+            "result": validate_result(self.connection, fixture_id, "api_football"),
+            "lineups": validate_lineups(
+                self.connection, fixture_id, "api_football", now
+            ),
+            "team_statistics": validate_team_statistics(
+                self.connection, fixture_id, "api_football", now
+            ),
+            "player_statistics": validate_player_statistics(
+                self.connection, fixture_id, "api_football", now
+            ),
+        }
+        results["events"] = validate_events(
+            self.connection, fixture_id, "api_football", now
+        )
+        return all(
+            component_is_terminally_done(results[name].state)
+            for name in (
+                "result", "lineups", "team_statistics",
+                "player_statistics", "events",
+            )
+        )
 
     def _link_polymarket_events(self, fixtures: list[FixtureRecord]) -> int:
         events = self.connection.execute(
@@ -537,7 +935,14 @@ class Collector:
         row = self.connection.execute(
             "SELECT status FROM collection_checkpoint WHERE job_key = ?", [job_key]
         ).fetchone()
-        return bool(row and row[0] in {"succeeded", "incomplete", "skipped"})
+        return bool(row and checkpoint_is_stopping(row[0]))
+
+    def _checkpoint_attempted(self, job_key: str) -> bool:
+        row = self.connection.execute(
+            "SELECT attempts, status FROM collection_checkpoint WHERE job_key = ?",
+            [job_key],
+        ).fetchone()
+        return bool(row and (row[0] > 0 or row[1] != "pending"))
 
     def _record_checkpoint(
         self,
@@ -550,15 +955,26 @@ class Collector:
         http_status: int | None,
         metadata: dict,
         error: str | None = None,
+        *,
+        fixture_id: str | None = None,
+        priority: int = 2,
+        terminal_reason: str | None = None,
     ) -> None:
         attempted_at = datetime.now(timezone.utc)
+        if fixture_id is None and fixture_source_id is not None:
+            fixture_id = self.warehouse.mapped_id(
+                "api_football", "fixture", fixture_source_id
+            )
+        stopping = checkpoint_is_stopping(status)
         self.connection.execute(
             """
             INSERT INTO collection_checkpoint (
                 job_key, source_code, job_type, fixture_source_id, scheduled_for,
                 status, attempts, last_attempt_at, completed_at, last_http_status,
-                last_error, metadata, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+                last_error, metadata, updated_at, fixture_id, component_code,
+                next_attempt_at, maximum_attempts, priority, terminal_reason,
+                last_run_id
+            ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
             ON CONFLICT (job_key) DO UPDATE SET
                 status = excluded.status,
                 attempts = collection_checkpoint.attempts + 1,
@@ -567,11 +983,21 @@ class Collector:
                 last_http_status = excluded.last_http_status,
                 last_error = excluded.last_error,
                 metadata = excluded.metadata,
+                fixture_id = coalesce(excluded.fixture_id, collection_checkpoint.fixture_id),
+                component_code = coalesce(
+                    excluded.component_code, collection_checkpoint.component_code
+                ),
+                next_attempt_at = excluded.next_attempt_at,
+                priority = excluded.priority,
+                terminal_reason = excluded.terminal_reason,
+                last_run_id = excluded.last_run_id,
                 updated_at = excluded.updated_at
             """,
             [job_key, source, job_type, fixture_source_id, scheduled_for, status,
-             attempted_at, attempted_at if status in {"succeeded", "incomplete", "skipped"} else None,
-             http_status, error, json_text(metadata), attempted_at],
+             attempted_at, attempted_at if stopping else None,
+             http_status, error, json_text(metadata), attempted_at, fixture_id,
+             component_for_job_type(job_type), None if stopping else attempted_at,
+             priority, terminal_reason, self.current_run_id],
         )
 
     def _api_budget_available(self, now: datetime) -> bool:

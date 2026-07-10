@@ -198,6 +198,55 @@ class CollectorIntegrationTests(unittest.TestCase):
         self.assertEqual(2, first["api_football_calls"])
         detail_calls = [params for base, path, params in fake.calls if params and ("id" in params or "ids" in params)]
         self.assertEqual([{"ids": "777"}], detail_calls)
+        attempts = self.warehouse.connection.execute(
+            """
+            SELECT source_code, job_type, status
+            FROM collection_attempt
+            ORDER BY source_code, job_type
+            """
+        ).fetchall()
+        self.assertEqual(
+            [
+                ("api_football", "fixture_discovery", "succeeded"),
+                ("api_football", "postmatch_primary", "incomplete"),
+                ("polymarket_gamma", "event_discovery", "succeeded"),
+            ],
+            attempts,
+        )
+        checkpoint = self.warehouse.connection.execute(
+            """
+            SELECT fixture_id, component_code, status, completed_at,
+                   next_attempt_at, last_run_id
+            FROM collection_checkpoint
+            WHERE job_type='postmatch_primary'
+            """
+        ).fetchone()
+        self.assertEqual("incomplete", checkpoint[2])
+        self.assertIsNone(checkpoint[3])
+        self.assertIsNotNone(checkpoint[4])
+        self.assertIsNotNone(checkpoint[5])
+
+        self.warehouse.connection.execute(
+            """
+            UPDATE collection_checkpoint
+            SET status='succeeded', completed_at=?
+            WHERE job_type='postmatch_primary'
+            """,
+            [now],
+        )
+        collector._reconcile_fixture_components(
+            collector._monitored_fixtures(now.date(), lookback_days=2), now
+        )
+        reopened = self.warehouse.connection.execute(
+            """
+            SELECT status, completed_at, metadata
+            FROM collection_checkpoint
+            WHERE job_type='postmatch_primary'
+            """
+        ).fetchone()
+        self.assertEqual("incomplete", reopened[0])
+        self.assertIsNone(reopened[1])
+        self.assertTrue(json.loads(reopened[2])["checkpoint_fact_mismatch"])
 
         fake.calls.clear()
         second = Collector(
