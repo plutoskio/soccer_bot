@@ -49,6 +49,38 @@ UNDERSTAT_COMPETITIONS = {
 }
 
 
+API_FOOTBALL_STATUS_MAP = {
+    "NS": "scheduled",
+    "TBD": "scheduled",
+    "1H": "live",
+    "2H": "live",
+    "ET": "live",
+    "P": "live",
+    "LIVE": "live",
+    "HT": "live",
+    "INT": "delayed",
+    "SUSP": "suspended",
+    "FT": "final",
+    "AET": "final",
+    "PEN": "final",
+    "PST": "postponed",
+    "CANC": "cancelled",
+    "ABD": "abandoned",
+    "AWD": "administrative_result",
+    "WO": "administrative_result",
+}
+
+
+def canonical_api_football_status(
+    status_short: object, *, administrative_unplayed: bool = False
+) -> str:
+    """Map API-Football status codes to the project's canonical statuses."""
+    if administrative_unplayed:
+        return "administrative_result"
+    code = str(status_short or "").strip().upper()
+    return API_FOOTBALL_STATUS_MAP.get(code, "unknown")
+
+
 def parse_datetime(value: str | None, default_timezone=timezone.utc) -> datetime | None:
     if not value:
         return None
@@ -1263,9 +1295,13 @@ class WarehouseLoader:
         )
         kickoff = parse_datetime(fixture.get("date"))
         status_short = fixture.get("status", {}).get("short")
+        administrative_unplayed = bool(match.get("_administrative_result_unplayed"))
+        canonical_status = canonical_api_football_status(
+            status_short, administrative_unplayed=administrative_unplayed
+        )
         status = (
             "administrative_result_unplayed"
-            if match.get("_administrative_result_unplayed")
+            if administrative_unplayed
             else "completed" if status_short in {"FT", "AET", "PEN"}
             else "scheduled" if status_short in {"NS", "TBD"}
             else status_short
@@ -1276,6 +1312,61 @@ class WarehouseLoader:
             status=status, venue_name=fixture.get("venue", {}).get("name"),
             neutral_venue=None, round_name=league.get("round")
         )
+        fixture_source_id = str(fixture.get("id"))
+        retrieved_at = parse_datetime(item["retrieved_at"])
+        self.connection.execute(
+            """
+            INSERT INTO fixture_schedule_observation (
+                schedule_observation_id, fixture_id, source_code, fixture_source_id,
+                provider_status, canonical_status, scheduled_kickoff, observed_at,
+                retrieved_at, raw_artifact_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (schedule_observation_id) DO UPDATE SET
+                fixture_id = excluded.fixture_id,
+                provider_status = excluded.provider_status,
+                canonical_status = excluded.canonical_status,
+                scheduled_kickoff = excluded.scheduled_kickoff,
+                observed_at = excluded.observed_at,
+                retrieved_at = excluded.retrieved_at,
+                raw_artifact_id = excluded.raw_artifact_id
+            """,
+            [
+                stable_id("fixture_schedule_observation", source, fixture_source_id,
+                          item["_raw_artifact_id"]),
+                fixture_id,
+                source,
+                fixture_source_id,
+                str(status_short) if status_short is not None else None,
+                canonical_status,
+                kickoff,
+                None,
+                retrieved_at,
+                item["_raw_artifact_id"],
+            ],
+        )
+        if canonical_status == "unknown":
+            self.connection.execute(
+                """
+                INSERT OR REPLACE INTO data_quality_issue (
+                    issue_id, rule_code, severity, entity_type, internal_entity_id,
+                    source_code, raw_artifact_id, details, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    stable_id(
+                        "quality_issue", "api_unknown_fixture_status", fixture_id,
+                        item["_raw_artifact_id"]
+                    ),
+                    "api_unknown_fixture_status",
+                    "warning",
+                    "fixture",
+                    fixture_id,
+                    source,
+                    item["_raw_artifact_id"],
+                    json_text({"provider_status": status_short}),
+                    "open",
+                ],
+            )
         score = match.get("score", {})
         fulltime = score.get("fulltime", {})
         if fulltime.get("home") is not None:

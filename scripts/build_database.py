@@ -23,6 +23,7 @@ COUNT_TABLES = [
     "player",
     "source_entity_map",
     "fixture",
+    "fixture_schedule_observation",
     "fixture_result_observation",
     "lineup_snapshot",
     "lineup_player",
