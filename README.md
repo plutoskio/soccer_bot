@@ -2,6 +2,9 @@
 
 Local soccer forecasting and Polymarket market-research project.
 
+The intended interactive product and the current build sequence are described
+in [PRODUCT_VISION_AND_BUILD_PLAN.md](PRODUCT_VISION_AND_BUILD_PLAN.md).
+
 ## Current stage
 
 The repository contains the data-source audit, data architecture, bounded validation harness, versioned DuckDB schema, historical backfill downloader, canonical loaders, entity reconciliation, and quality reporting. Source responses are retained unchanged and can be reprocessed idempotently as mappings and schemas evolve.

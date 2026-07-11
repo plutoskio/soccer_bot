@@ -21,6 +21,7 @@ The data foundation is built; modeling has not started.
 - Historical API-Football manifest: `data/staged/api_football_backfill_manifest.jsonl`
 - Collection scope: `config/collector.json`
 - Schema/design reference: `DATA_ARCHITECTURE.md`
+- Product vision and active roadmap: `PRODUCT_VISION_AND_BUILD_PLAN.md`
 - 1,181/1,181 historical backfill batches succeeded
 - 23,619/23,619 approved historical fixtures are present
 - 23,726 API-Football fixtures exist, including 107 additional fixtures from
@@ -131,8 +132,9 @@ Never expose `.env` or API keys in logs, reports, tests, or commits.
 
 ## Recommended Next Work
 
-Design the first frozen, leakage-safe model dataset from
-`fixture_model_eligibility`, beginning with regulation moneyline/spread targets
-and pre-match team/player features. Define feature cutoff times and dataset
-manifests before training any model. Keep result, team, and player datasets
-separate where their eligibility requirements differ.
+Follow `PRODUCT_VISION_AND_BUILD_PLAN.md`. Define the first regulation
+home/draw/away prediction at 24 hours before kickoff, then build its frozen,
+leakage-safe historical dataset. Candidate models must be measured on later
+unseen matches; after the recipe is selected, retrain the production model on
+all eligible historical data. Keep result, team, and player datasets separate
+where their eligibility requirements differ.
