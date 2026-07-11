@@ -31,11 +31,20 @@ from .collection_planner import (
     discovery_job_for_date,
     fixture_refresh_job_key,
     lineup_stage_plans,
+    market_stage_plans,
+    postmatch_stage_plans,
+    validate_collector_config,
 )
 from .database import Warehouse, json_text, normalized_name
 from .http import HttpClient, HttpResponse
+from .health import generate_health_report
 from .loaders import RawCatalog, WarehouseLoader, metadata_artifact_id, parse_datetime
 from .raw_store import RawArtifactStore
+from .request_executor import (
+    ProviderResponseError,
+    RequestExecutionError,
+    RequestExecutor,
+)
 
 
 FINAL_STATUSES = {"completed", "FT", "AET", "PEN"}
@@ -134,26 +143,46 @@ class Collector:
         http_client: HttpClient,
         api_key: str,
         config: dict,
+        report_directory: Path | None = None,
     ) -> None:
-        if not api_key:
-            raise ValueError("API_FOOTBALL_KEY is missing")
         self.warehouse = warehouse
         self.connection = warehouse.connection
         self.raw_store = raw_store
         self.http = http_client
         self.api_key = api_key
         self.config = config
+        self.report_directory = report_directory
         self.zone = ZoneInfo(config["timezone"])
         self.discovery_config = config.get("discovery", {})
         self.api_config = config["api_football"]
         self.polymarket_config = config["polymarket"]
+        retry_config = config.get("retry", {})
+        self.request_executor = RequestExecutor(
+            maximum_attempts=int(retry_config.get("maximum_inline_attempts", 3)),
+            maximum_inline_retry_seconds=float(
+                retry_config.get("maximum_inline_retry_seconds", 5)
+            ),
+            backoff_base_seconds=float(retry_config.get("backoff_base_seconds", 1)),
+            backoff_cap_seconds=float(retry_config.get("backoff_cap_seconds", 60)),
+            jitter_seconds=float(retry_config.get("jitter_seconds", 0.25)),
+        )
         competitions = config["competitions"]
         self.monitored_league_ids = {str(value) for value in competitions["league_ids"]}
         self.monitored_competition_keys = {
             self._competition_key(*value.split("|", 1))
             for value in competitions["competition_keys"]
         }
-        self.loader = WarehouseLoader(warehouse, RawCatalog.__new__(RawCatalog))
+        identity_config = config.get("identity", {})
+        self.loader = WarehouseLoader(
+            warehouse,
+            RawCatalog.__new__(RawCatalog),
+            recent_team_lookback_days=int(
+                identity_config.get("recent_team_lookback_days", 730)
+            ),
+            recent_team_max_candidates=int(
+                identity_config.get("recent_team_max_candidates", 50)
+            ),
+        )
         self.last_api_request_at: float | None = None
         self.api_calls = 0
         self.polymarket_calls = 0
@@ -172,6 +201,7 @@ class Collector:
         dry_run: bool = False,
         catch_up_days: int | None = None,
     ) -> dict[str, object]:
+        validate_collector_config(self.config, catch_up_days)
         now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         run_id = str(uuid.uuid4())
         self.current_run_id = run_id
@@ -208,22 +238,21 @@ class Collector:
                 fixtures = self._monitored_fixtures(
                     local_date, start_date=start_date, end_date=end_date
                 )
-            today_fixtures = [
-                fixture for fixture in fixtures
-                if fixture.kickoff.astimezone(self.zone).date() == local_date
-            ]
             self.summary["selected_fixtures"] = len(fixtures)
-            self._discover_polymarket(local_date, today_fixtures, now, dry_run)
+            self._discover_polymarket(local_date, fixtures, now, dry_run)
             if not dry_run:
                 self._reconcile_fixture_components(fixtures, now)
                 self._mark_expired_pregame_components(fixtures, now)
-            detail_jobs = self._plan_detail_jobs(fixtures, now)
+            detail_jobs = self._plan_detail_jobs(
+                fixtures, now, mutate_state=not dry_run
+            )
             self.summary["planned_jobs"].extend(job.job_key for job in detail_jobs)
             if not dry_run:
                 self._execute_detail_jobs(detail_jobs, now)
                 self._reconcile_fixture_components(fixtures, now)
                 self._mark_expired_pregame_components(fixtures, now)
                 self.summary["linked_polymarket_events"] = self._link_polymarket_events(fixtures)
+            self._refresh_closed_polymarket_events(fixtures, now, dry_run=dry_run)
             market_jobs = self._plan_market_jobs(fixtures, now)
             self.summary["planned_jobs"].extend(job.job_key for job in market_jobs)
             if not dry_run:
@@ -231,14 +260,40 @@ class Collector:
             self.summary["api_football_calls"] = self.api_calls
             self.summary["polymarket_calls"] = self.polymarket_calls
             if not dry_run:
+                finished_at = datetime.now(timezone.utc)
                 self.connection.execute(
                     """
                     UPDATE collection_run SET finished_at = ?, status = 'completed',
                         api_football_calls = ?, polymarket_calls = ?, summary = ?
                     WHERE collection_run_id = ?
                     """,
-                    [datetime.now(timezone.utc), self.api_calls, self.polymarket_calls,
+                    [finished_at, self.api_calls, self.polymarket_calls,
                      json_text(self.summary), run_id],
+                )
+                health = generate_health_report(
+                    self.connection,
+                    config=self.config,
+                    collection_run_id=run_id,
+                    now=finished_at,
+                    report_directory=self.report_directory,
+                    discovery_start_date=date.fromisoformat(
+                        self.summary["discovery_window"]["start_date"]
+                    ),
+                    discovery_end_date=date.fromisoformat(
+                        self.summary["discovery_window"]["end_date"]
+                    ),
+                )
+                self.summary["health"] = {
+                    "report_date": health.report_date.isoformat(),
+                    "severity": health.severity,
+                    "blocking_reason": health.blocking_reason,
+                    "markdown_path": (
+                        str(health.markdown_path) if health.markdown_path else None
+                    ),
+                }
+                self.connection.execute(
+                    "UPDATE collection_run SET summary=? WHERE collection_run_id=?",
+                    [json_text(self.summary), run_id],
                 )
             return self.summary
         except Exception as error:
@@ -275,14 +330,44 @@ class Collector:
             [fixture.internal_id, fixture.source_id],
         ).fetchall()
         for job_key, status, job_type, metadata in rows:
-            if not checkpoint_is_stopping(status):
-                continue
             component = component_for_job_type(job_type)
-            if component:
-                component_result = results.get(component)
-                mismatch = not component_result or not component_is_terminally_done(
-                    component_result.state
+            if component and component.startswith("correction_refresh_"):
+                component_row = self.connection.execute(
+                    """
+                    SELECT state FROM fixture_collection_component
+                    WHERE fixture_id=? AND source_code='api_football'
+                      AND component_code=?
+                    """,
+                    [fixture.internal_id, component],
+                ).fetchone()
+                component_done = bool(
+                    component_row
+                    and component_is_terminally_done(component_row[0])
                 )
+                if component_done and status in {
+                    "pending", "incomplete", "failed", "rate_limited"
+                }:
+                    self.connection.execute(
+                        """
+                        UPDATE collection_checkpoint
+                        SET status='succeeded',completed_at=coalesce(completed_at,?),
+                            next_attempt_at=NULL,terminal_reason=NULL,
+                            last_error=NULL,last_run_id=?,updated_at=?
+                        WHERE job_key=?
+                        """,
+                        [now, self.current_run_id, now, job_key],
+                    )
+                    continue
+            if status != "succeeded":
+                continue
+            if component:
+                if component and component.startswith("correction_refresh_"):
+                    mismatch = not component_done
+                else:
+                    component_result = results.get(component)
+                    mismatch = not component_result or not component_is_terminally_done(
+                        component_result.state
+                    )
             elif job_type.startswith("postmatch"):
                 mismatch = any(
                     not component_is_terminally_done(results[name].state)
@@ -357,8 +442,8 @@ class Collector:
             INSERT INTO collection_attempt (
                 collection_attempt_id, job_key, collection_run_id,
                 attempt_number, source_code, job_type, fixture_id,
-                started_at, status, metadata
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)
+                started_at, status, quota_cost, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', 0, ?)
             """,
             [
                 attempt_id, job_key, self.current_run_id, number,
@@ -366,6 +451,47 @@ class Collector:
             ],
         )
         return attempt_id
+
+    def _http_attempt_recorder(
+        self,
+        source: str,
+        resource: str,
+        request_keys: list[str],
+    ):
+        request_id = str(uuid.uuid4())
+        job_key = f"http:{source}:{resource}:{request_id}"
+
+        def record(attempt, hook_value) -> None:
+            if not self.current_run_id:
+                return
+            now = datetime.now(timezone.utc)
+            raw_artifact_id = (
+                hook_value.get("_raw_artifact_id")
+                if isinstance(hook_value, dict)
+                else None
+            )
+            self.connection.execute(
+                """
+                INSERT INTO collection_attempt (
+                    collection_attempt_id,job_key,collection_run_id,
+                    attempt_number,source_code,job_type,started_at,finished_at,
+                    status,http_status,retry_after_seconds,quota_cost,
+                    raw_artifact_id,error_class,error_message,metadata
+                ) VALUES (?, ?, ?, ?, ?, 'http_request', ?, ?, ?, ?, ?, 1,
+                          ?, ?, ?, ?)
+                """,
+                [
+                    str(uuid.uuid4()), job_key, self.current_run_id,
+                    attempt.number, source, now, now, attempt.classification,
+                    attempt.http_status, attempt.retry_after_seconds,
+                    raw_artifact_id,
+                    None if attempt.classification == "succeeded" else attempt.classification,
+                    None if attempt.classification == "succeeded" else "provider request did not succeed",
+                    json_text({"resource": resource, "request_keys": request_keys}),
+                ],
+            )
+
+        return record
 
     def _finish_attempts(
         self,
@@ -375,6 +501,7 @@ class Collector:
         finished_at: datetime,
         http_status: int | None = None,
         raw_artifact_id: str | None = None,
+        retry_after_seconds: int | None = None,
         error: Exception | None = None,
         metadata: dict | None = None,
     ) -> None:
@@ -387,17 +514,52 @@ class Collector:
                 """
                 UPDATE collection_attempt
                 SET finished_at = ?, status = ?, http_status = ?,
-                    raw_artifact_id = ?, error_class = ?, error_message = ?,
+                    retry_after_seconds = ?, raw_artifact_id = ?,
+                    error_class = ?, error_message = ?,
                     metadata = coalesce(?, metadata)
                 WHERE collection_attempt_id = ?
                 """,
                 [
-                    finished_at, status, http_status, raw_artifact_id,
+                    finished_at, status, http_status, retry_after_seconds,
+                    raw_artifact_id,
                     error_class, error_message,
                     json_text(metadata) if metadata is not None else None,
                     attempt_id,
                 ],
             )
+
+    @staticmethod
+    def _request_failure_disposition(
+        error: Exception, now: datetime
+    ) -> tuple[str, str, datetime | None, int | None, str | None, str | None]:
+        if isinstance(error, RequestExecutionError):
+            retry_after = error.retry_after_seconds
+            raw_artifact_id = (
+                error.hook_value.get("_raw_artifact_id")
+                if isinstance(error.hook_value, dict)
+                else None
+            )
+            if error.classification == "rate_limited":
+                delay = retry_after if retry_after is not None else 60
+                return (
+                    "rate_limited", "rate_limited",
+                    now + timedelta(seconds=delay), retry_after,
+                    raw_artifact_id, None,
+                )
+            if error.classification == "permanent_error":
+                return (
+                    "terminal", "permanent_error", None, retry_after,
+                    raw_artifact_id, "permanent_provider_error",
+                )
+            return (
+                "failed", "retryable_error", now + timedelta(minutes=1),
+                retry_after, raw_artifact_id, None,
+            )
+        return "failed", "retryable_error", now + timedelta(minutes=1), None, None, None
+
+    @staticmethod
+    def _fatal_request_error(error: Exception) -> bool:
+        return isinstance(error, RequestExecutionError) and error.http_status in {401, 403}
 
     def _discovery_window(
         self, local_date: date, catch_up_days: int | None
@@ -415,12 +577,11 @@ class Collector:
         return start_date, end_date, target_dates, (local_date - start_date).days
 
     def _completed_frontier_days(self, local_date: date) -> int | None:
-        """Use the latest monitored final fixture as a recovery expansion hint.
+        """Expand recovery to the latest monitored completed-fixture frontier.
 
-        A completed fixture does not prove discovery coverage for surrounding
-        dates, so the configured recovery window remains in force. This only
-        expands the window when the database's latest monitored final fixture
-        is older than that safety window.
+        This intentionally recovers every date since the last observed model-
+        relevant match after downtime, even when that exceeds the normal
+        safety window.
         """
         rows = self.connection.execute(
             """
@@ -498,7 +659,14 @@ class Collector:
         self, jobs: list[DiscoveryJob], now: datetime, dry_run: bool
     ) -> None:
         for job in jobs:
-            self._discover_fixtures(job, now, dry_run)
+            try:
+                self._discover_fixtures(job, now, dry_run)
+            except Exception as error:
+                if self._fatal_request_error(error):
+                    raise
+                self.summary.setdefault("warnings", []).append(
+                    f"fixture discovery deferred for {job.target_date.isoformat()}"
+                )
 
     def _discover_fixtures(
         self, job: DiscoveryJob, now: datetime, dry_run: bool
@@ -550,10 +718,16 @@ class Collector:
                     priority=job.priority,
                 )
         except Exception as error:
+            checkpoint_status, attempt_status, next_attempt, retry_after, raw_id, terminal_reason = (
+                self._request_failure_disposition(error, now)
+            )
             self._finish_attempts(
                 {job_key: attempt_id} if attempt_id else {},
-                status="retryable_error",
+                status=attempt_status,
                 finished_at=now,
+                http_status=(error.http_status if isinstance(error, RequestExecutionError) else None),
+                retry_after_seconds=retry_after,
+                raw_artifact_id=raw_id,
                 error=error,
                 metadata=request_metadata,
             )
@@ -563,11 +737,13 @@ class Collector:
                 "fixture_discovery",
                 None,
                 job.scheduled_for,
-                "failed",
-                None,
+                checkpoint_status,
+                error.http_status if isinstance(error, RequestExecutionError) else None,
                 request_metadata,
                 error=str(error),
                 priority=job.priority,
+                next_attempt_at=next_attempt,
+                terminal_reason=terminal_reason,
             )
             raise
         self._finish_attempts(
@@ -579,6 +755,82 @@ class Collector:
             metadata=metadata,
         )
         self.summary["executed_jobs"].append(job_key)
+
+    def _refresh_closed_polymarket_events(
+        self,
+        fixtures: list[FixtureRecord],
+        now: datetime,
+        *,
+        dry_run: bool = False,
+    ) -> None:
+        fixture_ids = [fixture.internal_id for fixture in fixtures]
+        if not fixture_ids:
+            return
+        placeholders = ",".join("?" for _ in fixture_ids)
+        rows = self.connection.execute(
+            f"""
+            SELECT prediction_market_event_id,source_event_id,
+                   coalesce(end_time,start_time),closed
+            FROM prediction_market_event
+            WHERE fixture_id IN ({placeholders})
+              AND coalesce(end_time,start_time) <= ?
+            """,
+            [*fixture_ids, now],
+        ).fetchall()
+        for event_id, source_event_id, closure_time, closed in rows:
+            job_key = f"polymarket:event_closed_refresh:{source_event_id}"
+            if self._checkpoint_done(job_key):
+                continue
+            self.summary["planned_jobs"].append(job_key)
+            if dry_run:
+                continue
+            attempt_id = self._begin_attempt_record(
+                job_key, "polymarket_gamma", "event_closed_refresh",
+                None, now, {"source_event_id": source_event_id},
+            )
+            try:
+                payload, item, status = self._polymarket_get(
+                    "soccer_events", f"/events/{source_event_id}", {}
+                )
+                if isinstance(payload, dict) and "events" not in payload:
+                    payload = {"events": [payload]}
+                self.loader.load_polymarket_payload("soccer_events", payload, item)
+            except Exception as error:
+                checkpoint_status, attempt_status, next_attempt, retry_after, raw_id, terminal_reason = (
+                    self._request_failure_disposition(error, now)
+                )
+                self._finish_attempts(
+                    {job_key: attempt_id} if attempt_id else {},
+                    status=attempt_status,
+                    finished_at=datetime.now(timezone.utc),
+                    http_status=(error.http_status if isinstance(error, RequestExecutionError) else None),
+                    retry_after_seconds=retry_after,
+                    raw_artifact_id=raw_id,
+                    error=error,
+                )
+                self._record_checkpoint(
+                    job_key, "polymarket_gamma", "event_closed_refresh", None,
+                    closure_time or now, checkpoint_status,
+                    error.http_status if isinstance(error, RequestExecutionError) else None,
+                    {"source_event_id": source_event_id}, error=str(error),
+                    next_attempt_at=next_attempt,
+                    terminal_reason=terminal_reason,
+                )
+                self.summary.setdefault("warnings", []).append(
+                    f"Polymarket closed refresh deferred for event {source_event_id}"
+                )
+                continue
+            self._record_checkpoint(
+                job_key, "polymarket_gamma", "event_closed_refresh", None,
+                closure_time or now, "succeeded", status,
+                {"source_event_id": source_event_id, "was_closed": bool(closed)},
+            )
+            self._finish_attempts(
+                {job_key: attempt_id} if attempt_id else {},
+                status="succeeded", finished_at=datetime.now(timezone.utc),
+                http_status=status, raw_artifact_id=item.get("_raw_artifact_id"),
+            )
+            self.summary["executed_jobs"].append(job_key)
 
     def _filtered_discovery_matches(
         self, payload: object
@@ -638,7 +890,7 @@ class Collector:
             status = latest_fixture_status(
                 self.connection, fixture.internal_id, "api_football"
             )
-            if status in {"postponed", "cancelled"}:
+            if status in {"postponed", "cancelled", "suspended"}:
                 slot = f"status:{status_slot.strftime('%Y-%m-%dT%H:%M')}"
                 job_key = fixture_refresh_job_key(
                     fixture.source_id, reason=f"{status}_signal", slot=slot
@@ -706,10 +958,16 @@ class Collector:
                         priority=1,
                     )
             except Exception as error:
+                checkpoint_status, attempt_status, next_attempt, retry_after, raw_id, terminal_reason = (
+                    self._request_failure_disposition(error, now)
+                )
                 self._finish_attempts(
                     {job.job_key: attempt_id} if attempt_id else {},
-                    status="retryable_error",
+                    status=attempt_status,
                     finished_at=now,
+                    http_status=(error.http_status if isinstance(error, RequestExecutionError) else None),
+                    retry_after_seconds=retry_after,
+                    raw_artifact_id=raw_id,
                     error=error,
                     metadata=request_metadata,
                 )
@@ -719,14 +977,21 @@ class Collector:
                     "fixture_refresh",
                     job.fixture.source_id,
                     job.scheduled_for,
-                    "failed",
-                    None,
+                    checkpoint_status,
+                    error.http_status if isinstance(error, RequestExecutionError) else None,
                     request_metadata,
                     error=str(error),
                     fixture_id=job.fixture.internal_id,
                     priority=1,
+                    next_attempt_at=next_attempt,
+                    terminal_reason=terminal_reason,
                 )
-                raise
+                if self._fatal_request_error(error):
+                    raise
+                self.summary.setdefault("warnings", []).append(
+                    f"fixture refresh deferred for {job.fixture.source_id}"
+                )
+                continue
             self._finish_attempts(
                 {job.job_key: attempt_id} if attempt_id else {},
                 status="succeeded",
@@ -746,14 +1011,31 @@ class Collector:
     ) -> None:
         if not fixtures:
             return
-        job_key = f"polymarket:event_discovery:{local_date.isoformat()}"
+        matchday = any(
+            fixture.kickoff.astimezone(self.zone).date() == local_date
+            for fixture in fixtures
+        )
+        interval = int(
+            self.polymarket_config[
+                "discovery_matchday_minutes" if matchday else "discovery_hourly_minutes"
+            ]
+        )
+        local_now = now.astimezone(self.zone)
+        slot_minute = local_now.minute - (local_now.minute % interval)
+        slot = local_now.replace(minute=slot_minute, second=0, microsecond=0)
+        job_key = (
+            f"polymarket:event_discovery:{interval}m:"
+            f"{slot.strftime('%Y-%m-%dT%H:%M')}"
+        )
         if self._checkpoint_done(job_key):
             return
         self.summary["planned_jobs"].append(job_key)
         if dry_run:
             return
         start = datetime.combine(local_date, datetime_time.min, self.zone).astimezone(timezone.utc)
-        end = datetime.combine(local_date, datetime_time.max, self.zone).astimezone(timezone.utc)
+        end = datetime.combine(
+            local_date + timedelta(days=7), datetime_time.max, self.zone
+        ).astimezone(timezone.utc)
         cursor = None
         event_count = 0
         statuses: list[int] = []
@@ -781,18 +1063,31 @@ class Collector:
                     "soccer_events", "/events/keyset", params
                 )
             except Exception as error:
+                checkpoint_status, attempt_status, next_attempt, retry_after, raw_id, terminal_reason = (
+                    self._request_failure_disposition(error, now)
+                )
                 self._finish_attempts(
                     {job_key: attempt_id} if attempt_id else {},
-                    status="retryable_error",
+                    status=attempt_status,
                     finished_at=datetime.now(timezone.utc),
+                    http_status=(error.http_status if isinstance(error, RequestExecutionError) else None),
+                    retry_after_seconds=retry_after,
+                    raw_artifact_id=raw_id,
                     error=error,
                     metadata={"page": page, "parameters": params},
                 )
                 self._record_checkpoint(
                     job_key, "polymarket_gamma", "event_discovery", None, now,
-                    "failed", None, {"page": page}, error=str(error),
+                    checkpoint_status,
+                    error.http_status if isinstance(error, RequestExecutionError) else None,
+                    {"page": page}, error=str(error),
+                    next_attempt_at=next_attempt,
+                    terminal_reason=terminal_reason,
                 )
-                raise
+                self.summary.setdefault("warnings", []).append(
+                    "Polymarket event discovery deferred"
+                )
+                return
             self._finish_attempts(
                 {job_key: attempt_id} if attempt_id else {},
                 status="succeeded",
@@ -815,18 +1110,23 @@ class Collector:
         )
         self.summary["executed_jobs"].append(job_key)
 
-    def _plan_detail_jobs(self, fixtures: list[FixtureRecord], now: datetime) -> list[DetailJob]:
+    def _plan_detail_jobs(
+        self,
+        fixtures: list[FixtureRecord],
+        now: datetime,
+        *,
+        mutate_state: bool = True,
+    ) -> list[DetailJob]:
         jobs: list[DetailJob] = []
         lineup_offsets = self.api_config.get("lineup_stage_offsets", [50, 35, 20, 5])
-        first_post = int(self.api_config["post_match_first_check_minutes"])
-        retry_post = int(self.api_config["post_match_retry_minutes"])
         for fixture in fixtures:
             schedule_version, schedule_observation_id, kickoff = (
                 self._lineup_schedule_version(fixture)
             )
-            self._supersede_obsolete_lineup_jobs(
-                fixture, schedule_version, kickoff, now
-            )
+            if mutate_state:
+                self._supersede_obsolete_lineup_jobs(
+                    fixture, schedule_version, kickoff, now
+                )
             stage_keys = self.connection.execute(
                 """
                 SELECT job_key
@@ -863,23 +1163,100 @@ class Collector:
                 for plan in stage_plans
             )
 
-            kickoff_key = int(kickoff.timestamp())
-            post_primary = f"api_football:postmatch_primary:{fixture.source_id}:{kickoff_key}"
-            post_retry = f"api_football:postmatch_retry:{fixture.source_id}:{kickoff_key}"
-            post_stage = postmatch_stage(
-                now=now, kickoff=kickoff,
-                data_complete=self._postmatch_complete(fixture.internal_id, now),
-                primary_attempted=self._checkpoint_attempted(post_primary),
-                retry_attempted=self._checkpoint_attempted(post_retry),
-                first_check_minutes=first_post, retry_minutes=retry_post,
+            status = latest_fixture_status(
+                self.connection, fixture.internal_id, "api_football"
             )
-            if post_stage:
-                key = post_primary if post_stage == "postmatch_primary" else post_retry
-                scheduled = kickoff + timedelta(
-                    minutes=first_post if post_stage == "postmatch_primary" else retry_post
+            if mutate_state:
+                self._terminalize_obsolete_postmatch_jobs(
+                    fixture, schedule_version, status, now
                 )
-                jobs.append(DetailJob(key, post_stage, schedule_fixture, scheduled))
+            post_rows = self.connection.execute(
+                """
+                SELECT job_key,status FROM collection_checkpoint
+                WHERE (fixture_id = ? OR fixture_source_id = ?)
+                  AND (
+                    job_type IN ('postmatch_status','postmatch_final_retry',
+                                 'correction_refresh_24h','correction_refresh_72h')
+                    OR job_type IN ('postmatch_primary','postmatch_retry')
+                  )
+                """,
+                [fixture.internal_id, fixture.source_id],
+            ).fetchall()
+            attempted_post_keys = {
+                key for key, checkpoint_status in post_rows
+                if checkpoint_status not in {"pending", "failed", "rate_limited"}
+            }
+            plans = postmatch_stage_plans(
+                fixture_source_id=fixture.source_id,
+                schedule_version=schedule_version,
+                kickoff=kickoff,
+                now=now,
+                canonical_status=status,
+                components_complete=self._postmatch_complete(
+                    fixture.internal_id, now
+                ),
+                attempted_job_keys=attempted_post_keys,
+                first_check_minutes=int(
+                    self.api_config.get("post_match_first_check_minutes", 150)
+                ),
+                live_poll_minutes=int(
+                    self.api_config.get("post_match_live_poll_minutes", 30)
+                ),
+                live_poll_until_minutes=int(
+                    self.api_config.get("post_match_live_poll_until_minutes", 360)
+                ),
+                final_retry_minutes=int(
+                    self.api_config.get("post_match_final_retry_minutes", 480)
+                ),
+                correction_offsets_minutes=self.api_config.get(
+                    "correction_refresh_offsets_minutes", [1440, 4320]
+                ),
+            )
+            jobs.extend(
+                DetailJob(plan.job_key, plan.stage, schedule_fixture, plan.stage_time)
+                for plan in plans
+            )
         return jobs
+
+    def _terminalize_obsolete_postmatch_jobs(
+        self,
+        fixture: FixtureRecord,
+        schedule_version: str,
+        canonical_status: str,
+        now: datetime,
+    ) -> None:
+        terminal_statuses = {
+            "postponed", "cancelled", "abandoned", "administrative_result"
+        }
+        rows = self.connection.execute(
+            """
+            SELECT job_key,status FROM collection_checkpoint
+            WHERE (fixture_id = ? OR fixture_source_id = ?)
+              AND (job_type LIKE 'postmatch%' OR job_type LIKE 'correction_refresh_%')
+            """,
+            [fixture.internal_id, fixture.source_id],
+        ).fetchall()
+        for job_key, checkpoint_status in rows:
+            current_version = f":{schedule_version}:" in job_key
+            if current_version and canonical_status not in terminal_statuses:
+                continue
+            if checkpoint_status in {"terminal", "skipped_with_reason"}:
+                continue
+            reason = (
+                f"fixture_{canonical_status}"
+                if current_version and canonical_status in terminal_statuses
+                else "schedule_superseded"
+            )
+            self.connection.execute(
+                """
+                UPDATE collection_checkpoint
+                SET status='terminal', completed_at=coalesce(completed_at, ?),
+                    next_attempt_at=NULL, terminal_reason=?, updated_at=?,
+                    last_run_id=?
+                WHERE job_key=?
+                """,
+                [now, reason, now, self.current_run_id, job_key],
+            )
 
     def _lineup_schedule_version(
         self, fixture: FixtureRecord
@@ -1000,10 +1377,16 @@ class Collector:
                     "fixture_details_batch", "/fixtures", params, now
                 )
             except Exception as error:
+                checkpoint_status, attempt_status, next_attempt, retry_after, raw_id, terminal_reason = (
+                    self._request_failure_disposition(error, now)
+                )
                 self._finish_attempts(
                     attempt_ids,
-                    status="retryable_error",
+                    status=attempt_status,
                     finished_at=datetime.now(timezone.utc),
+                    http_status=(error.http_status if isinstance(error, RequestExecutionError) else None),
+                    retry_after_seconds=retry_after,
+                    raw_artifact_id=raw_id,
                     error=error,
                     metadata={"fixture_source_ids": batch},
                 )
@@ -1014,13 +1397,20 @@ class Collector:
                         job.job_type,
                         job.fixture.source_id,
                         job.scheduled_for,
-                        "failed",
-                        None,
+                        checkpoint_status,
+                        error.http_status if isinstance(error, RequestExecutionError) else None,
                         {"fixture_source_ids": batch},
                         error=str(error),
                         fixture_id=job.fixture.internal_id,
+                        next_attempt_at=next_attempt,
+                        terminal_reason=terminal_reason,
                     )
-                raise
+                if self._fatal_request_error(error):
+                    raise
+                self.summary.setdefault("warnings", []).append(
+                    f"fixture details batch deferred ({len(batch)} fixtures)"
+                )
+                continue
             lineup_schedule_ids = {
                 job.fixture.source_id: job.schedule_observation_id
                 for job in batch_jobs
@@ -1061,25 +1451,45 @@ class Collector:
                     if source_id not in returned_ids:
                         state = "incomplete"
                         metadata = {"reason": "fixture_missing_from_batch_response"}
+                        terminal_reason = None
                     elif job.job_type.startswith("lineup"):
+                        (
+                            current_schedule_version,
+                            current_schedule_observation_id,
+                            current_kickoff,
+                        ) = self._lineup_schedule_version(job.fixture)
                         result = validate_lineups(
                             self.connection,
                             job.fixture.internal_id,
                             "api_football",
                             now,
-                            schedule_kickoff=job.fixture.kickoff,
+                            schedule_observation_id=current_schedule_observation_id,
+                            schedule_kickoff=current_kickoff,
                         )
-                        state = self._checkpoint_state_for_component(result)
-                        if state == "succeeded":
+                        schedule_changed = (
+                            job.schedule_version is not None
+                            and current_schedule_version != job.schedule_version
+                        )
+                        state = (
+                            "terminal"
+                            if schedule_changed
+                            else self._checkpoint_state_for_component(result)
+                        )
+                        terminal_reason = (
+                            "schedule_superseded" if schedule_changed else None
+                        )
+                        if result.state == "complete":
                             self._record_pregame_lineup_capture(
-                                job.fixture,
+                                replace(job.fixture, kickoff=current_kickoff),
                                 result,
                                 now,
-                                job.schedule_observation_id,
+                                current_schedule_observation_id,
                             )
                         metadata = {
                             "lineup_state": result.state,
                             "lineup_job_key": job.job_key,
+                            "schedule_version": current_schedule_version,
+                            "schedule_changed_in_response": schedule_changed,
                             **result.details,
                         }
                     else:
@@ -1092,6 +1502,7 @@ class Collector:
                             )
                         )
                         state = "succeeded" if complete else "incomplete"
+                        terminal_reason = None
                         metadata = {
                             "postmatch_complete": complete,
                             "component_states": {
@@ -1102,16 +1513,67 @@ class Collector:
                                 )
                             },
                         }
+                        component = component_for_job_type(job.job_type)
+                        if component and component.startswith("correction_refresh_"):
+                            correction_result = ValidationResult(
+                                "complete",
+                                None,
+                                {
+                                    "facts_revalidated": True,
+                                    "component_states": metadata["component_states"],
+                                },
+                                item.get("_raw_artifact_id"),
+                            )
+                            record_component_result(
+                                self.connection,
+                                fixture_id=job.fixture.internal_id,
+                                source_code="api_football",
+                                component_code=component,
+                                result=correction_result,
+                                now=now,
+                            )
+                            if component == "correction_refresh_72h":
+                                earlier = self.connection.execute(
+                                    """
+                                    SELECT 1 FROM fixture_collection_component
+                                    WHERE fixture_id=? AND source_code='api_football'
+                                      AND component_code='correction_refresh_24h'
+                                    """,
+                                    [job.fixture.internal_id],
+                                ).fetchone()
+                                if not earlier:
+                                    record_component_result(
+                                        self.connection,
+                                        fixture_id=job.fixture.internal_id,
+                                        source_code="api_football",
+                                        component_code="correction_refresh_24h",
+                                        result=ValidationResult(
+                                            "missed",
+                                            "correction_window_missed_during_downtime",
+                                            {
+                                                "recovered_by": "correction_refresh_72h",
+                                                "retrieved_at": now.isoformat(),
+                                            },
+                                            item.get("_raw_artifact_id"),
+                                        ),
+                                        now=now,
+                                    )
+                            state = "succeeded"
                     self._record_checkpoint(
                         job.job_key, "api_football", job.job_type, source_id,
                         job.scheduled_for, state, status, metadata,
                         fixture_id=job.fixture.internal_id,
+                        terminal_reason=terminal_reason,
                     )
                     attempt_id = attempt_ids.get(job.job_key)
                     if attempt_id:
                         self._finish_attempts(
                             {job.job_key: attempt_id},
-                            status="succeeded" if state == "succeeded" else "incomplete",
+                            status=(
+                                "succeeded"
+                                if state in {"succeeded", "terminal"}
+                                else "incomplete"
+                            ),
                             finished_at=datetime.now(timezone.utc),
                             http_status=status,
                             raw_artifact_id=item.get("_raw_artifact_id"),
@@ -1210,29 +1672,61 @@ class Collector:
 
     def _plan_market_jobs(self, fixtures: list[FixtureRecord], now: datetime) -> list[DetailJob]:
         jobs: list[DetailJob] = []
-        prekick_minutes = int(self.polymarket_config["prekick_snapshot_minutes"])
         for fixture in fixtures:
-            if not self._fixture_has_market_tokens(fixture.internal_id):
+            if not self._fixture_has_any_market_tokens(fixture.internal_id):
                 continue
-            kickoff_key = int(fixture.kickoff.timestamp())
-            lineup_key = f"polymarket:lineup_snapshot:{fixture.source_id}:{kickoff_key}"
-            if (
-                self._lineup_complete(fixture.internal_id, now)
-                and now < fixture.kickoff
-                and not self._checkpoint_done(lineup_key)
-            ):
-                jobs.append(DetailJob(lineup_key, "lineup_snapshot", fixture, now))
-            prekick_key = f"polymarket:prekick_snapshot:{fixture.source_id}:{kickoff_key}"
-            prekick_at = fixture.kickoff - timedelta(minutes=prekick_minutes)
-            if prekick_at <= now <= fixture.kickoff + timedelta(minutes=5) and not self._checkpoint_done(prekick_key):
-                jobs.append(DetailJob(prekick_key, "prekick_snapshot", fixture, prekick_at))
+            schedule_version, _, kickoff = self._lineup_schedule_version(fixture)
+            rows = self.connection.execute(
+                """
+                SELECT job_key,status,attempts,next_attempt_at
+                FROM collection_checkpoint
+                WHERE fixture_id=? AND source_code='polymarket_clob'
+                """,
+                [fixture.internal_id],
+            ).fetchall()
+            maximum_attempts = int(
+                self.polymarket_config.get("snapshot_maximum_attempts", 3)
+            )
+            attempted = {
+                key for key, status, attempts, next_attempt_at in rows
+                if checkpoint_is_stopping(status)
+                or attempts >= maximum_attempts
+                or (next_attempt_at is not None and next_attempt_at > now)
+            }
+            plans = market_stage_plans(
+                fixture_source_id=fixture.source_id,
+                schedule_version=schedule_version,
+                kickoff=kickoff,
+                now=now,
+                offsets_minutes=self.polymarket_config[
+                    "snapshot_offsets_minutes"
+                ],
+                stage_window_minutes=int(
+                    self.polymarket_config["snapshot_stage_window_minutes"]
+                ),
+                lineup_complete=self._lineup_complete(
+                    fixture.internal_id, now, schedule_kickoff=kickoff
+                ),
+                attempted_job_keys=attempted,
+                closure_delay_minutes=int(
+                    self.polymarket_config["closure_snapshot_delay_minutes"]
+                ),
+            )
+            schedule_fixture = replace(fixture, kickoff=kickoff)
+            jobs.extend(
+                DetailJob(plan.job_key, plan.stage, schedule_fixture, plan.stage_time)
+                for plan in plans
+            )
         return jobs
 
     def _execute_market_jobs(self, jobs: list[DetailJob], now: datetime) -> None:
         if not jobs:
             return
         tokens_by_fixture = {
-            job.fixture.internal_id: self._market_tokens(job.fixture.internal_id)
+            job.fixture.internal_id: self._market_tokens(
+                job.fixture.internal_id,
+                include_closed=job.job_type == "market_after_closure",
+            )
             for job in jobs
         }
         all_tokens = sorted({token for tokens in tokens_by_fixture.values() for token in tokens})
@@ -1250,10 +1744,16 @@ class Collector:
                     "order_books_batch", "/books", [{"token_id": token} for token in batch]
                 )
             except Exception as error:
+                checkpoint_status, attempt_status, next_attempt, retry_after, raw_id, terminal_reason = (
+                    self._request_failure_disposition(error, now)
+                )
                 self._finish_attempts(
                     attempt_ids,
-                    status="retryable_error",
+                    status=attempt_status,
                     finished_at=datetime.now(timezone.utc),
+                    http_status=(error.http_status if isinstance(error, RequestExecutionError) else None),
+                    retry_after_seconds=retry_after,
+                    raw_artifact_id=raw_id,
                     error=error,
                     metadata={"token_count": len(batch)},
                 )
@@ -1264,14 +1764,34 @@ class Collector:
                         job.job_type,
                         job.fixture.source_id,
                         job.scheduled_for,
-                        "failed",
-                        None,
+                        checkpoint_status,
+                        error.http_status if isinstance(error, RequestExecutionError) else None,
                         {"token_count": len(batch)},
                         error=str(error),
                         fixture_id=job.fixture.internal_id,
+                        next_attempt_at=next_attempt,
+                        terminal_reason=terminal_reason,
                     )
-                raise
+                self.summary.setdefault("warnings", []).append(
+                    "Polymarket order-book batch deferred"
+                )
+                return
             last_status = status
+            retrieved_at = parse_datetime(item.get("retrieved_at")) or now
+            valid_jobs = {
+                job.job_key: self._market_retrieval_valid(job, retrieved_at)
+                for job in jobs
+            }
+            stage_by_token: dict[str, str] = {}
+            kickoff_by_token: dict[str, str] = {}
+            for job in jobs:
+                if not valid_jobs[job.job_key]:
+                    continue
+                for token in tokens_by_fixture[job.fixture.internal_id]:
+                    stage_by_token[token] = job.job_type
+                    kickoff_by_token[token] = job.fixture.kickoff.isoformat()
+            item["_cadence_stage_by_token"] = stage_by_token
+            item["_kickoff_by_token"] = kickoff_by_token
             self.loader.load_polymarket_payload("order_books_batch", payload, item)
             if isinstance(payload, list):
                 received.update(
@@ -1281,12 +1801,46 @@ class Collector:
             tokens = tokens_by_fixture[job.fixture.internal_id]
             if not tokens:
                 continue
-            complete = set(tokens).issubset(received)
+            retrieval_valid = valid_jobs.get(job.job_key, False)
+            complete = set(tokens).issubset(received) and retrieval_valid
+            received_for_fixture = set(tokens).intersection(received)
+            previous_attempts_row = self.connection.execute(
+                "SELECT attempts FROM collection_checkpoint WHERE job_key=?",
+                [job.job_key],
+            ).fetchone()
+            previous_attempts = previous_attempts_row[0] if previous_attempts_row else 0
+            maximum_attempts = int(
+                self.polymarket_config.get("snapshot_maximum_attempts", 3)
+            )
+            exhausted = not complete and previous_attempts + 1 >= maximum_attempts
+            checkpoint_status = (
+                "succeeded" if complete else "terminal" if exhausted else "incomplete"
+            )
+            terminal_reason = (
+                "orderbook_tokens_unavailable_after_retries" if exhausted else None
+            )
+            retry_at = (
+                None
+                if complete or exhausted
+                else now + timedelta(
+                    minutes=int(
+                        self.polymarket_config.get("snapshot_retry_minutes", 15)
+                    )
+                )
+            )
             self._record_checkpoint(
                 job.job_key, "polymarket_clob", job.job_type, job.fixture.source_id,
-                job.scheduled_for, "succeeded" if complete else "incomplete", last_status,
-                {"requested_tokens": len(tokens), "received_tokens": len(received)},
+                job.scheduled_for, checkpoint_status, last_status,
+                {
+                    "requested_tokens": len(tokens),
+                    "received_tokens": len(received_for_fixture),
+                    "cadence_stage": job.job_type,
+                    "retrieval_within_stage_window": retrieval_valid,
+                },
                 fixture_id=job.fixture.internal_id,
+                maximum_attempts=maximum_attempts,
+                terminal_reason=terminal_reason,
+                next_attempt_at=retry_at,
             )
             attempt_id = attempt_ids.get(job.job_key)
             if attempt_id:
@@ -1298,10 +1852,32 @@ class Collector:
                     raw_artifact_id=item.get("_raw_artifact_id"),
                     metadata={
                         "requested_tokens": len(tokens),
-                        "received_tokens": len(received),
+                        "received_tokens": len(received_for_fixture),
+                        "cadence_stage": job.job_type,
+                        "retrieval_within_stage_window": retrieval_valid,
                     },
                 )
             self.summary["executed_jobs"].append(job.job_key)
+
+    def _market_retrieval_valid(
+        self, job: DetailJob, retrieved_at: datetime
+    ) -> bool:
+        retrieved_at = retrieved_at.astimezone(timezone.utc)
+        if job.job_type.startswith("market_t_minus_"):
+            window = timedelta(
+                minutes=int(self.polymarket_config["snapshot_stage_window_minutes"])
+            )
+            return (
+                job.scheduled_for <= retrieved_at < job.scheduled_for + window
+                and retrieved_at < job.fixture.kickoff
+            )
+        if job.job_type == "market_after_lineup":
+            return job.scheduled_for <= retrieved_at < job.fixture.kickoff
+        if job.job_type == "market_after_closure":
+            return retrieved_at >= job.scheduled_for
+        # Compatibility for pre-rework checkpoints/tests. New planning never
+        # emits these legacy names.
+        return True
 
     def _mark_expired_pregame_components(
         self, fixtures: list[FixtureRecord], now: datetime
@@ -1343,22 +1919,34 @@ class Collector:
                 missed_reason="kickoff_passed_without_pregame_lineup",
             )
             if self._fixture_has_any_market_tokens(schedule_fixture.internal_id):
-                market_captured_before_kickoff = bool(
-                    self.connection.execute(
+                required_market_stages = {
+                    f"market_t_minus_{int(offset)}"
+                    for offset in self.polymarket_config["snapshot_offsets_minutes"]
+                }
+                pregame_lineup = self.connection.execute(
+                    """
+                    SELECT state FROM fixture_collection_component
+                    WHERE fixture_id=? AND source_code='api_football'
+                      AND component_code='pregame_lineup_capture'
+                    """,
+                    [schedule_fixture.internal_id],
+                ).fetchone()
+                if pregame_lineup and pregame_lineup[0] == "complete":
+                    required_market_stages.add("market_after_lineup")
+                captured_market_stages = {
+                    row[0] for row in self.connection.execute(
                         """
-                        SELECT 1
-                        FROM orderbook_snapshot ob
-                        JOIN prediction_market_outcome o
-                          ON o.source_token_id = ob.source_token_id
-                        JOIN prediction_market m
-                          ON m.prediction_market_id = o.prediction_market_id
-                        JOIN prediction_market_event e
-                          ON e.prediction_market_event_id = m.prediction_market_event_id
-                        WHERE e.fixture_id = ? AND ob.retrieved_at < ?
-                        LIMIT 1
+                        SELECT DISTINCT job_type FROM collection_checkpoint
+                        WHERE fixture_id=? AND source_code='polymarket_clob'
+                          AND status='succeeded'
+                          AND (job_type LIKE 'market_t_minus_%'
+                               OR job_type='market_after_lineup')
                         """,
-                        [schedule_fixture.internal_id, kickoff],
-                    ).fetchone()
+                        [schedule_fixture.internal_id],
+                    ).fetchall()
+                }
+                market_captured_before_kickoff = required_market_stages.issubset(
+                    captured_market_stages
                 )
                 self._mark_pregame_component(
                     schedule_fixture,
@@ -1532,9 +2120,33 @@ class Collector:
             if not candidates:
                 continue
             candidates.sort(key=lambda item: item[0])
+            if (
+                len(candidates) > 1
+                and abs(candidates[1][0] - candidates[0][0]) < 1800
+            ):
+                self.connection.execute(
+                    """
+                    UPDATE prediction_market_event
+                    SET fixture_link_conflict='ambiguous_fixture_candidates'
+                    WHERE prediction_market_event_id=? AND fixture_id IS NULL
+                    """,
+                    [event_id],
+                )
+                continue
             self.connection.execute(
-                "UPDATE prediction_market_event SET fixture_id = ? WHERE prediction_market_event_id = ?",
-                [candidates[0][1].internal_id, event_id],
+                """
+                UPDATE prediction_market_event
+                SET fixture_id=?, fixture_link_method='team_names_and_kickoff',
+                    fixture_link_confidence=?, fixture_linked_at=?,
+                    fixture_link_conflict=NULL
+                WHERE prediction_market_event_id=? AND fixture_id IS NULL
+                """,
+                [
+                    candidates[0][1].internal_id,
+                    1.0 if len(candidates) == 1 else 0.9,
+                    datetime.now(timezone.utc),
+                    event_id,
+                ],
             )
             linked += 1
         return linked
@@ -1574,18 +2186,21 @@ class Collector:
         ).fetchone()
         return bool(row)
 
-    def _market_tokens(self, fixture_id: str) -> list[str]:
+    def _market_tokens(
+        self, fixture_id: str, *, include_closed: bool = False
+    ) -> list[str]:
         rows = self.connection.execute(
             """
             SELECT DISTINCT o.source_token_id
             FROM prediction_market_event e
             JOIN prediction_market m USING (prediction_market_event_id)
             JOIN prediction_market_outcome o USING (prediction_market_id)
-            WHERE e.fixture_id = ? AND coalesce(m.active, true)
-              AND NOT coalesce(m.closed, false) AND o.source_token_id IS NOT NULL
+            WHERE e.fixture_id = ?
+              AND (? OR (coalesce(m.active, true) AND NOT coalesce(m.closed, false)))
+              AND o.source_token_id IS NOT NULL
             ORDER BY o.source_token_id
             """,
-            [fixture_id],
+            [fixture_id, include_closed],
         ).fetchall()
         return [row[0] for row in rows]
 
@@ -1617,6 +2232,8 @@ class Collector:
         fixture_id: str | None = None,
         priority: int = 2,
         terminal_reason: str | None = None,
+        next_attempt_at: datetime | None = None,
+        maximum_attempts: int = 1,
     ) -> None:
         attempted_at = datetime.now(timezone.utc)
         if fixture_id is None and fixture_source_id is not None:
@@ -1632,7 +2249,7 @@ class Collector:
                 last_error, metadata, updated_at, fixture_id, component_code,
                 next_attempt_at, maximum_attempts, priority, terminal_reason,
                 last_run_id
-            ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (job_key) DO UPDATE SET
                 status = excluded.status,
                 attempts = collection_checkpoint.attempts + 1,
@@ -1646,6 +2263,7 @@ class Collector:
                     excluded.component_code, collection_checkpoint.component_code
                 ),
                 next_attempt_at = excluded.next_attempt_at,
+                maximum_attempts = excluded.maximum_attempts,
                 priority = excluded.priority,
                 terminal_reason = excluded.terminal_reason,
                 last_run_id = excluded.last_run_id,
@@ -1654,18 +2272,26 @@ class Collector:
             [job_key, source, job_type, fixture_source_id, scheduled_for, status,
              attempted_at, attempted_at if stopping else None,
              http_status, error, json_text(metadata), attempted_at, fixture_id,
-             component_for_job_type(job_type), None if stopping else attempted_at,
-             priority, terminal_reason, self.current_run_id],
+             component_for_job_type(job_type),
+             None if stopping else (next_attempt_at or attempted_at),
+             maximum_attempts, priority, terminal_reason, self.current_run_id],
         )
 
     def _api_budget_available(self, now: datetime) -> bool:
+        reset_zone = ZoneInfo(self.api_config.get("quota_reset_timezone", "UTC"))
+        local_day = now.astimezone(reset_zone).date()
+        start_local = datetime.combine(
+            local_day, datetime_time.min, tzinfo=reset_zone
+        )
+        end_local = start_local + timedelta(days=1)
         used = self.connection.execute(
             """
             SELECT count(*) FROM raw_artifact
-            WHERE source_code = 'api_football' AND CAST(retrieved_at AS DATE) = ?
+            WHERE source_code = 'api_football'
+              AND retrieved_at >= ? AND retrieved_at < ?
               AND resource_name != 'status'
             """,
-            [now.date()],
+            [start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)],
         ).fetchone()[0]
         usable = int(self.api_config["daily_limit"]) - int(self.api_config["reserve_calls"])
         return used < usable
@@ -1677,41 +2303,66 @@ class Collector:
         params: dict[str, object],
         now: datetime,
     ) -> tuple[dict, dict, int]:
-        if not self._api_budget_available(now):
-            raise RuntimeError("API-Football daily call reserve reached")
-        if self.last_api_request_at is not None:
-            remaining = float(self.api_config["minimum_interval_seconds"]) - (
-                time.monotonic() - self.last_api_request_at
+        def request() -> HttpResponse:
+            if not self.api_key:
+                raise ProviderResponseError(
+                    "API_FOOTBALL_KEY is missing", retryable=False
+                )
+            if not self._api_budget_available(datetime.now(timezone.utc)):
+                raise ProviderResponseError(
+                    "API-Football daily call reserve reached", retryable=False
+                )
+            if self.last_api_request_at is not None:
+                remaining = float(self.api_config["minimum_interval_seconds"]) - (
+                    time.monotonic() - self.last_api_request_at
+                )
+                if remaining > 0:
+                    time.sleep(remaining)
+            response = self.http.get(
+                self.API_FOOTBALL_URL, path, params=params,
+                headers={"x-apisports-key": self.api_key},
             )
-            if remaining > 0:
-                time.sleep(remaining)
-        response = self.http.get(
-            self.API_FOOTBALL_URL, path, params=params,
-            headers={"x-apisports-key": self.api_key},
+            self.last_api_request_at = time.monotonic()
+            self.api_calls += 1
+            return response
+
+        result = self.request_executor.execute(
+            request,
+            validate=self._validated_api_payload,
+            response_hook=lambda response: self._store_and_register(
+                "api_football", resource, response, params
+            ),
+            attempt_hook=self._http_attempt_recorder(
+                "api_football", resource, sorted(params)
+            ),
         )
-        self.last_api_request_at = time.monotonic()
-        self.api_calls += 1
-        item = self._store_and_register("api_football", resource, response, params)
-        payload = self._validated_json(response, "API-Football")
-        if not isinstance(payload, dict):
-            raise RuntimeError("API-Football returned a non-object response")
-        if payload.get("errors"):
-            raise RuntimeError(f"API-Football returned errors: {payload['errors']}")
-        return payload, item, response.status
+        return result.value, result.hook_value, result.response.status
 
     def _polymarket_get(
         self, resource: str, path: str, params: dict[str, object]
     ) -> tuple[object, dict, int]:
-        response = self.http.get(self.POLYMARKET_GAMMA_URL, path, params=params)
-        self.polymarket_calls += 1
-        item = self._store_and_register("polymarket_gamma", resource, response, params)
-        return self._validated_json(response, "Polymarket Gamma"), item, response.status
+        def request() -> HttpResponse:
+            response = self.http.get(self.POLYMARKET_GAMMA_URL, path, params=params)
+            self.polymarket_calls += 1
+            return response
+
+        result = self.request_executor.execute(
+            request,
+            validate=lambda response: self._validated_json(
+                response, "Polymarket Gamma"
+            ),
+            response_hook=lambda response: self._store_and_register(
+                "polymarket_gamma", resource, response, params
+            ),
+            attempt_hook=self._http_attempt_recorder(
+                "polymarket_gamma", resource, sorted(params)
+            ),
+        )
+        return result.value, result.hook_value, result.response.status
 
     def _polymarket_post(
         self, resource: str, path: str, payload: object
     ) -> tuple[object, dict, int]:
-        response = self.http.post_json(self.POLYMARKET_CLOB_URL, path, payload)
-        self.polymarket_calls += 1
         token_ids = (
             [
                 str(item["token_id"])
@@ -1722,19 +2373,59 @@ class Collector:
             else []
         )
         request_metadata = {"token_count": len(token_ids), "token_ids": token_ids}
-        item = self._store_and_register(
-            "polymarket_clob", resource, response, request_metadata
+        def request() -> HttpResponse:
+            response = self.http.post_json(self.POLYMARKET_CLOB_URL, path, payload)
+            self.polymarket_calls += 1
+            return response
+
+        result = self.request_executor.execute(
+            request,
+            validate=lambda response: self._validated_json(
+                response, "Polymarket CLOB"
+            ),
+            response_hook=lambda response: self._store_and_register(
+                "polymarket_clob", resource, response, request_metadata
+            ),
+            attempt_hook=self._http_attempt_recorder(
+                "polymarket_clob", resource, sorted(request_metadata)
+            ),
         )
-        return self._validated_json(response, "Polymarket CLOB"), item, response.status
+        return result.value, result.hook_value, result.response.status
+
+    def _validated_api_payload(self, response: HttpResponse) -> dict:
+        payload = self._validated_json(response, "API-Football")
+        if not isinstance(payload, dict):
+            raise ProviderResponseError(
+                "API-Football returned an invalid response shape"
+            )
+        if payload.get("errors"):
+            text = json.dumps(payload["errors"], ensure_ascii=True).lower()
+            permanent = any(
+                marker in text
+                for marker in (
+                    "key", "token", "account", "subscription", "plan",
+                    "permission", "auth",
+                )
+            )
+            raise ProviderResponseError(
+                "API-Football provider reported an error",
+                retryable=not permanent,
+            )
+        return payload
 
     @staticmethod
     def _validated_json(response: HttpResponse, source: str) -> object:
         if response.status != 200:
-            raise RuntimeError(f"{source} request failed with HTTP {response.status}")
+            raise ProviderResponseError(
+                f"{source} returned an unexpected success status",
+                retryable=False,
+            )
         try:
             return response.json()
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise RuntimeError(f"{source} returned invalid JSON") from error
+            raise ProviderResponseError(
+                f"{source} returned invalid JSON", retryable=True
+            ) from error
 
     def _store_and_register(
         self,

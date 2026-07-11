@@ -26,7 +26,7 @@ The data foundation is built; modeling has not started.
 - 23,726 API-Football fixtures exist, including 107 additional fixtures from
   watched competitions (audits, qualifiers, and current/validation matches)
 - 23,526 approved fixtures pass all three modeling eligibility checks
-- 53 tests pass
+- 111 tests pass
 
 The database also contains useful observations from Football-Data.co.uk,
 Understat, StatsBomb Open Data, and Polymarket.
@@ -91,8 +91,10 @@ state have been reviewed first.
 - One watched Czech audit fixture (`API-Football 1049556`) has complete result,
   lineups, team stats, goals, and substitutions but no player minutes. It is
   result/team eligible and player ineligible.
-- The collector is a restart-safe run-once program; an operating-system
-  scheduler has not been installed.
+- The collector is a restart-safe, locked run-once program with rolling
+  recovery, staged lineup/post-match/Polymarket jobs, bounded HTTP retries, and
+  daily health reporting. A tracked `launchd` example exists, but the
+  operating-system scheduler has not been installed pending observation.
 - A complete replay of all raw daily-discovery artifacts can reintroduce
   out-of-scope shallow fixtures because raw responses intentionally retain all
   competitions. Apply the configured competition boundary during any future

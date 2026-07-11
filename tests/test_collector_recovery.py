@@ -155,7 +155,7 @@ class RecoveryIntegrationTests(unittest.TestCase):
             dates,
         )
 
-    def test_completed_fixture_frontier_expands_recovery_safely(self):
+    def test_completed_fixture_frontier_expands_recovery_for_model_history(self):
         competition_id = self.warehouse.resolve_competition(
             "api_football", 39, "Premier League", country_code="England"
         )
@@ -178,6 +178,22 @@ class RecoveryIntegrationTests(unittest.TestCase):
         self.assertEqual(date(2026, 7, 1), start)
         self.assertEqual(date(2026, 7, 10), end)
         self.assertEqual(9, past_days)
+
+    def test_explicit_three_week_catch_up_requests_each_date_once(self):
+        self.config["discovery"]["recovery_days"] = 2
+        self.config["discovery"]["planning_days"] = 0
+        now = datetime(2026, 7, 10, 10, 0, tzinfo=timezone.utc)
+        http = DateDiscoveryHttp()
+
+        self.collector(http).run(now=now, catch_up_days=21)
+        dates = [
+            params["date"] for _, path, params in http.calls
+            if path == "/fixtures" and "date" in params
+        ]
+        self.assertEqual(22, len(dates))
+        self.assertEqual("2026-06-19", dates[0])
+        self.assertEqual("2026-07-10", dates[-1])
+        self.assertEqual(len(dates), len(set(dates)))
 
     def test_discovery_filters_before_loading_canonical_fixtures(self):
         self.config["discovery"]["recovery_days"] = 0

@@ -68,9 +68,13 @@ def component_is_terminally_done(state: str | None) -> bool:
 
 
 def component_for_job_type(job_type: str) -> str | None:
+    if job_type in {"correction_refresh_24h", "correction_refresh_72h"}:
+        return job_type
     if job_type == "lineup_snapshot":
         return "pregame_lineup_capture"
     if job_type in {"prekick_snapshot", "market_snapshot"}:
+        return "pregame_market_capture"
+    if job_type == "market_after_lineup" or job_type.startswith("market_t_minus_"):
         return "pregame_market_capture"
     if job_type.startswith("lineup"):
         return "lineups"
@@ -135,6 +139,32 @@ def _result(
     raw_artifact_id: str | None = None,
 ) -> ValidationResult:
     return ValidationResult(state, reason_code, details, raw_artifact_id)
+
+
+def _unavailable_evidence(
+    connection, fixture_id: str, rule_code: str
+) -> ValidationResult | None:
+    row = connection.execute(
+        """
+        SELECT raw_artifact_id, details
+        FROM data_quality_issue
+        WHERE internal_entity_id = ? AND rule_code = ? AND status = 'open'
+        ORDER BY detected_at DESC, issue_id DESC
+        LIMIT 1
+        """,
+        [fixture_id, rule_code],
+    ).fetchone()
+    if not row:
+        return None
+    details = row[1]
+    if isinstance(details, str):
+        try:
+            details = json.loads(details)
+        except json.JSONDecodeError:
+            details = {}
+    if not isinstance(details, dict):
+        details = {}
+    return _result("unavailable", rule_code, details, row[0])
 
 
 def validate_result(
@@ -331,7 +361,12 @@ def validate_team_statistics(
         """,
         [fixture_id, source_code],
     ).fetchall()
+    unavailable = _unavailable_evidence(
+        connection, fixture_id, "api_team_stats_unavailable"
+    )
     if not rows:
+        if unavailable:
+            return unavailable
         state = "retryable" if _postmatch_started(status, kickoff, now) else "pending"
         return _result(state, "missing_team_statistics", {"artifacts": 0})
 
@@ -395,6 +430,8 @@ def validate_team_statistics(
             "invalid_team_statistics",
             {"artifact_count": len(by_artifact), "invalid_artifacts": invalid},
         )
+    if unavailable:
+        return unavailable
     state = "retryable" if _postmatch_started(status, kickoff, now) else "pending"
     return _result(
         state,
@@ -457,7 +494,12 @@ def validate_player_statistics(
         """,
         [fixture_id, source_code],
     ).fetchall()
+    unavailable = _unavailable_evidence(
+        connection, fixture_id, "api_player_stats_unavailable"
+    )
     if not rows:
+        if unavailable:
+            return unavailable
         state = "retryable" if _postmatch_started(status, kickoff, now) else "pending"
         return _result(state, "missing_player_statistics", {"artifacts": 0})
 
@@ -498,6 +540,8 @@ def validate_player_statistics(
             "invalid_player_statistics",
             {"artifact_count": len(by_artifact), "invalid_artifacts": invalid_artifacts},
         )
+    if unavailable:
+        return unavailable
     state = "retryable" if _postmatch_started(status, kickoff, now) else "pending"
     return _result(
         state,
@@ -587,6 +631,15 @@ def validate_identity_linking(
     ).fetchone()
     if not fixture_source:
         return _result("pending", "fixture_source_identity_missing", {})
+    lineup_count = connection.execute(
+        """
+        SELECT count(*) FROM lineup_snapshot
+        WHERE fixture_id = ? AND source_code = ? AND lineup_type = 'confirmed'
+        """,
+        [fixture_id, source_code],
+    ).fetchone()[0]
+    if not lineup_count:
+        return _result("pending", "lineups_not_available", {})
     prefix = f"{fixture_source[0]}|%"
     rows = connection.execute(
         """
@@ -606,7 +659,11 @@ def validate_identity_linking(
     ]
     details = {"linked": len(rows) - len(unresolved), "unresolved": len(unresolved)}
     if unresolved:
-        return _result("complete", "unresolved_identity_warning", details)
+        status = latest_fixture_status(connection, fixture_id, source_code)
+        state = "terminal" if status in {
+            "final", "cancelled", "abandoned", "administrative_result"
+        } else "retryable"
+        return _result(state, "unresolved_identity_warning", details)
     return _result("complete", None, details)
 
 
@@ -631,6 +688,29 @@ def _persist_component(
     attempted: bool = False,
     required_for_fixture_terminal: bool | None = None,
 ) -> None:
+    existing = connection.execute(
+        """
+        SELECT state, reason_code, details, last_raw_artifact_id
+        FROM fixture_collection_component
+        WHERE fixture_id = ? AND source_code = ? AND component_code = ?
+        """,
+        [fixture_id, source_code, component_code],
+    ).fetchone()
+    if existing and existing[0] == "unavailable" and result.state in {
+        "pending", "retryable"
+    }:
+        details = existing[2]
+        if isinstance(details, str):
+            try:
+                details = json.loads(details)
+            except json.JSONDecodeError:
+                details = {}
+        result = ValidationResult(
+            "unavailable",
+            existing[1],
+            details if isinstance(details, dict) else {},
+            existing[3],
+        )
     required = COMPONENT_REQUIRED_FOR_TERMINAL.get(component_code, True)
     if required_for_fixture_terminal is not None:
         required = required_for_fixture_terminal

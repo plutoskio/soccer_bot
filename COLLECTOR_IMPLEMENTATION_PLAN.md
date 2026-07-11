@@ -196,7 +196,7 @@ Agent suitability: table creation, indexes, deterministic SQL validators, and un
 
 ### Phase 3 — rolling fixture discovery and downtime recovery
 
-On every invocation, calculate a local-date window from `today - recovery_days` through `today + planning_days`. Defaults are 14 and 7. `--catch-up-days N` replaces the normal past bound for that invocation but must not reduce it below the configured default.
+On every invocation, calculate a local-date window from `today - recovery_days` through `today + planning_days`. Defaults are 14 and 7. Automatically expand the past bound to the latest monitored completed-fixture frontier so downtime and off-season gaps do not omit model history. `--catch-up-days N` may expand it further but must not reduce either automatic bound.
 
 Discovery rules:
 
@@ -630,7 +630,8 @@ finally:
 
 ```text
 today = now in configured timezone
-past_days = max(config.recovery_days, CLI catch_up_days if supplied)
+frontier_days = days since latest monitored completed fixture, if any
+past_days = max(config.recovery_days, frontier_days, CLI catch_up_days if supplied)
 target_dates = [today - past_days, ..., today + planning_days]
 
 for target_date in target_dates:

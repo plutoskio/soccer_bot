@@ -236,6 +236,97 @@ class ApiFootballScheduleObservationTests(unittest.TestCase):
             finally:
                 warehouse.close()
 
+    def test_awarded_result_is_never_model_eligible(self):
+        with tempfile.TemporaryDirectory() as directory:
+            warehouse = Warehouse(
+                Path(directory) / "test.duckdb",
+                ROOT / "migrations",
+                ROOT / "config" / "entity_aliases.json",
+            )
+            try:
+                warehouse.migrate()
+                warehouse.register_sources()
+                loader = WarehouseLoader(warehouse, RawCatalog.__new__(RawCatalog))
+                payload = {
+                    "response": [{
+                        "fixture": {
+                            "id": 789,
+                            "date": "2026-07-10T18:00:00+00:00",
+                            "status": {"short": "AWD"},
+                            "venue": {},
+                        },
+                        "league": {
+                            "id": 39, "name": "Premier League",
+                            "country": "England", "season": 2026,
+                        },
+                        "teams": {
+                            "home": {"id": 5, "name": "Awarded Home"},
+                            "away": {"id": 6, "name": "Awarded Away"},
+                        },
+                        "score": {"fulltime": {"home": 3, "away": 0}},
+                    }],
+                }
+                item = {
+                    "retrieved_at": "2026-07-10T20:00:00+00:00",
+                    "content_sha256": "awarded-content",
+                    "_raw_artifact_id": "awarded-artifact",
+                }
+                loader.load_api_football_payload(payload, item, "fixtures_by_date")
+                self.assertEqual(
+                    (
+                        "administrative_result_unplayed",
+                        "administrative_result",
+                        "administrative",
+                        False,
+                        ["administrative_unplayed"],
+                    ),
+                    warehouse.connection.execute(
+                        """
+                        SELECT f.status, s.canonical_status, r.result_status,
+                               e.eligible_result_models, e.reason_codes
+                        FROM fixture f
+                        JOIN fixture_schedule_observation s USING (fixture_id)
+                        JOIN fixture_result_observation r USING (fixture_id)
+                        JOIN fixture_model_eligibility e USING (fixture_id)
+                        """
+                    ).fetchone(),
+                )
+                unknown = json.loads(json.dumps(payload))
+                unknown_match = unknown["response"][0]
+                unknown_match["fixture"]["id"] = 790
+                unknown_match["fixture"]["status"]["short"] = "NEW_CODE"
+                unknown_match["teams"] = {
+                    "home": {"id": 7, "name": "Unknown Home"},
+                    "away": {"id": 8, "name": "Unknown Away"},
+                }
+                loader.load_api_football_payload(
+                    unknown,
+                    {
+                        "retrieved_at": "2026-07-10T20:01:00+00:00",
+                        "content_sha256": "unknown-score-content",
+                        "_raw_artifact_id": "unknown-score-artifact",
+                    },
+                    "fixtures_by_date",
+                )
+                self.assertEqual(
+                    ("unknown", "provisional", False),
+                    warehouse.connection.execute(
+                        """
+                        SELECT f.status, r.result_status, e.eligible_result_models
+                        FROM fixture f
+                        JOIN source_entity_map m
+                          ON m.internal_entity_id=f.fixture_id
+                         AND m.source_code='api_football'
+                         AND m.entity_type='fixture'
+                        JOIN fixture_result_observation r USING (fixture_id)
+                        JOIN fixture_model_eligibility e USING (fixture_id)
+                        WHERE m.source_entity_id='790'
+                        """
+                    ).fetchone(),
+                )
+            finally:
+                warehouse.close()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -17,6 +17,7 @@ from soccer_bot.collection_state import (
     reconcile_fixture_components,
     record_component_result,
     validate_events,
+    validate_identity_linking,
     validate_lineups,
     validate_player_statistics,
     validate_result,
@@ -168,6 +169,63 @@ class ComponentValidationTests(unittest.TestCase):
         result = validate_player_statistics(self.connection, "fixture", now=self.now)
         self.assertEqual("retryable", result.state)
         self.assertEqual("incomplete_player_statistics", result.reason_code)
+
+    def test_provider_unavailable_player_stats_are_terminally_recorded(self):
+        self.connection.execute("DELETE FROM player_match_stat_observation")
+        self.connection.execute(
+            """
+            INSERT INTO data_quality_issue (
+                issue_id, rule_code, severity, entity_type,
+                internal_entity_id, source_code, raw_artifact_id, details
+            ) VALUES ('unavailable-player-stats', 'api_player_stats_unavailable',
+                      'warning', 'fixture', 'fixture', 'api_football',
+                      'unavailable-artifact', '{"reason":"provider_absent"}')
+            """
+        )
+        result = validate_player_statistics(
+            self.connection, "fixture", now=self.now
+        )
+        self.assertEqual("unavailable", result.state)
+        self.assertEqual("unavailable-artifact", result.last_raw_artifact_id)
+
+        record_component_result(
+            self.connection,
+            fixture_id="fixture",
+            source_code="api_football",
+            component_code="player_statistics",
+            result=result,
+            now=self.now,
+        )
+        self.connection.execute(
+            "UPDATE data_quality_issue SET status='resolved' WHERE issue_id='unavailable-player-stats'"
+        )
+        reconcile_fixture_components(
+            self.connection, "fixture", "api_football", self.now
+        )
+        self.assertEqual(
+            ("unavailable",),
+            self.connection.execute(
+                """
+                SELECT state FROM fixture_collection_component
+                WHERE fixture_id='fixture' AND component_code='player_statistics'
+                """
+            ).fetchone(),
+        )
+
+    def test_unresolved_identity_is_nonblocking_terminal_after_final(self):
+        self.connection.execute(
+            """
+            INSERT INTO source_entity_map (
+                source_code, entity_type, source_entity_id, internal_entity_id,
+                match_method, confidence, review_status
+            ) VALUES ('api_football_lineup', 'player', '100|1|home player',
+                      'home-player-0', 'unresolved_alias', 0, 'pending')
+            """
+        )
+        result = validate_identity_linking(self.connection, "fixture")
+        self.assertEqual("terminal", result.state)
+        self.assertEqual("unresolved_identity_warning", result.reason_code)
+        self.assertEqual(1, result.details["unresolved"])
 
     def test_empty_processed_events_are_complete(self):
         result = events_processing_result(

@@ -10,19 +10,47 @@
   "api_football": {
     "daily_limit": 7500,
     "reserve_calls": 250,
+    "quota_reset_timezone": "UTC",
     "minimum_interval_seconds": 1.0,
     "fixture_batch_size": 20,
     "supports_fixture_ids_batch": true,
     "lineup_stage_offsets": [50, 35, 20, 5],
     "post_match_first_check_minutes": 150,
-    "post_match_retry_minutes": 1590
+    "post_match_live_poll_minutes": 30,
+    "post_match_live_poll_until_minutes": 360,
+    "post_match_final_retry_minutes": 480,
+    "correction_refresh_offsets_minutes": [1440, 4320]
+  },
+  "identity": {
+    "recent_team_lookback_days": 730,
+    "recent_team_max_candidates": 50
+  },
+  "retry": {
+    "maximum_inline_attempts": 3,
+    "maximum_inline_retry_seconds": 5,
+    "backoff_base_seconds": 1,
+    "backoff_cap_seconds": 60,
+    "jitter_seconds": 0.25
+  },
+  "lock": {
+    "stale_timeout_seconds": 900,
+    "heartbeat_interval_seconds": 30
+  },
+  "health": {
+    "report_directory": "reports/collector"
   },
   "polymarket": {
     "soccer_tag_id": 100350,
     "maximum_event_pages": 5,
     "event_page_size": 100,
     "orderbook_batch_size": 500,
-    "prekick_snapshot_minutes": 5
+    "discovery_hourly_minutes": 60,
+    "discovery_matchday_minutes": 15,
+    "snapshot_offsets_minutes": [1440, 360, 90, 15, 5],
+    "snapshot_stage_window_minutes": 10,
+    "closure_snapshot_delay_minutes": 180,
+    "snapshot_maximum_attempts": 3,
+    "snapshot_retry_minutes": 15
   },
   "competitions": {
     "league_ids": [

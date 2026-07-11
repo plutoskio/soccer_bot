@@ -59,10 +59,14 @@ class Warehouse:
         database_path: Path,
         migrations_path: Path,
         aliases_path: Path | None = None,
+        *,
+        read_only: bool = False,
     ) -> None:
-        database_path.parent.mkdir(parents=True, exist_ok=True)
+        if not read_only:
+            database_path.parent.mkdir(parents=True, exist_ok=True)
         self.database_path = database_path
         self.migrations_path = migrations_path
+        self.read_only = read_only
         self.team_aliases: dict[str, str] = {}
         if aliases_path and aliases_path.exists():
             aliases = json.loads(aliases_path.read_text(encoding="utf-8"))
@@ -70,7 +74,7 @@ class Warehouse:
                 normalized_name(alias): normalized_name(canonical)
                 for alias, canonical in aliases.get("teams", {}).items()
             }
-        self.connection = duckdb.connect(str(database_path))
+        self.connection = duckdb.connect(str(database_path), read_only=read_only)
         self.connection.execute("SET preserve_insertion_order = false")
         self.connection.execute("SET threads = 2")
 
@@ -89,6 +93,8 @@ class Warehouse:
             self.connection.execute("COMMIT")
 
     def migrate(self) -> None:
+        if self.read_only:
+            raise RuntimeError("Cannot apply migrations through a read-only warehouse")
         self.connection.execute(
             """
             CREATE TABLE IF NOT EXISTS schema_migration (
@@ -112,6 +118,28 @@ class Warehouse:
                 self.connection.execute(
                     "INSERT INTO schema_migration (version) VALUES (?)", [version]
                 )
+
+    def pending_migrations(self) -> list[str]:
+        """Return unapplied migration versions without changing the warehouse."""
+        table_exists = self.connection.execute(
+            """
+            SELECT count(*) FROM information_schema.tables
+            WHERE table_schema='main' AND table_name='schema_migration'
+            """
+        ).fetchone()[0]
+        applied = set()
+        if table_exists:
+            applied = {
+                row[0]
+                for row in self.connection.execute(
+                    "SELECT version FROM schema_migration"
+                ).fetchall()
+            }
+        return [
+            path.stem
+            for path in sorted(self.migrations_path.glob("*.sql"))
+            if path.stem not in applied
+        ]
 
     def register_sources(self) -> None:
         rows = [

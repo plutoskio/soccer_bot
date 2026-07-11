@@ -59,6 +59,7 @@ API_FOOTBALL_STATUS_MAP = {
     "P": "live",
     "LIVE": "live",
     "HT": "live",
+    "BT": "live",
     "INT": "delayed",
     "SUSP": "suspended",
     "FT": "final",
@@ -243,7 +244,16 @@ class RawCatalog:
 
 
 class WarehouseLoader:
-    def __init__(self, warehouse: Warehouse, catalog: RawCatalog) -> None:
+    def __init__(
+        self,
+        warehouse: Warehouse,
+        catalog: RawCatalog,
+        *,
+        recent_team_lookback_days: int = 730,
+        recent_team_max_candidates: int = 50,
+    ) -> None:
+        if recent_team_lookback_days <= 0 or recent_team_max_candidates <= 0:
+            raise ValueError("Recent-team identity limits must be positive")
         self.warehouse = warehouse
         self.connection = warehouse.connection
         self.catalog = catalog
@@ -263,6 +273,8 @@ class WarehouseLoader:
         self._api_fixture_team_type_cache: dict[str, str] = {}
         self._use_runtime_api_player_id_cache = False
         self._api_runtime_source_ids_by_internal: dict[str, set[str]] = {}
+        self.recent_team_lookback_days = int(recent_team_lookback_days)
+        self.recent_team_max_candidates = int(recent_team_max_candidates)
 
     def enable_api_backfill_identity_cache(self) -> None:
         """Use IDs observed in this process instead of reverse-scanning mappings.
@@ -921,12 +933,25 @@ class WarehouseLoader:
         retrieved_at: datetime,
     ) -> tuple[str | None, datetime | None, bool | None]:
         raw_artifact_id = item.get("_raw_artifact_id")
+        # The current response is the freshest schedule knowledge available at
+        # retrieval. Prefer its observation over the schedule that planned the
+        # request, which may have been superseded by this very response.
+        row = self.connection.execute(
+            """
+            SELECT schedule_observation_id, scheduled_kickoff
+            FROM fixture_schedule_observation
+            WHERE fixture_id = ? AND source_code = ? AND raw_artifact_id = ?
+            ORDER BY retrieved_at DESC, schedule_observation_id DESC
+            LIMIT 1
+            """,
+            [fixture_id, "api_football", raw_artifact_id],
+        ).fetchone()
         planned_schedule_ids = item.get("_lineup_schedule_observation_ids", {})
         planned_schedule_id = (
             planned_schedule_ids.get(str(fixture_source_id))
             if isinstance(planned_schedule_ids, dict) else None
         )
-        if planned_schedule_id:
+        if not row and planned_schedule_id:
             row = self.connection.execute(
                 """
                 SELECT schedule_observation_id, scheduled_kickoff
@@ -943,16 +968,6 @@ class WarehouseLoader:
                     if kickoff_known is not None else None
                 )
                 return row[0], kickoff_known, captured_before
-        row = self.connection.execute(
-            """
-            SELECT schedule_observation_id, scheduled_kickoff
-            FROM fixture_schedule_observation
-            WHERE fixture_id = ? AND source_code = ? AND raw_artifact_id = ?
-            ORDER BY retrieved_at DESC, schedule_observation_id DESC
-            LIMIT 1
-            """,
-            [fixture_id, "api_football", raw_artifact_id],
-        ).fetchone()
         if not row:
             row = self.connection.execute(
                 """
@@ -1006,12 +1021,14 @@ class WarehouseLoader:
                 )
                 for index, (role, entry) in enumerate(entries)
             ]
-            decisions = link_team_players(
-                aliases,
-                self._api_stat_candidates_for_team(
-                    fixture_id, team_id, item["_raw_artifact_id"]
-                ),
+            candidates = self._api_stat_candidates_for_team(
+                fixture_id, team_id, item["_raw_artifact_id"]
             )
+            provider_candidates = self._api_provider_identity_candidates(aliases)
+            candidates_by_id = {candidate.player_id: candidate for candidate in candidates}
+            for candidate in provider_candidates:
+                candidates_by_id.setdefault(candidate.player_id, candidate)
+            decisions = link_team_players(aliases, list(candidates_by_id.values()))
             resolved_count = sum(
                 1 for decision in decisions.values() if decision.player_id is not None
             )
@@ -1346,6 +1363,54 @@ class WarehouseLoader:
         seen = {candidate.player_id for candidate in current}
         return current + [candidate for candidate in historical if candidate.player_id not in seen]
 
+    def _api_provider_identity_candidates(
+        self, aliases: list[LineupAlias]
+    ) -> list[StatCandidate]:
+        """Return canonical candidates for the lineup's provider IDs.
+
+        API-Football can reuse numeric IDs, so the numeric ID only generates
+        candidates. ``link_team_players`` still requires exact or compatible
+        name evidence before accepting one.
+        """
+        numeric_ids = sorted({
+            str(alias.source_player_id)
+            for alias in aliases
+            if str(alias.source_player_id).isdigit()
+        })
+        candidates: dict[str, StatCandidate] = {}
+        for numeric_id in numeric_ids:
+            rows = self.connection.execute(
+                """
+                SELECT m.internal_entity_id, p.full_name,
+                       list(m.source_entity_id ORDER BY m.source_entity_id),
+                       p.primary_position
+                FROM source_entity_map m
+                JOIN player p ON p.player_id=m.internal_entity_id
+                WHERE m.source_code='api_football'
+                  AND m.entity_type='player'
+                  AND m.source_entity_id LIKE ?
+                  AND NOT EXISTS (
+                      SELECT 1 FROM player_identity_state ids
+                      WHERE ids.player_id=p.player_id
+                        AND ids.is_identity_placeholder
+                  )
+                GROUP BY m.internal_entity_id, p.full_name, p.primary_position
+                ORDER BY m.internal_entity_id
+                """,
+                [f"{numeric_id}|%"],
+            ).fetchall()
+            for player_id, name, source_ids, position in rows:
+                candidates[player_id] = StatCandidate(
+                    player_id=player_id,
+                    source_player_ids=tuple(source_ids),
+                    name=name,
+                    minutes_played=None,
+                    started=None,
+                    shirt_number=None,
+                    position=position,
+                )
+        return list(candidates.values())
+
     def _api_recent_team_candidates(
         self, team_id: str, fixture_id: str
     ) -> list[StatCandidate]:
@@ -1362,6 +1427,7 @@ class WarehouseLoader:
                 """
                 SELECT a.player_id, p.full_name,
                        arg_max(a.position_code, a.retrieved_at),
+                       arg_max(a.shirt_number, appeared_fixture.scheduled_kickoff),
                        count(*), max(a.retrieved_at),
                        list(m.source_entity_id ORDER BY m.source_entity_id)
                 FROM appearance a
@@ -1379,6 +1445,12 @@ class WarehouseLoader:
                       OR appeared_fixture.scheduled_kickoff IS NULL
                       OR appeared_fixture.scheduled_kickoff < current_fixture.scheduled_kickoff
                   )
+                  AND (
+                      current_fixture.scheduled_kickoff IS NULL
+                      OR appeared_fixture.scheduled_kickoff IS NULL
+                      OR appeared_fixture.scheduled_kickoff >=
+                         current_fixture.scheduled_kickoff - (? * INTERVAL '1 day')
+                  )
                   AND NOT EXISTS (
                       SELECT 1 FROM player_identity_state ids
                       WHERE ids.player_id=p.player_id
@@ -1387,16 +1459,20 @@ class WarehouseLoader:
                 GROUP BY a.player_id, p.full_name
                 ORDER BY max(appeared_fixture.scheduled_kickoff) DESC NULLS LAST,
                          max(a.retrieved_at) DESC, a.player_id
-                LIMIT 50
+                LIMIT ?
                 """,
-                [fixture_id, team_id, fixture_id],
+                [
+                    fixture_id, team_id, fixture_id,
+                    self.recent_team_lookback_days,
+                    self.recent_team_max_candidates,
+                ],
             ).fetchall()
             cached = [
                 StatCandidate(
                     player_id=row[0], source_player_ids=tuple(
-                        value for value in row[5] if value is not None
+                        value for value in row[6] if value is not None
                     ), name=row[1], minutes_played=None, started=None,
-                    shirt_number=None, position=row[2], recent_same_team=True,
+                    shirt_number=row[3], position=row[2], recent_same_team=True,
                 )
                 for row in rows
             ]
@@ -1690,11 +1766,11 @@ class WarehouseLoader:
             status_short, administrative_unplayed=administrative_unplayed
         )
         status = (
-            "administrative_result_unplayed"
-            if administrative_unplayed
-            else "completed" if status_short in {"FT", "AET", "PEN"}
-            else "scheduled" if status_short in {"NS", "TBD"}
-            else status_short
+            "completed" if canonical_status == "final"
+            else "scheduled" if canonical_status == "scheduled"
+            else "administrative_result_unplayed"
+            if canonical_status == "administrative_result"
+            else canonical_status
         )
         fixture_id = self.warehouse.resolve_fixture(
             source, fixture.get("id"), home_team_id=home_id, away_team_id=away_id,
@@ -1760,6 +1836,13 @@ class WarehouseLoader:
         score = match.get("score", {})
         fulltime = score.get("fulltime", {})
         if fulltime.get("home") is not None:
+            result_status = (
+                "final"
+                if canonical_status == "final" and fulltime.get("away") is not None
+                else "administrative"
+                if canonical_status == "administrative_result"
+                else "provisional"
+            )
             self.connection.execute(
                 """
                 INSERT OR REPLACE INTO fixture_result_observation (
@@ -1778,7 +1861,7 @@ class WarehouseLoader:
                     optional_int(score.get("extratime", {}).get("home")),
                     optional_int(score.get("extratime", {}).get("away")),
                     optional_int(score.get("penalty", {}).get("home")),
-                    optional_int(score.get("penalty", {}).get("away")), "final",
+                    optional_int(score.get("penalty", {}).get("away")), result_status,
                 ],
             )
         return fixture_id
@@ -1840,12 +1923,22 @@ class WarehouseLoader:
         best_bid = max((price for price in bid_prices if price is not None), default=None)
         best_ask = min((price for price in ask_prices if price is not None), default=None)
         snapshot_id = stable_id("orderbook", token_id, observed_at, item["content_sha256"])
+        cadence_by_token = item.get("_cadence_stage_by_token", {})
+        kickoff_by_token = item.get("_kickoff_by_token", {})
         self.connection.execute(
-            "INSERT OR REPLACE INTO orderbook_snapshot VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            """
+            INSERT OR REPLACE INTO orderbook_snapshot (
+                orderbook_snapshot_id,outcome_id,source_token_id,
+                market_condition_id,observed_at,retrieved_at,best_bid,best_ask,
+                tick_size,minimum_order_size,raw_artifact_id,cadence_stage,
+                kickoff_known_at_retrieval
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
             [snapshot_id, outcome[0] if outcome else None, token_id, payload.get("market"),
              observed_at, parse_datetime(item["retrieved_at"]), best_bid, best_ask,
              optional_float(payload.get("tick_size")), optional_float(payload.get("min_order_size")),
-             item["_raw_artifact_id"]],
+             item["_raw_artifact_id"], cadence_by_token.get(token_id),
+             parse_datetime(kickoff_by_token.get(token_id))],
         )
         for side, levels in (("bid", bids), ("ask", asks)):
             for index, level in enumerate(levels):
@@ -1865,7 +1958,11 @@ class WarehouseLoader:
         retrieved_at = parse_datetime(item["retrieved_at"])
         self.connection.execute(
             """
-            INSERT INTO prediction_market_event VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO prediction_market_event (
+                prediction_market_event_id,source_event_id,title,slug,
+                description,fixture_id,start_time,end_time,resolution_source,
+                active,closed,retrieved_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (prediction_market_event_id) DO UPDATE SET
                 title = excluded.title, active = excluded.active, closed = excluded.closed,
                 retrieved_at = excluded.retrieved_at
@@ -1877,6 +1974,25 @@ class WarehouseLoader:
                 event.get("active"), event.get("closed"), retrieved_at,
             ],
         )
+        self.connection.execute(
+            """
+            INSERT INTO prediction_market_event_observation (
+                event_observation_id,prediction_market_event_id,raw_artifact_id,
+                active,closed,start_time,end_time,title,description,
+                resolution_source,observed_at,retrieved_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (prediction_market_event_id,raw_artifact_id) DO NOTHING
+            """,
+            [
+                stable_id("prediction_market_event_observation", event_id, item["_raw_artifact_id"]),
+                event_id, item["_raw_artifact_id"], event.get("active"),
+                event.get("closed"),
+                parse_datetime(event.get("startTime") or event.get("startDate")),
+                parse_datetime(event.get("endDate")), event.get("title"),
+                event.get("description"), event.get("resolutionSource"),
+                parse_datetime(event.get("updatedAt")), retrieved_at,
+            ],
+        )
         for market in event.get("markets", []):
             source_market_id = str(market.get("id"))
             if not source_market_id or source_market_id == "None":
@@ -1884,7 +2000,11 @@ class WarehouseLoader:
             market_id = stable_id("prediction_market", source_market_id)
             self.connection.execute(
                 """
-                INSERT INTO prediction_market VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO prediction_market (
+                    prediction_market_id,prediction_market_event_id,
+                    source_market_id,question,slug,market_type,line_value,
+                    rules_text,active,closed,volume,liquidity,retrieved_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (prediction_market_id) DO UPDATE SET
                     active = excluded.active, closed = excluded.closed, volume = excluded.volume,
                     liquidity = excluded.liquidity, retrieved_at = excluded.retrieved_at
@@ -1895,6 +2015,25 @@ class WarehouseLoader:
                     market.get("description"), market.get("active"), market.get("closed"),
                     optional_float(market.get("volumeNum") or market.get("volume")),
                     optional_float(market.get("liquidityNum") or market.get("liquidity")), retrieved_at,
+                ],
+            )
+            self.connection.execute(
+                """
+                INSERT INTO prediction_market_observation (
+                    market_observation_id,prediction_market_id,raw_artifact_id,
+                    active,closed,question,rules_text,volume,liquidity,
+                    observed_at,retrieved_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (prediction_market_id,raw_artifact_id) DO NOTHING
+                """,
+                [
+                    stable_id("prediction_market_observation", market_id, item["_raw_artifact_id"]),
+                    market_id, item["_raw_artifact_id"], market.get("active"),
+                    market.get("closed"), market.get("question"),
+                    market.get("description"),
+                    optional_float(market.get("volumeNum") or market.get("volume")),
+                    optional_float(market.get("liquidityNum") or market.get("liquidity")),
+                    parse_datetime(market.get("updatedAt")), retrieved_at,
                 ],
             )
             outcomes = parse_json_list(market.get("outcomes"))

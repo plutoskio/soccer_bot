@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
 import tempfile
@@ -12,8 +14,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from soccer_bot.config import load_env
+from soccer_bot.collector import Collector
+from soccer_bot.collection_planner import validate_collector_config
 from soccer_bot.database import Warehouse, stable_id
-from soccer_bot.http import HttpResponse
+from soccer_bot.http import HttpClient, HttpResponse
 from soccer_bot.raw_store import RawArtifactStore
 
 
@@ -101,6 +105,57 @@ class WarehouseTests(unittest.TestCase):
                 self.assertEqual(first, repeated)
             finally:
                 warehouse.close()
+
+    def test_collector_dry_run_is_read_only_and_needs_no_api_key(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "test.duckdb"
+            writable = Warehouse(
+                path, ROOT / "migrations", ROOT / "config" / "entity_aliases.json"
+            )
+            writable.migrate()
+            writable.register_sources()
+            writable.close()
+            before = hashlib.sha256(path.read_bytes()).hexdigest()
+
+            warehouse = Warehouse(
+                path,
+                ROOT / "migrations",
+                ROOT / "config" / "entity_aliases.json",
+                read_only=True,
+            )
+            try:
+                self.assertEqual([], warehouse.pending_migrations())
+                with self.assertRaises(RuntimeError):
+                    warehouse.migrate()
+                config = json.loads(
+                    (ROOT / "config" / "collector.json").read_text(encoding="utf-8")
+                )
+                collector = Collector(
+                    warehouse=warehouse,
+                    raw_store=RawArtifactStore(root / "raw"),
+                    http_client=HttpClient(),
+                    api_key="",
+                    config=config,
+                )
+                summary = collector.run(
+                    now=datetime(2026, 7, 10, 10, tzinfo=timezone.utc),
+                    dry_run=True,
+                )
+                self.assertGreater(len(summary["planned_jobs"]), 0)
+                self.assertFalse((root / "raw").exists())
+            finally:
+                warehouse.close()
+            after = hashlib.sha256(path.read_bytes()).hexdigest()
+            self.assertEqual(before, after)
+
+    def test_invalid_collector_config_is_rejected_before_use(self):
+        config = json.loads(
+            (ROOT / "config" / "collector.json").read_text(encoding="utf-8")
+        )
+        config["api_football"]["fixture_batch_size"] = 21
+        with self.assertRaisesRegex(ValueError, "must not exceed 20"):
+            validate_collector_config(config)
 
 
 if __name__ == "__main__":

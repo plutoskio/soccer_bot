@@ -104,9 +104,14 @@ def score_candidate(alias: LineupAlias, candidate: StatCandidate) -> CandidateSc
 
     shirt_known = alias.shirt_number is not None and candidate.shirt_number is not None
     if shirt_known and int(alias.shirt_number) != int(candidate.shirt_number):
-        return CandidateScore(
-            alias.index, candidate.player_id, -1000, (), "shirt_number_conflict"
-        )
+        # A current-match stat block is authoritative for the shirt number.
+        # Historical same-team shirt numbers can change between seasons and
+        # therefore provide positive evidence only when they match.
+        if not candidate.recent_same_team:
+            return CandidateScore(
+                alias.index, candidate.player_id, -1000, (), "shirt_number_conflict"
+            )
+        shirt_known = False
     if shirt_known:
         score += 50
         evidence.append("shirt_number")

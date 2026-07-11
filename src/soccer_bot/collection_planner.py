@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 
@@ -26,6 +27,23 @@ class LineupStagePlan:
     stage_time: datetime
     job_key: str
     schedule_version: str
+
+
+@dataclass(frozen=True)
+class PostmatchStagePlan:
+    stage: str
+    offset_minutes: int
+    stage_time: datetime
+    job_key: str
+    component_code: str | None = None
+
+
+@dataclass(frozen=True)
+class MarketStagePlan:
+    stage: str
+    stage_time: datetime
+    job_key: str
+    include_closed: bool = False
 
 
 def effective_recovery_days(
@@ -134,7 +152,12 @@ def lineup_stage_plans(
     attempted_job_keys: set[str],
     lineup_complete: bool,
 ) -> list[LineupStagePlan]:
-    """Return all due, unattempted lineup stages for one schedule version."""
+    """Return only the latest due stage for one schedule version.
+
+    Earlier elapsed stages are missed scheduling opportunities, not attempts.
+    One current HTTP response must never be recorded as several historical
+    stage attempts.
+    """
     if lineup_complete:
         return []
     kickoff = kickoff.astimezone(UTC)
@@ -142,26 +165,309 @@ def lineup_stage_plans(
     if now >= kickoff:
         return []
     normalized_offsets = _lineup_offsets(offsets)
-    plans: list[LineupStagePlan] = []
-    for offset in normalized_offsets:
-        stage_time = kickoff - timedelta(minutes=offset)
-        if now < stage_time:
-            continue
-        job_key = lineup_stage_job_key(
-            fixture_source_id, schedule_version, offset
+    due_offsets = [
+        offset
+        for offset in normalized_offsets
+        if now >= kickoff - timedelta(minutes=offset)
+    ]
+    if not due_offsets:
+        return []
+    offset = min(due_offsets)
+    stage_time = kickoff - timedelta(minutes=offset)
+    job_key = lineup_stage_job_key(fixture_source_id, schedule_version, offset)
+    if job_key in attempted_job_keys:
+        return []
+    return [
+        LineupStagePlan(
+            stage=f"lineup_t_minus_{offset}",
+            offset_minutes=offset,
+            stage_time=stage_time,
+            job_key=job_key,
+            schedule_version=schedule_version,
         )
-        if job_key in attempted_job_keys:
+    ]
+
+
+def postmatch_stage_plans(
+    *,
+    fixture_source_id: str,
+    schedule_version: str,
+    kickoff: datetime,
+    now: datetime,
+    canonical_status: str,
+    components_complete: bool,
+    attempted_job_keys: set[str],
+    first_check_minutes: int = 150,
+    live_poll_minutes: int = 30,
+    live_poll_until_minutes: int = 360,
+    final_retry_minutes: int = 480,
+    correction_offsets_minutes: list[int] | None = None,
+) -> list[PostmatchStagePlan]:
+    """Plan concrete status/detail and correction slots for one schedule.
+
+    Jobs are keyed by the observed kickoff version. Terminal fixture statuses
+    produce no sporting-data work. Correction refreshes are independent of
+    factual completeness and therefore remain due after an early complete
+    response.
+    """
+    kickoff = kickoff.astimezone(UTC)
+    now = now.astimezone(UTC)
+    first = _positive_int(first_check_minutes, "post_match_first_check_minutes")
+    poll = _positive_int(live_poll_minutes, "post_match_live_poll_minutes")
+    poll_until = _positive_int(
+        live_poll_until_minutes, "post_match_live_poll_until_minutes"
+    )
+    final_retry = _positive_int(final_retry_minutes, "post_match_final_retry_minutes")
+    corrections = correction_offsets_minutes or [1440, 4320]
+    corrections = sorted({_positive_int(value, "correction offset") for value in corrections})
+    if poll_until < first:
+        raise ValueError("post_match_live_poll_until_minutes must not precede first check")
+
+    terminal = {
+        "postponed", "cancelled", "abandoned", "administrative_result"
+    }
+    if canonical_status in terminal:
+        return []
+
+    plans: list[PostmatchStagePlan] = []
+
+    def add(stage: str, offset: int, component: str | None = None) -> None:
+        key = (
+            f"api_football:{stage}:{fixture_source_id}:"
+            f"{schedule_version}:{offset}"
+        )
+        stage_time = kickoff + timedelta(minutes=offset)
+        if now >= stage_time and key not in attempted_job_keys:
+            plans.append(PostmatchStagePlan(stage, offset, stage_time, key, component))
+
+    completed_correction_offsets = []
+    for key in attempted_job_keys:
+        if ":correction_refresh_" not in key:
             continue
+        try:
+            completed_correction_offsets.append(int(key.rsplit(":", 1)[1]))
+        except (TypeError, ValueError):
+            continue
+    latest_completed_correction = max(completed_correction_offsets, default=0)
+    if latest_completed_correction == 0:
+        add("postmatch_status", first)
+
+        if canonical_status in {"scheduled", "live", "delayed", "unknown"}:
+            for offset in range(first + poll, poll_until + 1, poll):
+                add("postmatch_status", offset)
+        elif canonical_status == "suspended":
+            # Suspended fixtures remain retryable through the separately
+            # configured fixture-status refresh cadence.
+            pass
+        elif canonical_status == "final" and not components_complete:
+            add("postmatch_final_retry", final_retry)
+
+    for offset in corrections:
+        if offset <= latest_completed_correction:
+            continue
+        hours = offset // 60
+        add(
+            f"correction_refresh_{hours}h",
+            offset,
+            f"correction_refresh_{hours}h",
+        )
+
+    if not plans:
+        return []
+    # A single current response must not be labeled as several historical poll
+    # slots after downtime. Execute only the latest due stage for this fixture.
+    return [max(plans, key=lambda plan: (plan.stage_time, plan.job_key))]
+
+
+def market_stage_plans(
+    *,
+    fixture_source_id: str,
+    schedule_version: str,
+    kickoff: datetime,
+    now: datetime,
+    offsets_minutes: list[int],
+    stage_window_minutes: int,
+    lineup_complete: bool,
+    attempted_job_keys: set[str],
+    closure_delay_minutes: int = 180,
+) -> list[MarketStagePlan]:
+    kickoff = kickoff.astimezone(UTC)
+    now = now.astimezone(UTC)
+    window = _positive_int(stage_window_minutes, "market stage window")
+    offsets = sorted(
+        {_positive_int(value, "market snapshot offset") for value in offsets_minutes},
+        reverse=True,
+    )
+    plans: list[MarketStagePlan] = []
+    for offset in offsets:
+        stage = f"market_t_minus_{offset}"
+        stage_time = kickoff - timedelta(minutes=offset)
+        key = f"polymarket:{stage}:{fixture_source_id}:{schedule_version}"
+        if (
+            stage_time <= now < stage_time + timedelta(minutes=window)
+            and key not in attempted_job_keys
+        ):
+            plans.append(MarketStagePlan(stage, stage_time, key))
+
+    lineup_stage = "market_after_lineup"
+    lineup_key = f"polymarket:{lineup_stage}:{fixture_source_id}:{schedule_version}"
+    if lineup_complete and now < kickoff and lineup_key not in attempted_job_keys:
+        # Give the lineup-triggered capture its own artifact/stage. A following
+        # five-minute scheduler run can still capture a coincident timed stage.
+        plans = [MarketStagePlan(lineup_stage, now, lineup_key)]
+
+    closure_delay = _positive_int(closure_delay_minutes, "market closure delay")
+    closure_time = kickoff + timedelta(minutes=closure_delay)
+    closure_stage = "market_after_closure"
+    closure_key = f"polymarket:{closure_stage}:{fixture_source_id}:{schedule_version}"
+    if now >= closure_time and closure_key not in attempted_job_keys:
         plans.append(
-            LineupStagePlan(
-                stage=f"lineup_t_minus_{offset}",
-                offset_minutes=offset,
-                stage_time=stage_time,
-                job_key=job_key,
-                schedule_version=schedule_version,
+            MarketStagePlan(
+                closure_stage, closure_time, closure_key, include_closed=True
             )
         )
-    return plans
+    return sorted(plans, key=lambda plan: (plan.stage_time, plan.job_key))
+
+
+def validate_collector_config(config: dict, catch_up_days: int | None = None) -> None:
+    """Fail before database or network work when collector policy is invalid."""
+    if not isinstance(config, dict):
+        raise ValueError("collector config must be an object")
+    discovery = config.get("discovery")
+    api = config.get("api_football")
+    if not isinstance(discovery, dict) or not isinstance(api, dict):
+        raise ValueError("collector config requires discovery and api_football objects")
+    effective_recovery_days(discovery.get("recovery_days", 14), catch_up_days)
+    _nonnegative_int(discovery.get("planning_days", 7), "planning_days")
+    _positive_int(
+        discovery.get("today_tomorrow_refresh_hours", 6),
+        "today_tomorrow_refresh_hours",
+    )
+    _positive_int(
+        discovery.get("near_kickoff_refresh_minutes", 120),
+        "near_kickoff_refresh_minutes",
+    )
+    status_hours = _positive_int(
+        discovery.get("postponed_cancelled_refresh_hours", 6),
+        "postponed_cancelled_refresh_hours",
+    )
+    if status_hours > 24:
+        raise ValueError("postponed_cancelled_refresh_hours must not exceed 24")
+    batch_size = _positive_int(api.get("fixture_batch_size", 20), "fixture_batch_size")
+    if batch_size > 20:
+        raise ValueError("fixture_batch_size must not exceed 20")
+    _lineup_offsets(api.get("lineup_stage_offsets", [50, 35, 20, 5]))
+    first_post = _positive_int(
+        api.get("post_match_first_check_minutes", 150),
+        "post_match_first_check_minutes",
+    )
+    poll = _positive_int(
+        api.get("post_match_live_poll_minutes", 30),
+        "post_match_live_poll_minutes",
+    )
+    poll_until = _positive_int(
+        api.get("post_match_live_poll_until_minutes", 360),
+        "post_match_live_poll_until_minutes",
+    )
+    if poll_until < first_post or (poll_until - first_post) % poll:
+        raise ValueError("post-match live polling window must align to its interval")
+    _positive_int(
+        api.get("post_match_final_retry_minutes", 480),
+        "post_match_final_retry_minutes",
+    )
+    correction_offsets = api.get("correction_refresh_offsets_minutes", [1440, 4320])
+    if not isinstance(correction_offsets, list) or not correction_offsets:
+        raise ValueError("correction_refresh_offsets_minutes must be a non-empty list")
+    normalized_corrections = [
+        _positive_int(value, "correction refresh offset")
+        for value in correction_offsets
+    ]
+    if len(set(normalized_corrections)) != len(normalized_corrections):
+        raise ValueError("correction_refresh_offsets_minutes must not contain duplicates")
+    try:
+        ZoneInfo(str(api.get("quota_reset_timezone", "UTC")))
+    except Exception as error:
+        raise ValueError("quota_reset_timezone must be a valid IANA timezone") from error
+    retry = config.get("retry", {})
+    if not isinstance(retry, dict):
+        raise ValueError("retry config must be an object")
+    _positive_int(
+        retry.get("maximum_inline_attempts", 3), "maximum_inline_attempts"
+    )
+    for key, default in (
+        ("maximum_inline_retry_seconds", 5),
+        ("backoff_base_seconds", 1),
+        ("backoff_cap_seconds", 60),
+        ("jitter_seconds", 0.25),
+    ):
+        value = float(retry.get(key, default))
+        if value < 0:
+            raise ValueError(f"{key} must not be negative")
+    lock = config.get("lock", {})
+    if not isinstance(lock, dict):
+        raise ValueError("lock config must be an object")
+    stale = _positive_int(
+        lock.get("stale_timeout_seconds", 900), "stale_timeout_seconds"
+    )
+    heartbeat = _positive_int(
+        lock.get("heartbeat_interval_seconds", 30),
+        "heartbeat_interval_seconds",
+    )
+    if heartbeat >= stale:
+        raise ValueError("heartbeat_interval_seconds must be below stale timeout")
+    polymarket = config.get("polymarket")
+    if not isinstance(polymarket, dict):
+        raise ValueError("polymarket config must be an object")
+    offsets = polymarket.get("snapshot_offsets_minutes", [1440, 360, 90, 15, 5])
+    if not isinstance(offsets, list) or not offsets:
+        raise ValueError("snapshot_offsets_minutes must be a non-empty list")
+    normalized_market_offsets = [
+        _positive_int(value, "market snapshot offset") for value in offsets
+    ]
+    if len(set(normalized_market_offsets)) != len(normalized_market_offsets):
+        raise ValueError("snapshot_offsets_minutes must not contain duplicates")
+    _positive_int(
+        polymarket.get("snapshot_stage_window_minutes", 10),
+        "snapshot_stage_window_minutes",
+    )
+    _positive_int(
+        polymarket.get("closure_snapshot_delay_minutes", 180),
+        "closure_snapshot_delay_minutes",
+    )
+    _positive_int(
+        polymarket.get("snapshot_maximum_attempts", 3),
+        "snapshot_maximum_attempts",
+    )
+    _positive_int(
+        polymarket.get("snapshot_retry_minutes", 15),
+        "snapshot_retry_minutes",
+    )
+    for key, default in (
+        ("discovery_hourly_minutes", 60),
+        ("discovery_matchday_minutes", 15),
+    ):
+        interval = _positive_int(polymarket.get(key, default), key)
+        if interval > 60 or 60 % interval:
+            raise ValueError(f"{key} must evenly divide one hour")
+    health = config.get("health", {})
+    if not isinstance(health, dict):
+        raise ValueError("health config must be an object")
+    report_directory = health.get("report_directory", "reports/collector")
+    if not isinstance(report_directory, str) or not report_directory.strip():
+        raise ValueError("health report_directory must be a non-empty path")
+    if Path(report_directory).is_absolute() or ".." in Path(report_directory).parts:
+        raise ValueError("health report_directory must stay inside the repository")
+    identity = config.get("identity", {})
+    if not isinstance(identity, dict):
+        raise ValueError("identity config must be an object")
+    _positive_int(
+        identity.get("recent_team_lookback_days", 730),
+        "recent_team_lookback_days",
+    )
+    _positive_int(
+        identity.get("recent_team_max_candidates", 50),
+        "recent_team_max_candidates",
+    )
 
 
 def discovery_date_from_checkpoint(

@@ -29,12 +29,18 @@ Run tests:
 
 ## Incremental collector
 
-The collector is a restart-safe `run-once` process. It discovers the current day's monitored fixtures once, checks due lineups 50 minutes before kickoff, retries missing lineups once at 35 minutes, and collects complete match details after the match. Polymarket events are discovered once per match day and linked to fixtures; order books are captured after lineups and shortly before kickoff.
+The collector is a restart-safe `run-once` process. It verifies fixture discovery across a 14-day recovery window and seven-day planning window, automatically extending recovery to the latest monitored completed-fixture frontier so model history is not skipped after downtime. Today and tomorrow refresh every six hours. Confirmed-lineup stages run at T-50, T-35, T-20, and T-5, stopping after two valid starting elevens. Polymarket events are rediscovered every 15 minutes on match days and hourly within seven days, with order books captured at the configured pregame, post-lineup, and closure stages.
 
-Preview currently due work without making requests:
+Preview currently due work without an API key, network requests, or database writes:
 
 ```bash
 .venv/bin/python scripts/run_collector.py --dry-run
+```
+
+Explicitly extend recovery when needed:
+
+```bash
+.venv/bin/python scripts/run_collector.py --catch-up-days 30
 ```
 
 Execute one collection cycle:
@@ -42,6 +48,48 @@ Execute one collection cycle:
 ```bash
 .venv/bin/python scripts/run_collector.py
 ```
+
+Each writable run acquires `data/warehouse/collector.lock` before opening
+DuckDB. A concurrent invocation exits successfully with an `already_running`
+summary. Temporary provider failures and rate limits remain scheduled for
+retry; ordinary per-job failures do not abort unrelated batches.
+
+The collector writes a machine-readable daily health row to
+`collection_health_report` and an ignored generated report under
+`reports/collector/`. Exit code `0` means the run completed (including ordinary
+retryable work or lock contention), `1` means a configuration/database/system
+failure, and `2` means the run completed but health validation found a blocking
+integrity problem.
+
+### Optional macOS scheduling
+
+The tracked example
+`ops/launchd/com.soccer-bot.collector.plist.example` runs the restart-safe
+collector every five minutes. It contains no API key; the collector continues
+to read the local ignored `.env` file. Do not load it until manual observation
+cycles and health reports are stable.
+
+To install it manually after that observation period:
+
+```bash
+mkdir -p logs ~/Library/LaunchAgents
+cp ops/launchd/com.soccer-bot.collector.plist.example \
+  ~/Library/LaunchAgents/com.soccer-bot.collector.plist
+plutil -lint ~/Library/LaunchAgents/com.soccer-bot.collector.plist
+launchctl bootstrap gui/$(id -u) \
+  ~/Library/LaunchAgents/com.soccer-bot.collector.plist
+```
+
+To stop it before maintenance or warehouse migration:
+
+```bash
+launchctl bootout gui/$(id -u) \
+  ~/Library/LaunchAgents/com.soccer-bot.collector.plist
+```
+
+Rotate `logs/collector.out.log` and `logs/collector.err.log` with a local log
+rotation tool. Mac sleep can still miss pregame lineups and contemporaneous
+prices; rolling discovery and correction jobs recover post-match facts later.
 
 The intended scheduler interval is five minutes. Waking every five minutes does not mean calling an API every five minutes: DuckDB checkpoints ensure that the process exits without network requests when nothing is due. The script is safe to invoke repeatedly.
 

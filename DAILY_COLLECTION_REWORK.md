@@ -1,7 +1,14 @@
 # Daily Collection Rework Specification
 
-Status: deferred; preserve for the next collector implementation pass  
+Status: implemented through migration 013; unattended scheduling remains intentionally uninstalled pending observation
 Scope: upcoming fixtures, confirmed lineups, post-match data, recovery after downtime, and Polymarket snapshots
+
+Implementation reference: `COLLECTOR_IMPLEMENTATION_PLAN.md`, migrations
+007–013, `src/soccer_bot/collection_planner.py`,
+`src/soccer_bot/collection_state.py`, `src/soccer_bot/request_executor.py`,
+`src/soccer_bot/locking.py`, and `src/soccer_bot/health.py`. The “Current
+implementation” section below records the baseline when this specification was
+written; the required-behavior sections remain the acceptance contract.
 
 ## 1. Current implementation
 

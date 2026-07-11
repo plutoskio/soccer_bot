@@ -237,12 +237,12 @@ database state, documentation references, and Git history before acting.
 
 ### 2.3 Collector-supporting schema
 
-- [ ] Add fixture schedule observations so reschedules do not overwrite history.
-- [ ] Add component-level collection state for result, lineup, team statistics,
+- [x] Add fixture schedule observations so reschedules do not overwrite history.
+- [x] Add component-level collection state for result, lineup, team statistics,
       player statistics, events, identities, and correction refreshes.
-- [ ] Record whether a lineup was captured before the kickoff known at retrieval.
-- [ ] Record missed pregame snapshots explicitly.
-- [ ] Extend checkpoints with next attempt, maximum attempts, priority, terminal
+- [x] Record whether a lineup was captured before the kickoff known at retrieval.
+- [x] Record missed pregame snapshots explicitly.
+- [x] Extend checkpoints with next attempt, maximum attempts, priority, terminal
       reason, and last run identity.
 
 ### 2.4 Reporting and validation
@@ -251,14 +251,14 @@ database state, documentation references, and Git history before acting.
 - [ ] Report eligibility counts separately for the approved historical manifest
       and the entire multi-source warehouse.
 - [ ] Add source-, competition-, season-, and field-level coverage summaries.
-- [ ] Distinguish blocking failures from controlled warnings.
-- [ ] Add regression tests for every new integrity rule.
+- [x] Distinguish blocking failures from controlled warnings.
+- [x] Add regression tests for every new integrity rule.
 
 ### 2.5 Database exit criteria
 
 - [ ] A full rebuild is bounded, reproducible, and verified before promotion.
 - [ ] Canonical identity inconsistencies relevant to initial models are resolved.
-- [ ] Collector-required temporal metadata is represented without overwriting
+- [x] Collector-required temporal metadata is represented without overwriting
       history.
 - [ ] Generated coverage reports match the live warehouse.
 - [ ] All tests pass with zero open blocking quality issues.
@@ -271,51 +271,51 @@ Use `DAILY_COLLECTION_REWORK.md` as the detailed behavioral specification.
 
 ### 3.1 Discovery and downtime recovery
 
-- [ ] Discover fixtures over a configurable future planning window.
-- [ ] Recheck a configurable past recovery window on every run.
-- [ ] Support explicit catch-up beyond the normal window, including at least a
+- [x] Discover fixtures over a configurable future planning window.
+- [x] Recheck a configurable past recovery window on every run.
+- [x] Support explicit catch-up beyond the normal window, including at least a
       three-week outage.
-- [ ] Recover final results, lineups, events, and statistics where providers still
+- [x] Recover final results, lineups, events, and statistics where providers still
       expose them.
-- [ ] Mark unrecoverable pregame lineup and market snapshots as missed.
-- [ ] Refresh schedules for rescheduled, postponed, and cancelled fixtures.
+- [x] Mark unrecoverable pregame lineup and market snapshots as missed.
+- [x] Refresh schedules for rescheduled, postponed, and cancelled fixtures.
 
 ### 3.2 Pregame collection
 
-- [ ] Implement lineup attempts at approximately T-50, T-35, T-20, and T-5.
-- [ ] Stop lineup polling once two valid starting elevens are stored.
-- [ ] Resolve pregame player identities using conservative team context.
-- [ ] Reconcile unresolved pregame aliases after post-match statistics arrive.
-- [ ] Capture Polymarket discovery and books at contract-defined timestamps.
+- [x] Implement lineup attempts at approximately T-50, T-35, T-20, and T-5.
+- [x] Stop lineup polling once two valid starting elevens are stored.
+- [x] Resolve pregame player identities using conservative team context.
+- [x] Reconcile unresolved pregame aliases after post-match statistics arrive.
+- [x] Capture Polymarket discovery and books at contract-defined timestamps.
 
 ### 3.3 Post-match collection
 
-- [ ] Treat T+150 as a status check, not an assumption of completion.
-- [ ] Poll live or delayed matches with bounded retries.
-- [ ] Handle final, postponed, cancelled, abandoned, suspended, and
+- [x] Treat T+150 as a status check, not an assumption of completion.
+- [x] Poll live or delayed matches with bounded retries.
+- [x] Handle final, postponed, cancelled, abandoned, suspended, and
       administrative states explicitly.
-- [ ] Retry incomplete components independently.
-- [ ] Add correction refreshes around T+24h and T+72h.
-- [ ] Preserve legitimately unavailable provider sections as explicit states.
+- [x] Retry incomplete components independently.
+- [x] Add correction refreshes around T+24h and T+72h.
+- [x] Preserve legitimately unavailable provider sections as explicit states.
 
 ### 3.4 Operational resilience
 
-- [ ] Add bounded network retries and exponential backoff.
-- [ ] Honor `Retry-After` for HTTP 429 responses.
-- [ ] Continue unrelated work when one fixture batch fails.
-- [ ] Add a single-process collector lock with stale-lock recovery.
-- [ ] Keep quota reserve enforcement and 20-fixture batching.
-- [ ] Add structured run summaries without secrets.
-- [ ] Add a daily health report.
-- [ ] Supply and document a macOS `launchd` schedule.
+- [x] Add bounded network retries and exponential backoff.
+- [x] Honor `Retry-After` for HTTP 429 responses.
+- [x] Continue unrelated work when one fixture batch fails.
+- [x] Add a single-process collector lock with stale-lock recovery.
+- [x] Keep quota reserve enforcement and 20-fixture batching.
+- [x] Add structured run summaries without secrets.
+- [x] Add a daily health report.
+- [x] Supply and document a macOS `launchd` schedule.
 
 ### 3.5 Collector tests and exit criteria
 
-- [ ] Test recovery after a three-day and three-week outage.
-- [ ] Test that recovered lineups are not mislabeled as pregame observations.
-- [ ] Test reschedules, postponements, partial data, rate limits, and concurrency.
-- [ ] Test that repeated runs make no unnecessary requests.
-- [ ] Test that ambiguous player identities remain unresolved.
+- [x] Test recovery after a three-day and three-week outage.
+- [x] Test that recovered lineups are not mislabeled as pregame observations.
+- [x] Test reschedules, postponements, partial data, rate limits, and concurrency.
+- [x] Test that repeated runs make no unnecessary requests.
+- [x] Test that ambiguous player identities remain unresolved.
 - [ ] Run the collector continuously in observation mode for a defined trial.
 - [ ] Review health reports and resolve systemic gaps before model automation.
 

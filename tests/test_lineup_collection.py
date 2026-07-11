@@ -65,14 +65,11 @@ class LineupStagePlannerTests(unittest.TestCase):
         attempted.add(fourth[0].job_key)
         self.assertEqual([], self.plans_at(4, attempted))
 
-    def test_missed_stages_are_recoverable_in_one_current_response(self):
+    def test_missed_stages_are_not_recorded_as_attempts(self):
         plans = self.plans_at(20)
+        self.assertEqual(["lineup_t_minus_20"], [plan.stage for plan in plans])
         self.assertEqual(
-            ["lineup_t_minus_50", "lineup_t_minus_35", "lineup_t_minus_20"],
-            [plan.stage for plan in plans],
-        )
-        self.assertEqual(
-            [self.kickoff - timedelta(minutes=offset) for offset in (50, 35, 20)],
+            [self.kickoff - timedelta(minutes=20)],
             [plan.stage_time for plan in plans],
         )
 
@@ -215,7 +212,10 @@ class LineupLoaderTests(unittest.TestCase):
             {"resolved", "partially_resolved", "unresolved"} & {row[4] for row in rows},
             {"unresolved"},
         )
-        self.assertEqual({planned_schedule_id}, {row[1] for row in rows})
+        schedule_by_artifact = {row[0]: row[1] for row in rows}
+        self.assertEqual(planned_schedule_id, schedule_by_artifact["artifact-1"])
+        self.assertNotEqual(planned_schedule_id, schedule_by_artifact["artifact-2"])
+        self.assertEqual(2, len(set(schedule_by_artifact.values())))
         self.assertEqual(
             4,
             self.warehouse.connection.execute(
@@ -355,6 +355,73 @@ class LineupLoaderTests(unittest.TestCase):
             ).fetchone()[0],
         )
 
+    def test_pregame_lineup_reuses_exact_existing_api_identity(self):
+        canonical_id = self.warehouse.resolve_player(
+            "api_football", "101|alpha player 1", "Alpha Player 1"
+        )
+        self.loader.load_api_football_payload(
+            self.payload(),
+            self.item(
+                "2026-07-10T17:00:00+00:00",
+                "artifact-exact-identity",
+                "exact-identity",
+            ),
+            "fixture_details_batch",
+        )
+        mapping = self.warehouse.connection.execute(
+            """
+            SELECT internal_entity_id, match_method, review_status
+            FROM source_entity_map
+            WHERE source_code='api_football_lineup'
+              AND source_entity_id='900|101|alpha player 1'
+            """
+        ).fetchone()
+        self.assertEqual(canonical_id, mapping[0])
+        self.assertIn("exact_provider_identity", mapping[1])
+        self.assertEqual("automatic", mapping[2])
+
+    def test_recent_team_candidates_are_time_bounded(self):
+        competition_id = self.warehouse.resolve_competition(
+            "api_football", 39, "Premier League", country_code="England"
+        )
+        season_id = self.warehouse.resolve_season(
+            "api_football", "39|2026", competition_id, "2026"
+        )
+        team_id = self.warehouse.resolve_team(
+            "api_football", 1, "Alpha FC", team_type="club"
+        )
+        opponent_id = self.warehouse.resolve_team(
+            "api_football", 2, "Beta FC", team_type="club"
+        )
+        player_id = self.warehouse.resolve_player(
+            "api_football", "77|old player", "Old Player"
+        )
+        old_fixture = self.warehouse.resolve_fixture(
+            "api_football", 700,
+            home_team_id=team_id, away_team_id=opponent_id,
+            scheduled_kickoff=datetime(2023, 1, 1, tzinfo=timezone.utc),
+            competition_id=competition_id, season_id=season_id, status="completed",
+        )
+        current_fixture = self.warehouse.resolve_fixture(
+            "api_football", 701,
+            home_team_id=team_id, away_team_id=opponent_id,
+            scheduled_kickoff=datetime(2026, 7, 10, tzinfo=timezone.utc),
+            competition_id=competition_id, season_id=season_id, status="scheduled",
+        )
+        self.warehouse.connection.execute(
+            """
+            INSERT INTO appearance (
+                appearance_id, fixture_id, team_id, player_id, source_code,
+                started, minutes_played, shirt_number, retrieved_at
+            ) VALUES ('old-appearance', ?, ?, ?, 'api_football', true, 90, 7, ?)
+            """,
+            [old_fixture, team_id, player_id, datetime(2023, 1, 2, tzinfo=timezone.utc)],
+        )
+        candidates = self.loader._api_recent_team_candidates(
+            team_id, current_fixture
+        )
+        self.assertNotIn(player_id, {candidate.player_id for candidate in candidates})
+
 
 class ScheduleAwareCollectorTests(unittest.TestCase):
     def setUp(self):
@@ -452,7 +519,7 @@ class ScheduleAwareCollectorTests(unittest.TestCase):
             ).fetchone(),
         )
 
-    def test_lineup_detail_uses_planned_schedule_provenance(self):
+    def test_lineup_detail_uses_reschedule_from_current_response(self):
         competition_id = self.warehouse.resolve_competition(
             "api_football", 39, "Premier League", country_code="England"
         )
@@ -478,8 +545,10 @@ class ScheduleAwareCollectorTests(unittest.TestCase):
             [fixture_id, kickoff, datetime(2026, 7, 10, 12, tzinfo=timezone.utc)],
         )
         payload = LineupLoaderTests.payload()
+        new_kickoff = datetime(2026, 7, 10, 20, 0, tzinfo=timezone.utc)
+        payload["response"][0]["fixture"]["date"] = new_kickoff.isoformat()
         item = {
-            "retrieved_at": "2026-07-10T17:10:00+00:00",
+            "retrieved_at": "2026-07-10T18:30:00+00:00",
             "content_sha256": "detail-content",
             "_raw_artifact_id": "detail-artifact",
             "request_parameters": {"ids": "900"},
@@ -499,16 +568,26 @@ class ScheduleAwareCollectorTests(unittest.TestCase):
                     schedule_observation_id="schedule-a",
                 )
             ],
-            datetime(2026, 7, 10, 17, 10, tzinfo=timezone.utc),
+            datetime(2026, 7, 10, 18, 30, tzinfo=timezone.utc),
         )
+        snapshot_rows = self.warehouse.connection.execute(
+            """
+            SELECT ls.schedule_observation_id, ls.kickoff_known_at_retrieval,
+                   ls.captured_before_kickoff, fso.raw_artifact_id
+            FROM lineup_snapshot ls
+            JOIN fixture_schedule_observation fso USING (schedule_observation_id)
+            """
+        ).fetchall()
+        self.assertEqual({new_kickoff}, {row[1] for row in snapshot_rows})
+        self.assertEqual({True}, {row[2] for row in snapshot_rows})
+        self.assertEqual({"detail-artifact"}, {row[3] for row in snapshot_rows})
+        self.assertNotIn("schedule-a", {row[0] for row in snapshot_rows})
         self.assertEqual(
-            {("schedule-a", True)},
-            set(self.warehouse.connection.execute(
-                """
-                SELECT schedule_observation_id, captured_before_kickoff
-                FROM lineup_snapshot
-                """
-            ).fetchall()),
+            ("terminal", "schedule_superseded"),
+            self.warehouse.connection.execute(
+                "SELECT status, terminal_reason FROM collection_checkpoint WHERE job_key=?",
+                ["api_football:lineup_stage:900:schedule-a:50"],
+            ).fetchone(),
         )
         self.assertEqual(
             ("complete",),
@@ -520,6 +599,92 @@ class ScheduleAwareCollectorTests(unittest.TestCase):
                 """,
                 [fixture_id],
             ).fetchone(),
+        )
+
+    def test_lineup_appearing_at_t20_is_captured_after_two_empty_stages(self):
+        competition_id = self.warehouse.resolve_competition(
+            "api_football", 39, "Premier League", country_code="England"
+        )
+        season_id = self.warehouse.resolve_season(
+            "api_football", "39|2026", competition_id, "2026"
+        )
+        home_id = self.warehouse.resolve_team(
+            "api_football", 1, "Alpha", team_type="club"
+        )
+        away_id = self.warehouse.resolve_team(
+            "api_football", 2, "Beta", team_type="club"
+        )
+        kickoff = datetime(2026, 7, 10, 18, 0, tzinfo=timezone.utc)
+        fixture_id = self.warehouse.resolve_fixture(
+            "api_football", 900,
+            home_team_id=home_id, away_team_id=away_id,
+            scheduled_kickoff=kickoff, competition_id=competition_id,
+            season_id=season_id, status="scheduled",
+        )
+        self.warehouse.connection.execute(
+            """
+            INSERT INTO fixture_schedule_observation (
+                schedule_observation_id,fixture_id,source_code,fixture_source_id,
+                provider_status,canonical_status,scheduled_kickoff,retrieved_at,
+                raw_artifact_id
+            ) VALUES ('initial-schedule',?,'api_football','900','NS','scheduled',
+                      ?,?,'initial-schedule-artifact')
+            """,
+            [fixture_id, kickoff, kickoff - timedelta(hours=4)],
+        )
+        fixture = FixtureRecord(
+            fixture_id, "900", kickoff, "scheduled", "Alpha", "Beta"
+        )
+        empty_payload = LineupLoaderTests.payload()
+        empty_payload["response"][0]["lineups"] = []
+
+        for offset in (50, 35):
+            now = kickoff - timedelta(minutes=offset)
+            jobs = [
+                job for job in self.collector._plan_detail_jobs([fixture], now)
+                if job.job_type == "lineup_stage"
+            ]
+            self.assertEqual(1, len(jobs))
+            self.assertTrue(jobs[0].job_key.endswith(f":{offset}"))
+            item = {
+                "retrieved_at": now.isoformat(),
+                "content_sha256": f"empty-{offset}",
+                "_raw_artifact_id": f"empty-artifact-{offset}",
+                "request_parameters": {"ids": "900"},
+            }
+            self.collector._api_get = (
+                lambda *args, payload=empty_payload, item=item, **kwargs:
+                (payload, item, 200)
+            )
+            self.collector._execute_detail_jobs(jobs, now)
+
+        now = kickoff - timedelta(minutes=20)
+        jobs = [
+            job for job in self.collector._plan_detail_jobs([fixture], now)
+            if job.job_type == "lineup_stage"
+        ]
+        self.assertEqual(1, len(jobs))
+        self.assertTrue(jobs[0].job_key.endswith(":20"))
+        complete_payload = LineupLoaderTests.payload()
+        item = {
+            "retrieved_at": now.isoformat(),
+            "content_sha256": "complete-20",
+            "_raw_artifact_id": "complete-artifact-20",
+            "request_parameters": {"ids": "900"},
+        }
+        self.collector._api_get = lambda *args, **kwargs: (
+            complete_payload, item, 200
+        )
+        self.collector._execute_detail_jobs(jobs, now)
+        self.assertTrue(self.collector._lineup_complete(fixture_id, now))
+        self.assertEqual(
+            [],
+            [
+                job for job in self.collector._plan_detail_jobs(
+                    [fixture], kickoff - timedelta(minutes=5)
+                )
+                if job.job_type == "lineup_stage"
+            ],
         )
 
 

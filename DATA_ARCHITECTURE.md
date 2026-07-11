@@ -1116,3 +1116,29 @@ This architecture is ready for implementation when a representative probe demons
 - measured API usage fits the configured quota policy.
 
 Only after those checks should the logical schema be converted into final SQL migrations and ingestion code.
+
+## 26. Incremental collector temporal and operational state
+
+The implemented collector keeps provider facts separate from operational
+state:
+
+- `fixture_schedule_observation` is append-only schedule/status history.
+- `lineup_snapshot` records the linked schedule observation, kickoff known at
+  retrieval, pregame timing, and identity state.
+- `fixture_collection_component` records independently validated component
+  state; it does not grant model eligibility.
+- `collection_checkpoint` schedules concrete cadence jobs, while
+  `collection_attempt` records both job attempts and individual HTTP attempts.
+- `prediction_market_event_observation` and
+  `prediction_market_observation` preserve retrieved active/closed/rules
+  history while the original market tables remain latest-state caches.
+- `orderbook_snapshot.cadence_stage` and
+  `kickoff_known_at_retrieval` prevent later prices from being labeled as
+  contemporaneous pregame observations.
+- `collection_health_report` stores one machine-readable daily summary; the
+  generated Markdown report is operational output, not canonical evidence.
+
+The filesystem collector lock is acquired before writable DuckDB access.
+Raw artifacts remain immutable evidence for every HTTP response, including
+error responses. Network failures without a response create attempt rows but
+never fake raw artifacts.

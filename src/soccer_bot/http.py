@@ -9,6 +9,10 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
+class NetworkError(RuntimeError):
+    """A request failed before an HTTP response was available."""
+
+
 @dataclass(frozen=True)
 class HttpResponse:
     url: str
@@ -60,8 +64,8 @@ class HttpClient:
                 headers={key.lower(): value for key, value in error.headers.items()},
                 body=error.read(),
             )
-        except URLError as error:
-            raise RuntimeError(f"Network request failed for {base_url}{path}: {error.reason}") from error
+        except (URLError, TimeoutError) as error:
+            raise NetworkError("network request failed") from error
 
     def post_json(
         self,
@@ -100,5 +104,5 @@ class HttpClient:
                 headers={key.lower(): value for key, value in error.headers.items()},
                 body=error.read(),
             )
-        except URLError as error:
-            raise RuntimeError(f"Network request failed for {base_url}{path}: {error.reason}") from error
+        except (URLError, TimeoutError) as error:
+            raise NetworkError("network request failed") from error
