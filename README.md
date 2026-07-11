@@ -59,10 +59,28 @@ retry; ordinary per-job failures do not abort unrelated batches.
 
 The collector writes a machine-readable daily health row to
 `collection_health_report` and an ignored generated report under
-`reports/collector/`. Exit code `0` means the run completed (including ordinary
+`data/reports/collector/`. On Railway this directory is part of the persistent
+`/app/data` volume. Exit code `0` means the run completed (including ordinary
 retryable work or lock contention), `1` means a configuration/database/system
 failure, and `2` means the run completed but health validation found a blocking
 integrity problem.
+
+### Production scheduling on Railway
+
+Production collection runs as a Railway cron job using the tracked
+`railway.json`. Railway mounts the persistent volume at `/app/data`, starts
+`python scripts/run_collector.py` every five minutes, and expects the run-once
+process to exit. `restartPolicyType` is deliberately `NEVER`; a later cron
+invocation handles retryable work, while the warehouse checkpoint state and
+collector lock make repeated or overlapping invocations safe.
+
+The only required secret is `API_FOOTBALL_KEY`, configured as a Railway service
+variable. The DuckDB warehouse, immutable raw responses, staged manifest, lock,
+and generated health reports all live below `/app/data`. Do not deploy a second
+service that writes to the same volume.
+
+Operational checks, deployment commands, maintenance steps, and recovery rules
+are documented in [RAILWAY_OPERATIONS.md](RAILWAY_OPERATIONS.md).
 
 ### Optional macOS scheduling
 
@@ -94,7 +112,10 @@ Rotate `logs/collector.out.log` and `logs/collector.err.log` with a local log
 rotation tool. Mac sleep can still miss pregame lineups and contemporaneous
 prices; rolling discovery and correction jobs recover post-match facts later.
 
-The intended scheduler interval is five minutes. Waking every five minutes does not mean calling an API every five minutes: DuckDB checkpoints ensure that the process exits without network requests when nothing is due. The script is safe to invoke repeatedly.
+The scheduler interval is five minutes. Waking every five minutes does not mean
+calling an API every five minutes: DuckDB checkpoints ensure that the process
+exits without network requests when nothing is due. The script is safe to
+invoke repeatedly.
 
 Collection scope and timing are configured in `config/collector.json`. The monitored scope includes the World Cup, Euro, Champions League, and configured domestic first divisions represented in the Champions League. Review that list when a new Champions League field is finalized.
 
@@ -105,7 +126,9 @@ reserves 250 of the 7,500 daily calls and spaces requests by one second.
 Polymarket order books are independently batched up to 500 outcome tokens per
 public request.
 
-The repository does not install an operating-system schedule automatically. On macOS, invoke the run-once command every five minutes with `launchd`; the machine must be awake and online or time-sensitive snapshots will be missed.
+Railway is the production scheduler. The macOS `launchd` example remains an
+optional local fallback; do not enable it while Railway is active, because the
+local and cloud warehouses are separate copies and would diverge.
 
 ## Historical API-Football coverage audit
 

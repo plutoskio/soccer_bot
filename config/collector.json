@@ -37,7 +37,7 @@
     "heartbeat_interval_seconds": 30
   },
   "health": {
-    "report_directory": "reports/collector"
+    "report_directory": "data/reports/collector"
   },
   "polymarket": {
     "soccer_tag_id": 100350,

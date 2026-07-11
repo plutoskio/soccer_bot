@@ -94,8 +94,10 @@ state have been reviewed first.
   result/team eligible and player ineligible.
 - The collector is a restart-safe, locked run-once program with rolling
   recovery, staged lineup/post-match/Polymarket jobs, bounded HTTP retries, and
-  daily health reporting. A tracked `launchd` example exists, but the
-  operating-system scheduler has not been installed pending observation.
+  daily health reporting. Railway is the production host: `/app/data` is the
+  persistent volume and the tracked `railway.json` schedules the collector
+  every five minutes. The `launchd` example is an optional local fallback and
+  must not run concurrently as a second production collector.
 - A complete replay of all raw daily-discovery artifacts can reintroduce
   out-of-scope shallow fixtures because raw responses intentionally retain all
   competitions. Apply the configured competition boundary during any future

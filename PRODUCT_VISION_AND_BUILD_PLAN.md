@@ -62,11 +62,11 @@ The collector obtains evidence; it does not train models. It stores:
 - player-identity reconciliation state;
 - Polymarket events, markets, outcomes, and order-book snapshots.
 
-After `launchd` is enabled, the collector wakes every five minutes. Internal
-planning determines whether any API request is actually due. If the computer is
-off, collection stops. On restart, it recovers provider information that still
-exists, but it cannot recreate pregame lineups or prices that were never
-observed.
+On Railway, the collector wakes every five minutes. Internal planning determines
+whether any API request is actually due, so the user's computer can remain off.
+If Railway or a provider is unavailable, collection resumes from checkpoints
+after service returns. It can recover provider information that still exists,
+but it cannot recreate pregame lineups or prices that were never observed.
 
 ### 2.2 Warehouse
 
@@ -337,8 +337,10 @@ run in parallel with the offline work in Phases 1–4.
 1. Run several real cycles and inspect health reports, retries, quota use,
    fixture scope, player identities, and market snapshots.
 2. Resolve systemic warnings and document controlled warnings.
-3. Enable the tracked `launchd` job.
-4. Verify restart recovery and temporary-provider-failure behavior.
+3. Enable the tracked Railway cron job; retain `launchd` only as a disabled
+   local fallback.
+4. Verify restart recovery, persistent health reports, backups, and
+   temporary-provider-failure behavior.
 
 Exit: unattended collection produces healthy or explicitly understood warning
 reports without scope or integrity regressions.
