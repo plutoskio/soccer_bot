@@ -16,21 +16,97 @@ correctness and leakage prevention take priority over quickly fitting a model.
 
 The data foundation is built; modeling has not started.
 
-- Canonical warehouse: `data/warehouse/soccer.duckdb`
-- Immutable provider responses: `data/raw/`
-- Historical API-Football manifest: `data/staged/api_football_backfill_manifest.jsonl`
+- Production canonical warehouse: Railway
+  `/app/data/warehouse/soccer.duckdb`
+- Local warehouse snapshot: `data/warehouse/soccer.duckdb` (not automatically
+  synchronized after the Railway migration)
+- Production immutable provider responses: Railway `/app/data/raw/`
+- Local immutable provider responses: `data/raw/`
+- Historical API-Football manifest: Railway and local
+  `data/staged/api_football_backfill_manifest.jsonl`
 - Collection scope: `config/collector.json`
 - Schema/design reference: `DATA_ARCHITECTURE.md`
 - Product vision and active roadmap: `PRODUCT_VISION_AND_BUILD_PLAN.md`
 - 1,181/1,181 historical backfill batches succeeded
 - 23,619/23,619 approved historical fixtures are present
-- 23,726 API-Football fixtures exist, including 107 additional fixtures from
-  watched competitions (audits, qualifiers, and current/validation matches)
-- 23,526 approved fixtures pass all three modeling eligibility checks
+- At the pre-Railway baseline, 23,726 API-Football fixtures existed, including
+  107 additional fixtures from watched competitions (audits, qualifiers, and
+  current/validation matches). Production counts now change as cron runs; query
+  the live warehouse read-only instead of treating this baseline as current.
+- 23,526 approved historical fixtures passed all three modeling eligibility
+  checks at that baseline.
 - 111 tests pass
 
 The database also contains useful observations from Football-Data.co.uk,
 Understat, StatsBomb Open Data, and Polymarket.
+
+## Production Environment — Railway
+
+Railway is the production collector host. The initial warehouse, 3,345 raw
+files, and three staging files were uploaded and verified on 2026-07-11.
+A supervised production collection run then completed successfully, with no
+blocking health condition and with new raw evidence persisted. The tracked
+production deployment subsequently reached Railway status `SUCCESS`.
+
+- Railway service: `soccer_bot`
+- Railway environment: `production`
+- Deployment source: connected GitHub `main` branch
+- Deployment definition: `railway.json`
+- Build: Railpack followed by `python -m pip install .`
+- Start command: `python scripts/run_collector.py`
+- Schedule: every five minutes (`*/5 * * * *`)
+- Restart policy: `NEVER` because this is a run-once cron process
+- Persistent volume mount: `/app/data`
+- Volume capacity: 5 GB; approximately 1.4 GB was used after migration
+- Required Railway variable name: `API_FOOTBALL_KEY`; never print its value
+- Operations and recovery runbook: `RAILWAY_OPERATIONS.md`
+
+Persistent production paths are:
+
+- Warehouse: `/app/data/warehouse/soccer.duckdb`
+- Collector lock: `/app/data/warehouse/collector.lock`
+- Raw evidence: `/app/data/raw/`
+- Staged manifests: `/app/data/staged/`
+- Health reports: `/app/data/reports/collector/`
+
+Everything outside `/app/data` is disposable between Railway deployments.
+In particular, a report written to `/app/reports` would be lost. The collector
+configuration intentionally uses `data/reports/collector` so the resolved
+Railway path is on the volume.
+
+The local checkout is already linked through the Railway CLI. Useful read-only
+status commands are:
+
+```bash
+railway service status --json
+railway logs
+```
+
+Do not assume the local DuckDB contains observations collected after the cloud
+migration. For current production facts, inspect the Railway volume with the
+cron disabled/stopped and DuckDB opened using `read_only=True`. Never run a
+second writable collector locally while treating Railway as production. The
+macOS `launchd` job must remain disabled.
+
+Before a live inspection or migration:
+
+1. Disable or remove the cron schedule and confirm no collector is running.
+2. Preserve a verified Railway volume/database backup.
+3. Use a temporary inspection deployment such as `sleep infinity`.
+4. Open `/app/data/warehouse/soccer.duckdb` explicitly read-only.
+5. Restore the committed `railway.json` immediately after inspection.
+
+Do not use `railway up` casually: it creates a deployment and can execute the
+configured start command against the live volume. Do not upload a warehouse,
+raw directory, or staged directory over the active production paths without a
+stopped scheduler, a verified backup, exact path review, and a rollback plan.
+
+Railway volume backups and billing alerts are still an operational follow-up.
+Enable a daily backup if available, retain a known-good restore point, and set
+the account warning/limit described in `RAILWAY_OPERATIONS.md`. Quarantined
+bootstrap directories named `/app/data/bootstrap-warehouse-20260711` and
+`/app/data/bootstrap-raw-20260711` must not be deleted until a backup and
+automatic cron execution have both been verified.
 
 ## Modeling Eligibility
 
@@ -131,6 +207,19 @@ Useful collector commands:
 ```
 
 Never expose `.env` or API keys in logs, reports, tests, or commits.
+
+For Railway changes, also validate:
+
+```bash
+git diff --check
+.venv/bin/python scripts/run_collector.py --dry-run
+railway service status --json
+```
+
+The user prefers to run commands that take several minutes (large uploads,
+full builds/deployments, or prolonged monitoring) themselves. Explain the
+command, expected output, and safe stopping condition before asking them to run
+it. Short read-only checks can be run directly.
 
 ## Recommended Next Work
 
