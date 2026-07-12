@@ -86,7 +86,7 @@ Do not assume the local DuckDB contains observations collected after the cloud
 migration. For current production facts, inspect the Railway volume with the
 cron disabled/stopped and DuckDB opened using `read_only=True`. Never run a
 second writable collector locally while treating Railway as production. The
-macOS `launchd` job must remain disabled.
+repository intentionally has no alternative local scheduler.
 
 Before a live inspection or migration:
 
@@ -156,8 +156,9 @@ Administrative results are excluded from sporting-performance training.
   2021-08-15, corroborated by API-Football. The original CSV remains intact.
 - Added migration `006_fixture_model_eligibility.sql` and regression tests.
 
-Do not rerun one-time repair scripts unless their guards and current database
-state have been reviewed first.
+One-time repair scripts are archived under `scripts/maintenance/one_time/`.
+Do not rerun them unless their guards and current database state have been
+reviewed first.
 
 ## Known, Controlled Limitations
 
@@ -172,8 +173,7 @@ state have been reviewed first.
   recovery, staged lineup/post-match/Polymarket jobs, bounded HTTP retries, and
   daily health reporting. Railway is the production host: `/app/data` is the
   persistent volume and the tracked `railway.json` schedules the collector
-  every five minutes. The `launchd` example is an optional local fallback and
-  must not run concurrently as a second production collector.
+  every five minutes. No second production scheduler is supported.
 - A complete replay of all raw daily-discovery artifacts can reintroduce
   out-of-scope shallow fixtures because raw responses intentionally retain all
   competitions. Apply the configured competition boundary during any future

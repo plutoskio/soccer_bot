@@ -52,7 +52,11 @@ In one sentence: **a fixture connects the teams, and almost all match-related da
 
 The incremental collector is implemented as `scripts/run_collector.py`. Each invocation checks DuckDB for due work and exits without API calls when nothing is due. It discovers the day's monitored fixtures once, retrieves confirmed lineups shortly before kickoff, collects final player/team data after matches, and captures linked Polymarket order books.
 
-The repository does not automatically install an operating-system schedule. Until the command is registered with macOS `launchd` or moved to an always-on server, someone must invoke it manually. The intended scheduler interval is five minutes; database checkpoints prevent that interval from causing unnecessary requests.
+Railway runs the collector every five minutes from the tracked `railway.json`.
+Database checkpoints prevent that interval from causing unnecessary requests;
+most invocations exit without network work when no job is due. Railway is the
+only production scheduler, and local invocations are for deliberate dry runs or
+supervised maintenance only.
 
 ### Initial validation update
 

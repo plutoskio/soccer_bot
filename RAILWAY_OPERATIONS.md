@@ -27,8 +27,8 @@ The service must have one secret variable named `API_FOOTBALL_KEY`. Never print
 its value, copy it into `railway.json`, add it to a command line, or commit it.
 The repository's `.env` is only for local execution and is ignored by Git.
 
-Only one service may write to this volume. Keep the macOS `launchd` collector
-disabled while Railway is production.
+Only one service may write to this volume. Do not create a scheduled local
+collector while Railway is production.
 
 ## Normal deployment
 

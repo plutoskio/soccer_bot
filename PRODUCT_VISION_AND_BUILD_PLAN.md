@@ -337,8 +337,7 @@ run in parallel with the offline work in Phases 1–4.
 1. Run several real cycles and inspect health reports, retries, quota use,
    fixture scope, player identities, and market snapshots.
 2. Resolve systemic warnings and document controlled warnings.
-3. Enable the tracked Railway cron job; retain `launchd` only as a disabled
-   local fallback.
+3. Enable the tracked Railway cron job as the only production scheduler.
 4. Verify restart recovery, persistent health reports, backups, and
    temporary-provider-failure behavior.
 

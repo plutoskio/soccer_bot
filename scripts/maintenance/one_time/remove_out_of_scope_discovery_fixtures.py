@@ -13,7 +13,7 @@ from pathlib import Path
 import duckdb
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 DATABASE = ROOT / "data" / "warehouse" / "soccer.duckdb"
 CONFIG = ROOT / "config" / "collector.json"
 

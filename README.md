@@ -82,36 +82,6 @@ service that writes to the same volume.
 Operational checks, deployment commands, maintenance steps, and recovery rules
 are documented in [RAILWAY_OPERATIONS.md](RAILWAY_OPERATIONS.md).
 
-### Optional macOS scheduling
-
-The tracked example
-`ops/launchd/com.soccer-bot.collector.plist.example` runs the restart-safe
-collector every five minutes. It contains no API key; the collector continues
-to read the local ignored `.env` file. Do not load it until manual observation
-cycles and health reports are stable.
-
-To install it manually after that observation period:
-
-```bash
-mkdir -p logs ~/Library/LaunchAgents
-cp ops/launchd/com.soccer-bot.collector.plist.example \
-  ~/Library/LaunchAgents/com.soccer-bot.collector.plist
-plutil -lint ~/Library/LaunchAgents/com.soccer-bot.collector.plist
-launchctl bootstrap gui/$(id -u) \
-  ~/Library/LaunchAgents/com.soccer-bot.collector.plist
-```
-
-To stop it before maintenance or warehouse migration:
-
-```bash
-launchctl bootout gui/$(id -u) \
-  ~/Library/LaunchAgents/com.soccer-bot.collector.plist
-```
-
-Rotate `logs/collector.out.log` and `logs/collector.err.log` with a local log
-rotation tool. Mac sleep can still miss pregame lineups and contemporaneous
-prices; rolling discovery and correction jobs recover post-match facts later.
-
 The scheduler interval is five minutes. Waking every five minutes does not mean
 calling an API every five minutes: DuckDB checkpoints ensure that the process
 exits without network requests when nothing is due. The script is safe to
@@ -126,9 +96,9 @@ reserves 250 of the 7,500 daily calls and spaces requests by one second.
 Polymarket order books are independently batched up to 500 outcome tokens per
 public request.
 
-Railway is the production scheduler. The macOS `launchd` example remains an
-optional local fallback; do not enable it while Railway is active, because the
-local and cloud warehouses are separate copies and would diverge.
+Railway is the only production scheduler. Do not create a second scheduled
+local collector: the local and cloud warehouses are separate copies and would
+diverge.
 
 ## Historical API-Football coverage audit
 
