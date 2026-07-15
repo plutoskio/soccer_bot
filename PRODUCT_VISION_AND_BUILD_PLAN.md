@@ -610,9 +610,46 @@ state when a large global sample cannot compensate for sparse team history.
 The application/producer changes are committed and pushed. Operationally, the
 collector volume has been resized from 5 GB to 10 GB, the resize-created 3.91 GB
 manual restore point is retained, daily native backups are enabled with six-day
-retention, and volume-usage alerts are active. Next add
-publication-failure/staleness alerting and test restoration into an isolated
-volume. Quantitatively, keep collecting complete timestamped Polymarket books
-and define the new evaluation window for confirmed-lineup, player-strength,
-and distribution-level calibration challengers. Do not make more modeling
-decisions from the opened final test.
+retention, and volume-usage alerts are active.
+
+### Active roadmap after the first production moneyline model
+
+Work in the following order. A later product surface must not be presented as
+actionable until its underlying probability layer has passed leakage-safe
+forward evaluation.
+
+1. **Finish production protection.** Add alerts for failed prediction
+   publication and excessive snapshot age. Restore a production backup into an
+   isolated Railway volume and validate the warehouse, immutable raw evidence,
+   staged state, reports, and recovery procedure without touching the live
+   writer volume.
+2. **Open a new evaluation period.** Freeze the current champion and its opened
+   final-test report. Define a new forward window, or nested walk-forward
+   development folds, before choosing any new feature or model. The old final
+   test remains a historical audit and must not influence challenger selection.
+3. **Build point-in-time lineup and player strength.** Model expected and then
+   confirmed starters, absences, recent minutes, substitutions, position,
+   goals, assists, shots, and player contributions to team attack and defence.
+   Every observation must respect the prediction cutoff, preserve missingness,
+   and use `eligible_player_models` independently from result-model eligibility.
+4. **Challenge the probability engine.** Test lineup/player features, improved
+   goal-rate and score-distribution models, and distribution-level calibration
+   against the frozen champion. Promotion requires better unseen-match proper
+   scoring rules and calibration, stable results across time/competitions, and
+   no material degradation in important subgroups.
+5. **Collect executable market benchmarks.** Continue capturing complete,
+   timestamped Polymarket books. Match each quote to the exact T−72, T−24, and
+   confirmed-lineup information state so we can compare model probabilities
+   with prices that were genuinely available, including spread, liquidity,
+   fees, and realistic execution constraints.
+6. **Unlock contracts in validated layers.** First add regulation spreads and
+   totals derived from a validated score distribution. Then add exact score,
+   both teams to score, and first-team-to-score contracts. Unlock player goals,
+   assists, and shots only after the player model passes forward validation.
+   Treat corners as a separate count-model research track with its own data,
+   eligibility, calibration, and promotion gate.
+
+The immediate quantitative priority is step 2 followed by step 3: establish the
+new evaluation boundary, then research confirmed-lineup and player-strength
+features inside it. Operational alerts and the isolated restoration test can
+proceed in parallel because they do not use or influence model evaluation.
