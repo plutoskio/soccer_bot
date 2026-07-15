@@ -191,8 +191,8 @@ redeployment is not enabled.
 ## Guarded publisher rollout — 2026-07-15
 
 Automatic publication was first activated in collector deployment
-`c314a7c9-53c7-4541-9b90-1c1e136ff268`; the current verified collector
-deployment is `6251e139-5b6f-4910-9dba-472a634d71bd`.
+`c314a7c9-53c7-4541-9b90-1c1e136ff268`; source-linked deployment
+`6251e139-5b6f-4910-9dba-472a634d71bd` was subsequently runtime-verified.
 
 - The schedule was replaced temporarily by `sleep infinity`; the tracked
   `railway.json` was restored locally immediately after that deployment.

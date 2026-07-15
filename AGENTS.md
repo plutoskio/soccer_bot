@@ -271,9 +271,10 @@ deployment are complete. The public web service is
 `https://soccer-bot-web-production.up.railway.app`; its API is private and reads
 the immutable snapshot from Railway object storage. Guarded automatic
 publication was first activated in collector deployment
-`c314a7c9-53c7-4541-9b90-1c1e136ff268`; current verified deployment
+`c314a7c9-53c7-4541-9b90-1c1e136ff268`; runtime-verified deployment
 `6251e139-5b6f-4910-9dba-472a634d71bd` runs exact source commit
-`e2c756cb802835e882216521d2f2f6f6f8b4cea8`. The first cycle published 14 rows across
+`e2c756cb802835e882216521d2f2f6f6f8b4cea8`. The first cycle published 14
+rows across
 13 fixtures as-of `2026-07-15T20:27:40.917313Z` and passed browser QA. The live
 UI now separates horizon-wide training size
 (38,445 T−24; 34,813 clean T−72) from selected-team result and rich-signal
