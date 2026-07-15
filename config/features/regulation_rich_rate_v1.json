@@ -1,0 +1,32 @@
+{
+  "feature_version": "regulation_rich_rate_v1",
+  "result_availability_delay_minutes": 150,
+  "metrics": {
+    "xg": {
+      "source_code": "understat",
+      "column": "xg",
+      "prior_mean": 1.25,
+      "prior_strength_matches": 5.0,
+      "half_life_days": 180.0
+    },
+    "shots": {
+      "source_code": "api_football",
+      "column": "shots",
+      "prior_mean": 12.0,
+      "prior_strength_matches": 5.0,
+      "half_life_days": 180.0
+    }
+  },
+  "research_policy": {
+    "fit_kickoff_end_exclusive": "2023-07-01T00:00:00+00:00",
+    "validation_kickoff_end_exclusive": "2024-07-01T00:00:00+00:00",
+    "minimum_fit_fixtures_per_horizon": 5000,
+    "full_signal_history_matches": 20,
+    "ridge_penalty": 10.0,
+    "maximum_newton_iterations": 40,
+    "optimizer_tolerance": 1e-8,
+    "minimum_expected_goals": 0.05,
+    "maximum_expected_goals": 8.0,
+    "test_fold_access": false
+  }
+}

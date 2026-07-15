@@ -157,6 +157,13 @@ class WarehouseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must not exceed 20"):
             validate_collector_config(config)
 
+        config = json.loads(
+            (ROOT / "config" / "collector.json").read_text(encoding="utf-8")
+        )
+        config["prediction_publication"]["model_path"] = "../private/model.json"
+        with self.assertRaisesRegex(ValueError, "must stay inside"):
+            validate_collector_config(config)
+
 
 if __name__ == "__main__":
     unittest.main()

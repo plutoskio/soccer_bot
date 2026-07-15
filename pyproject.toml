@@ -8,8 +8,17 @@ version = "0.1.0"
 description = "Soccer data validation and forecasting research project"
 requires-python = ">=3.11"
 dependencies = [
+  "boto3>=1.39,<2",
   "duckdb>=1.5,<2",
   "pytz>=2025.2",
+]
+
+[project.optional-dependencies]
+api = [
+  "boto3>=1.39,<2",
+  "fastapi>=0.116,<1",
+  "httpx>=0.28,<1",
+  "uvicorn[standard]>=0.35,<1",
 ]
 
 [tool.setuptools.packages.find]

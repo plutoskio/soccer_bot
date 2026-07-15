@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sys
@@ -16,6 +17,7 @@ from soccer_bot.config import load_env, load_json
 from soccer_bot.database import Warehouse
 from soccer_bot.http import HttpClient
 from soccer_bot.locking import CollectorLock
+from soccer_bot.prediction_publication import run_prediction_publication
 from soccer_bot.raw_store import RawArtifactStore
 
 
@@ -96,8 +98,20 @@ def main() -> int:
             dry_run=args.dry_run,
             catch_up_days=args.catch_up_days,
         )
+        health_severity = str(summary.get("health", {}).get("severity", "unknown"))
+        if not args.dry_run:
+            warehouse.close()
+            warehouse = None
+            summary["prediction_publication"] = run_prediction_publication(
+                root=ROOT,
+                warehouse_path=ROOT / "data" / "warehouse" / "soccer.duckdb",
+                collector_config=config,
+                environment=env,
+                as_of=datetime.now(timezone.utc),
+                health_severity=health_severity,
+            )
         print(json.dumps(summary, indent=2, sort_keys=True))
-        return 2 if summary.get("health", {}).get("severity") == "blocking" else 0
+        return 2 if health_severity == "blocking" else 0
     finally:
         if warehouse is not None:
             warehouse.close()

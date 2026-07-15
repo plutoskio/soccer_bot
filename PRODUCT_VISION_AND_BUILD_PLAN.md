@@ -5,15 +5,23 @@ classification and count models, feature engineering, calibration, temporal
 validation, and standard probability metrics. It focuses on product and system
 decisions rather than introducing basic data-science terminology.
 
+The canonical technical modeling design, including coherent predictive
+distributions, information states, feature research, model candidates,
+calibration, stacking, market-aware forecasts, and promotion gates, is in
+[FORECASTING_SYSTEM_DESIGN.md](FORECASTING_SYSTEM_DESIGN.md).
+The reviewed user-facing market scope and implementation priorities are in
+[PREDICTION_CONTRACT_CATALOG.md](PREDICTION_CONTRACT_CATALOG.md).
+
 ## 1. Product vision
 
-Soccer Bot should become a local, interactive research application for upcoming
-soccer matches and Polymarket markets.
+Soccer Bot should become an interactive research platform for upcoming soccer
+matches and prediction-market contracts. It runs locally during development
+and is designed to be hosted on Railway as a custom web application.
 
 The intended workflow is:
 
 1. The collector runs in the background and keeps current data up to date.
-2. The user opens a local website.
+2. The user opens the custom web application.
 3. The user selects an upcoming fixture.
 4. The user chooses a prediction type: match result, goals, spread, exact score,
    corners, or a player goal/assist proposition.
@@ -49,7 +57,8 @@ estimate or a model-market difference as a guaranteed betting edge.
 The product has four separate parts:
 
 ```text
-Collector -> DuckDB warehouse -> Training/evaluation -> Local application
+Collector -> DuckDB warehouse -> Training/evaluation -> Immutable snapshot
+                                                        -> Read-only API -> Web
 ```
 
 ### 2.1 Collector
@@ -94,11 +103,13 @@ A training run produces:
 - preprocessing and feature-schema artifacts;
 - hashes and version metadata.
 
-### 2.4 Local application
+### 2.4 Custom application
 
-The first application should be a local Streamlit website. Selecting a fixture
-or player performs inference with an existing production model; it does not
-retrain the estimator.
+The first application is a custom Next.js interface backed by a private,
+read-only FastAPI service. Selecting a fixture or horizon reads an existing
+production snapshot; it does not retrain the estimator or query DuckDB. This
+choice provides full product control and remains deployable on Railway without
+coupling the user interface to Python rendering or the writer volume.
 
 The application should eventually expose a separate administrative retraining
 action, but ordinary prediction controls must remain fast and deterministic.
@@ -251,19 +262,28 @@ The first application does not place trades.
 
 ## 6. Model families
 
+These product-facing families are implemented through the smaller set of
+coherent probability engines defined in
+[FORECASTING_SYSTEM_DESIGN.md](FORECASTING_SYSTEM_DESIGN.md). Related contracts
+should derive from a shared distribution whenever possible; direct classifiers
+remain baselines or constrained challengers rather than independent sources of
+contradictory probabilities.
+
 ### 6.1 Regulation result
 
 Three-class home/draw/away model based primarily on point-in-time team strength,
-form, opponent adjustment, rest, competition, and home advantage. This is the
-first vertical slice because it establishes the shared dataset, evaluation,
-registry, inference, and UI interfaces.
+form, opponent adjustment, rest, competition, and home advantage. It is a
+mandatory baseline and challenger for the regulation-result view. The first
+production probabilities should normally derive from the joint-score engine so
+moneyline, exact-score, total, and spread outputs remain coherent.
 
 ### 6.2 Joint score distribution
 
 Home/away count model supporting coherent exact score, totals, goal difference,
 spreads, and both-teams-to-score probabilities. Candidate formulations include
 Poisson/Dixon–Coles, negative-binomial, bivariate count models, and constrained
-boosted alternatives.
+boosted alternatives. This is the first core production engine and the first
+interactive match-contract vertical slice.
 
 ### 6.3 Player goals and assists
 
@@ -312,8 +332,7 @@ Git.
 
 ## 8. Safe application access
 
-The local website should not hold a long-lived connection to the writable live
-warehouse.
+The application must not hold a connection to the writable live warehouse.
 
 The recommended initial design is:
 
@@ -322,15 +341,23 @@ The recommended initial design is:
 3. It applies the production feature and inference pipeline.
 4. It atomically replaces a small application snapshot containing upcoming
    fixtures, predictions, diagnostics, and timestamps.
-5. Streamlit reads the snapshot and model cards rather than the live writer.
+5. The read-only API validates and serves the snapshot, removing filesystem
+   provenance paths from its public contract.
+6. Next.js fetches the API server-side; the browser never receives a private
+   service address or warehouse access.
 
-This design must be tested during lock contention and partial snapshot failure.
-The exact snapshot format should be chosen during implementation.
+This design is implemented for the regulation-moneyline snapshot. The API
+fails closed on invalid JSON, unsupported output families, malformed
+probabilities, duplicate fixture/horizon rows, and unavailable cold-start
+storage. On Railway, immutable snapshots pass through S3-compatible object
+storage so the API and web services never mount the collector volume. See
+`DESIGN.md` and `RAILWAY_APPLICATION_DEPLOYMENT.md`.
 
 ## 9. Sequential build plan
 
 The phases are dependency ordered. Phase 0 is operational monitoring and can
-run in parallel with the offline work in Phases 1–4.
+run in parallel with the offline work in Phases 1–5. Detailed deliverables and
+promotion gates are defined in `FORECASTING_SYSTEM_DESIGN.md`.
 
 ### Phase 0 — Observe and schedule the collector
 
@@ -344,26 +371,26 @@ run in parallel with the offline work in Phases 1–4.
 Exit: unattended collection produces healthy or explicitly understood warning
 reports without scope or integrity regressions.
 
-### Phase 1 — Freeze the first prediction task
+### Phase 1 — Freeze contracts and information states
 
-Define T-24h regulation home/draw/away:
+Normalize the desired user propositions into a versioned contract registry.
+Specify settlement period, numeric lines, pushes, voids, player-participation
+conditions, eligibility, required fields, and compatible probability engine.
 
-```text
-y in {home_win, draw, away_win}
-```
-
-Specify settlement, population, eligibility, competitions, seasons, prediction
-timestamp, exclusions, and evaluation calendar. Implement and test target
+Define rolling pre-lineup and confirmed-lineup information states. Retain T-24h
+as a comparable pre-lineup evaluation anchor, not as a claim that every hour
+requires a different production model. Implement and test target/settlement
 construction independently of modeling.
 
-Exit: target rows are deterministic and reviewed.
+Exit: every enabled contract settles deterministically from canonical facts and
+has an explicit point-in-time information policy.
 
-### Phase 2 — Build the temporal dataset and feature layer
+### Phase 2 — Build the temporal state, dataset, and feature layer
 
 Implement reusable point-in-time feature construction with as-of joins. Initial
-features include dynamic team strength, rolling/weighted form, goals for and
-against, home/away effects, opponent adjustment, rest/congestion, and
-competition/season context.
+features include dynamic attacking and defensive strength, learned recency,
+opponent-adjusted performance, goals and chance proxies, home/away effects,
+rest/congestion, lineup-strength state, and competition/season partial pooling.
 
 Produce a deterministic Parquet dataset, manifest, coverage report, and leakage
 tests.
@@ -376,24 +403,26 @@ future-row perturbations cannot change past features.
 Implement rolling-origin folds, a frozen final test period, fold-local tuning,
 calibration evaluation, bootstrap intervals, and stratified diagnostics.
 
-Baselines include class priors, an Elo/team-strength model, and temporally valid
-market probabilities where coverage permits.
+Baselines include class priors, Elo/team strength, independent Poisson,
+Dixon–Coles, regularized generalized linear models, and temporally valid market
+probabilities where coverage permits.
 
 Exit: one command evaluates any compatible estimator and generates a versioned
 model card.
 
-### Phase 4 — Select and refit the first production model
+### Phase 4 — Select and refit the first joint-score engine
 
-Compare a bounded candidate set: multinomial logistic regression, a
-Poisson/Dixon–Coles-derived classifier, and one controlled gradient-boosted tree
-model. Select using development folds, evaluate once on the frozen test period,
-then refit the chosen recipe on all eligible history.
+Build a dynamic joint home/away score distribution with Poisson and
+Dixon–Coles baselines, competition/season partial pooling, and a direct
+home/draw/away challenger. Research bivariate/overdispersed counts and one
+controlled boosted correction only after the structural baselines are valid.
 
-Fit calibration using leakage-safe out-of-fold predictions. Save production,
-preprocessing, schema, evaluation, manifest, and hash artifacts.
+Select using development folds, evaluate once on the frozen test period, fit
+calibration/stacking only from leakage-safe out-of-fold predictions, and refit
+the chosen recipe on all eligible history.
 
-Exit: a fixed feature vector produces reproducible probabilities from the saved
-production artifact.
+Exit: one saved distribution reproducibly prices moneyline, exact score, goal
+totals, team totals, both-teams-to-score, and goal-spread contracts.
 
 ### Phase 5 — Build upcoming-fixture inference and app snapshots
 
@@ -404,24 +433,39 @@ write the application snapshot.
 Exit: one read-only command prepares all supported upcoming fixtures without
 modifying or locking the warehouse long-term.
 
-### Phase 6 — Build the Streamlit vertical slice
+### Phase 6 — Build the custom application vertical slice
 
-Implement fixture selection, home/draw/away probabilities, data/model versions,
-training coverage, held-out metrics, calibration plots, applicability warnings,
-lineup status, and a match-result Polymarket comparison when the link and price
-are valid.
+Implement fixture selection in Next.js, backed by a private read-only FastAPI
+boundary. The first completed slice shows calibrated regulation home/draw/away,
+fair decimal odds, T−72/T−24 selection, expected goals, history and signal
+coverage, raw-to-calibrated movement, model identity, cutoffs, and applicability
+warnings. Exact-score, total, team-total, both-teams-to-score, and compatible
+spread controls remain locked until distribution-level calibration is coherent.
+
+The evidence surface also separates three concepts that must never be conflated:
+
+- the global number of eligible fixtures used to fit the selected horizon;
+- each team's prior match count available at the exact prediction cutoff;
+- each team's xG and shot-history depth.
+
+Sufficiency is reported against frozen recipe thresholds: 1,000 fixtures for a
+walk-forward fit, fewer than five team matches as cold start, and 20 rich-signal
+observations as full history. These labels describe data support, not guaranteed
+prediction accuracy.
 
 Exit: a real upcoming fixture can be selected and every displayed value traces
 to a snapshot, model version, and evaluation record.
 
-### Phase 7 — Add joint-score and derived match markets
+### Phase 7 — Add period-score markets and nonlinear corrections
 
-Develop and validate the joint home/away score distribution. Add exact score,
-totals, goal difference/spreads, and both-teams-to-score. Add first-team-to-score
-only if the chosen model includes a justified timing component.
+Research controlled boosted residuals, bivariate/negative-binomial candidates,
+and regularized stacking for the joint-score engine. Promote added complexity
+only when the proper-score improvement is stable across later seasons and does
+not damage calibration or coherence.
 
-After selection, refit each finalized recipe on all eligible history and add it
-to the common registry/UI.
+Add a coherent joint first-half/second-half distribution for pre-match period
+exact score, moneyline, spread, totals, team totals, and both-teams-to-score.
+The period and regulation probabilities must reconcile exactly.
 
 ### Phase 8 — Add lineup and player goal/assist models
 
@@ -441,16 +485,26 @@ and total corners. Evaluate dispersion, tails, over/under calibration, and
 competition heterogeneity. Refit the selected recipes on all eligible team-stat
 history and add them to the registry/UI.
 
-### Phase 10 — Expand market evaluation and automate operations
+### Phase 10 — Add timing, qualification, and tournament markets
+
+Add first-team and first-player-to-score only after a no-goal-aware
+competing-risk/event-time model outperforms score-derived approximations. Build
+match-level qualification from explicit competition rules, aggregate state,
+extra time, and penalties. Add tournament outrights only through validated
+group/bracket simulation over all remaining paths.
+
+### Phase 11 — Add market-aware fusion and automate operations
 
 1. Map only semantically identical, high-confidence markets.
-2. Backtest model-market deltas from snapshots available at each historical
-   decision time.
-3. Account for bid/ask, fees, depth, liquidity, and staleness.
-4. Add model promotion/rollback, retention, stale-model alerts, and secret-safe
+2. Preserve an independent soccer-only forecast and train a separately labeled
+   market-aware forecast from out-of-fold predictions and eligible as-of prices.
+3. Benchmark against de-vigged market consensus and backtest deltas from
+   snapshots available at each historical decision time.
+4. Account for bid/ask, fees, depth, liquidity, staleness, and mapping risk.
+5. Add model promotion/rollback, retention, stale-model alerts, and secret-safe
    logging.
-5. Add manual retraining/promotion commands.
-6. Schedule retraining only after repeated manual runs are reproducible.
+6. Add manual retraining/promotion commands.
+7. Schedule retraining only after repeated manual runs are reproducible.
 
 Exit: versions can be trained, evaluated, promoted, served, and rolled back
 reproducibly. Automated trading remains out of scope.
@@ -458,30 +512,34 @@ reproducibly. Automated trading remains out of scope.
 ## 10. Proposed project layout
 
 ```text
-app.py                         Local Streamlit entry point
+apps/web/                      Custom Next.js fixture-selection interface
+apps/api/                      Read-only FastAPI snapshot/pricing boundary
+config/contracts/              Versioned settlement and proposition definitions
 config/models/                 Versioned task and model settings
 scripts/build_datasets.py      Point-in-time dataset construction
 scripts/train_models.py        Evaluation and all-data production refit
-scripts/build_app_snapshot.py  Current features and predictions for the UI
+scripts/predict_upcoming_regulation.py  Current features and predictions
+scripts/publish_prediction_snapshot.py  Validated object-storage publication
 src/soccer_bot/datasets/       Targets, as-of joins, and feature builders
 src/soccer_bot/modeling/       Folds, estimators, calibration, metrics, registry
 src/soccer_bot/prediction/     Artifact loading and current-match inference
-src/soccer_bot/app/            Streamlit pages and presentation logic
 data/features/                 Generated ignored datasets/manifests
 models/                        Generated ignored production artifacts
 reports/models/                Model cards and generated diagnostics
 ```
 
-Create the structure incrementally. The first result-model vertical slice
-should establish shared interfaces before additional model families are added.
+Create the structure incrementally. The first joint-score vertical slice should
+establish shared interfaces before player, corner, timing, and market-aware
+families are added.
 
 ## 11. First-release acceptance criteria
 
 The first meaningful release is complete when:
 
 1. The collector runs reliably.
-2. An upcoming monitored fixture appears in the local website.
-3. The UI shows regulation home/draw/away probabilities.
+2. An upcoming monitored fixture appears in the custom website.
+3. The UI explores calibrated regulation home/draw/away probabilities and
+   identifies their current score-grid coherence limitation explicitly.
 4. The production model was refit on all currently eligible historical data.
 5. Displayed performance comes from chronological unseen matches.
 6. Predictions expose data time, model version, sample/coverage information,
@@ -491,12 +549,69 @@ The first meaningful release is complete when:
 9. Missing, stale, or unsupported inputs return a typed explanation rather than
    an invented probability.
 
-After this vertical slice, extend the same infrastructure through score,
-player, corner, and broader market models in the phase order above.
+After this vertical slice, extend the same infrastructure through player,
+corner, timing, and market-aware models in the phase order above.
 
 ## 12. Immediate next action
 
-Create and review the Phase 1 task specification for T-24h regulation
-home/draw/away. Then implement its point-in-time dataset. This establishes the
-target, temporal semantics, manifests, and leakage tests that every later model
-family will reuse.
+The first regulation contract registry, deterministic settlement layer,
+information-state task specification, reviewed target exclusions, and
+regulation-score target builder, and chronological team-state feature builder
+are implemented. The local snapshot currently yields 73,258 feature rows from
+38,445 targets across clean T-72h and T-24h horizons.
+
+The selected recipe is independent Poisson plus chronological Understat xG and
+API-Football shots corrections, followed by temperature scaling. The richer
+features first passed a development-only internal validation year. Their
+coefficients were then refit on all development matches, temperature was fit
+only on the calibration year, and the frozen final test was scored once. The
+calibrated rich model improves final-test log loss over calibrated independent
+Poisson by 0.00453 at T-24h and 0.00434 at clean T-72h, with both paired
+month-block 95% intervals below zero.
+
+The strict as-of Polymarket benchmark currently has zero complete eligible
+three-way fixtures. Football-Data closing consensus is a useful retrospective
+yardstick over 12,458 fixtures, but cannot be used as an earlier-time feature
+because `quoted_at` is missing. On its covered final-test subset it still beats
+the champion by about 0.042 log-loss points at both horizons, establishing the
+remaining performance gap.
+
+The champion has now been refit on all eligible local history. Its model
+artifact stores horizon-specific rate scales, rich-rate coefficients, and the
+frozen evaluation temperatures; its manifest hashes the warehouse snapshot,
+feature definitions, task/contract files, selection report, feature rows, rich
+rows, and logical model. Upcoming inference replays the historical state engine
+and emits only due horizons whose current kickoff was already known at the exact
+cutoff. The first reproducible snapshot emitted 10 rows across six fixtures.
+See `REGULATION_CHAMPION_MODEL.md` for the full handoff.
+
+The immutable snapshot is now connected to a custom fixture-selection UI
+through a fail-closed read-only API. The first vertical slice exposes only the
+supported calibrated regulation moneyline, both prediction horizons, fair
+decimal odds, evidence coverage, calibration movement, model identity, and
+warnings. Desktop, mobile, interaction, reduced-motion, and API-unavailable
+states have been browser-tested. Separate Railway service definitions preserve
+the existing collector and writer volume.
+
+The reviewed snapshot, private API, and public web service are deployed on
+Railway. The public fixture-selection application is
+<https://soccer-bot-web-production.up.railway.app>. The sole collector now
+performs guarded post-run publication after closing DuckDB while retaining its
+lock. The live application consumed the first automatic snapshot successfully.
+See `RAILWAY_APPLICATION_DEPLOYMENT.md` for the verified topology, backup, and
+rollout record.
+
+The production evidence surface now exposes data sufficiency directly. T−24
+shows 38,445 global training fixtures and clean T−72 shows 34,813, while every
+selected matchup separately reports home/away prior fixtures and rich-signal
+history. Pass/below-threshold labels come from the frozen recipe and explicitly
+state when a large global sample cannot compensate for sparse team history.
+
+Next, intentionally review and commit the application/producer changes before
+connecting the application services to GitHub. Operationally, resize the nearly
+4.0/5.0 GB collector volume, enable daily native backups, retain a locked restore
+point, and add publication-failure/staleness alerting. Quantitatively, keep
+collecting complete timestamped Polymarket books and define the new evaluation
+window for confirmed-lineup, player-strength, and distribution-level
+calibration challengers. Do not make more modeling decisions from the opened
+final test.

@@ -1,0 +1,28 @@
+{
+  "benchmark_version": "regulation_market_benchmark_v1",
+  "contract": "regulation_moneyline",
+  "probability_floor": 1e-15,
+  "timestamped_polymarket": {
+    "market_type": "moneyline",
+    "outcome_name": "Yes",
+    "require_bid_and_ask": true,
+    "require_known_kickoff_at_retrieval": true,
+    "maximum_bid_ask_spread": 0.2,
+    "minimum_complete_fixtures_to_score": 500,
+    "price": "midpoint_then_normalize_three_yes_prices"
+  },
+  "retrospective_bookmaker": {
+    "source_code": "football_data_uk",
+    "bookmaker_name": "market_average",
+    "quote_type": "closing",
+    "minimum_complete_fixtures_to_score": 1000,
+    "price": "inverse_decimal_odds_then_normalize",
+    "feature_eligible": false,
+    "reason": "quoted_at_is_null"
+  },
+  "uncertainty": {
+    "paired_block_unit": "calendar_month",
+    "bootstrap_replicates": 2000,
+    "bootstrap_seed": 20260714
+  }
+}

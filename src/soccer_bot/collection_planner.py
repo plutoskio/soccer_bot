@@ -457,6 +457,41 @@ def validate_collector_config(config: dict, catch_up_days: int | None = None) ->
         raise ValueError("health report_directory must be a non-empty path")
     if Path(report_directory).is_absolute() or ".." in Path(report_directory).parts:
         raise ValueError("health report_directory must stay inside the repository")
+    publication = config.get("prediction_publication", {})
+    if not isinstance(publication, dict):
+        raise ValueError("prediction_publication config must be an object")
+    if publication.get("enabled", False):
+        for key in (
+            "model_version",
+            "logical_model_sha256",
+            "model_path",
+            "output_directory",
+            "report_directory",
+        ):
+            value = publication.get(key)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"prediction_publication {key} must be non-empty")
+        logical_hash = publication["logical_model_sha256"]
+        if len(logical_hash) != 64 or any(
+            character not in "0123456789abcdef" for character in logical_hash
+        ):
+            raise ValueError(
+                "prediction_publication logical_model_sha256 must be lowercase SHA-256"
+            )
+        for key in ("model_path", "output_directory", "report_directory"):
+            path = Path(publication[key])
+            if path.is_absolute() or ".." in path.parts:
+                raise ValueError(
+                    f"prediction_publication {key} must stay inside the repository"
+                )
+        _positive_int(
+            publication.get("minimum_prediction_rows", 1),
+            "prediction publication minimum_prediction_rows",
+        )
+        _positive_int(
+            publication.get("timeout_seconds", 240),
+            "prediction publication timeout_seconds",
+        )
     identity = config.get("identity", {})
     if not isinstance(identity, dict):
         raise ValueError("identity config must be an object")

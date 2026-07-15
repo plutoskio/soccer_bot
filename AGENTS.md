@@ -14,7 +14,11 @@ correctness and leakage prevention take priority over quickly fitting a model.
 
 ## Current Stage
 
-The data foundation is built; modeling has not started.
+The data foundation, first leakage-safe modeling dataset, walk-forward score
+baselines, calibration layer, rich-rate correction, and market audit are
+implemented. The first regulation-moneyline champion has been refit on all
+eligible local history, packaged with a reproducibility manifest, and connected
+to read-only upcoming-fixture inference.
 
 - Production canonical warehouse: Railway
   `/app/data/warehouse/soccer.duckdb`
@@ -35,7 +39,28 @@ The data foundation is built; modeling has not started.
   the live warehouse read-only instead of treating this baseline as current.
 - 23,526 approved historical fixtures passed all three modeling eligibility
   checks at that baseline.
-- 111 tests pass
+- The 2026-07-13 local snapshot produces 38,445 reviewed regulation-score
+  targets and 73,258 point-in-time team-state rows: 38,445 at T-24h and 34,813
+  at the clean T-72h horizon.
+- The expanding-window evaluation produces 142,384 prediction rows across
+  independent Poisson and Dixon-Coles. The final-test Dixon-Coles deltas are
+  slightly favorable, but every paired calendar-month bootstrap interval
+  crosses zero; it has not earned promotion over independent Poisson.
+- A chronological Understat-xG/API-Football-shots correction passed an internal
+  development validation gate. After its recipe was frozen, coefficients were
+  refit on all development rows, temperature was fit only on calibration, and
+  the final test was scored once. Versus calibrated independent Poisson, log
+  loss improved by 0.00453 at T-24h and 0.00434 at clean T-72h; both paired
+  month-block 95% intervals exclude zero. This is the current champion recipe.
+- Strict timestamped Polymarket three-way coverage is currently zero complete
+  eligible fixtures. Football-Data closing consensus covers 12,458 fixtures,
+  but its missing quote timestamps make it a retrospective benchmark only,
+  never a model feature.
+- The 2026-07-15 all-history refit uses 38,445 T−24h and 34,813 clean T−72h
+  rows. The upcoming inference path requires the current kickoff to have been
+  known by the exact horizon cutoff and never creates fake scores for unplayed
+  fixtures. See `REGULATION_CHAMPION_MODEL.md`.
+- 180 tests pass.
 
 The database also contains useful observations from Football-Data.co.uk,
 Understat, StatsBomb Open Data, and Polymarket.
@@ -57,8 +82,11 @@ production deployment subsequently reached Railway status `SUCCESS`.
 - Schedule: every five minutes (`*/5 * * * *`)
 - Restart policy: `NEVER` because this is a run-once cron process
 - Persistent volume mount: `/app/data`
-- Volume capacity: 5 GB; approximately 1.4 GB was used after migration
-- Required Railway variable name: `API_FOOTBALL_KEY`; never print its value
+- Volume capacity: 5 GB; approximately 4.0 GB was used at the guarded publisher
+  rollout and resizing is now urgent
+- Required collector variables: `API_FOOTBALL_KEY` plus the snapshot bucket
+  references documented in `RAILWAY_APPLICATION_DEPLOYMENT.md`; never print
+  their values
 - Operations and recovery runbook: `RAILWAY_OPERATIONS.md`
 
 Persistent production paths are:
@@ -68,6 +96,7 @@ Persistent production paths are:
 - Raw evidence: `/app/data/raw/`
 - Staged manifests: `/app/data/staged/`
 - Health reports: `/app/data/reports/collector/`
+- Prediction publication receipts: `/app/data/reports/predictions/publication.jsonl`
 
 Everything outside `/app/data` is disposable between Railway deployments.
 In particular, a report written to `/app/reports` would be lost. The collector
@@ -101,9 +130,12 @@ configured start command against the live volume. Do not upload a warehouse,
 raw directory, or staged directory over the active production paths without a
 stopped scheduler, a verified backup, exact path review, and a rollback plan.
 
-Railway volume backups and billing alerts are still an operational follow-up.
-Enable a daily backup if available, retain a known-good restore point, and set
-the account warning/limit described in `RAILWAY_OPERATIONS.md`. Quarantined
+The guarded publisher rollout retained a verified compressed DuckDB backup at
+`data/backups/production/soccer-20260715T200224Z.duckdb.gz`; its decompressed
+SHA-256 is recorded in `RAILWAY_APPLICATION_DEPLOYMENT.md`. Railway native daily
+backups and billing alerts are still an operational follow-up. Resize the
+volume, enable a daily backup, retain a locked restore point, and set the
+account warning/limit described in `RAILWAY_OPERATIONS.md`. Quarantined
 bootstrap directories named `/app/data/bootstrap-warehouse-20260711` and
 `/app/data/bootstrap-raw-20260711` must not be deleted until a backup and
 automatic cron execution have both been verified.
@@ -223,9 +255,27 @@ it. Short read-only checks can be run directly.
 
 ## Recommended Next Work
 
-Follow `PRODUCT_VISION_AND_BUILD_PLAN.md`. Define the first regulation
-home/draw/away prediction at 24 hours before kickoff, then build its frozen,
-leakage-safe historical dataset. Candidate models must be measured on later
-unseen matches; after the recipe is selected, retrain the production model on
-all eligible historical data. Keep result, team, and player datasets separate
-where their eligibility requirements differ.
+Follow `PRODUCT_VISION_AND_BUILD_PLAN.md`, `FORECASTING_SYSTEM_DESIGN.md`, and
+the reviewed scope in `PREDICTION_CONTRACT_CATALOG.md`. The `CORE` regulation
+contract registry, score-grid settlement layer, target task, target builder,
+and first chronological team-state feature builder are implemented. The
+builder and frozen manifest create clean T-72h/T-24h snapshots, delay result
+availability, batch simultaneous kickoffs, and expose dynamic team state and
+coverage features. Calibration, market audit, champion refit, immutable
+manifest, upcoming-fixture inference, and the first Railway fixture-selection
+deployment are complete. The public web service is
+`https://soccer-bot-web-production.up.railway.app`; its API is private and reads
+the immutable snapshot from Railway object storage. Guarded automatic
+publication is live in collector deployment
+`c314a7c9-53c7-4541-9b90-1c1e136ff268`. The first cycle published 14 rows across
+13 fixtures as-of `2026-07-15T20:27:40.917313Z` and passed browser QA. The live
+UI now separates horizon-wide training size
+(38,445 T−24; 34,813 clean T−72) from selected-team result and rich-signal
+history, with labels derived from the frozen 1,000/5/20 evidence thresholds.
+Do not tune further against the current final-test report. Next resize the
+collector volume, enable native daily backups and publication alerts,
+intentionally commit/connect the application deployments, continue collecting
+complete timestamped Polymarket books, and begin confirmed-lineup/player
+research under a new forward or nested evaluation window. Treat T−24h as a comparable
+pre-lineup anchor, not a separate model for every hour. Keep result, team, and
+player datasets separate where their eligibility requirements differ.

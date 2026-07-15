@@ -1,0 +1,29 @@
+{
+  "model_version": "regulation_champion_v1",
+  "contract": "regulation_moneyline",
+  "model_class": "independent_poisson_xg_shots_temperature_calibrated",
+  "feature_version": "regulation_team_state_v1",
+  "rich_feature_version": "regulation_rich_rate_v1",
+  "selection_evidence": {
+    "evaluation_version": "regulation_rich_rate_promoted_evaluation_v1",
+    "report": "data/features/regulation_team_state_v1/regulation_walk_forward_v1/rich_rate_v1/promoted_evaluation/report.json",
+    "policy": "development_selection_then_calibration_then_single_final_test"
+  },
+  "production_refit": {
+    "rate_scales": "refit_on_all_eligible_historical_rows",
+    "rich_coefficients": "refit_on_all_eligible_historical_rows",
+    "temperature": "reuse_frozen_evaluation_calibration_temperature",
+    "temperature_rationale": "avoid_in_sample_recalibration_without_a_new_cross_fitted_procedure"
+  },
+  "inference": {
+    "status": "scheduled",
+    "maximum_lookahead_days": 7,
+    "require_schedule_observation_at_or_before_prediction_at": true,
+    "require_observed_kickoff_to_match_current_kickoff": true,
+    "emit_only_due_horizons": true,
+    "market_features_allowed": false,
+    "supported_output": "regulation_moneyline",
+    "distribution_limitation": "moneyline_temperature_is_not_backpropagated_to_the_score_grid"
+  },
+  "parameter_status": "recipe_frozen_after_final_test_production_parameters_refittable"
+}

@@ -1,0 +1,32 @@
+{
+  "task_version": "regulation_score_v1",
+  "sport": "soccer",
+  "target": {
+    "grain": "fixture",
+    "period": "regulation",
+    "fields": [
+      "home_goals",
+      "away_goals"
+    ],
+    "eligibility_flag": "eligible_result_models",
+    "conflicting_final_score_policy": "exclude_reviewed_and_fail_unreviewed",
+    "reviewed_exclusions": "config/models/regulation_score_exclusions_v1.json"
+  },
+  "information_states": {
+    "pre_lineup_72h_clean_v1": {
+      "evaluation_anchor_minutes_before_kickoff": 4320,
+      "require_no_intervening_team_fixture": true,
+      "confirmed_lineup_features_allowed": false
+    },
+    "pre_lineup_24h_v1": {
+      "evaluation_anchor_minutes_before_kickoff": 1440,
+      "confirmed_lineup_features_allowed": false
+    },
+    "confirmed_lineup_v1": {
+      "evaluation_anchor": "first_valid_two_team_confirmed_lineup_snapshot",
+      "lineup_must_be_retrieved_before_known_kickoff": true
+    }
+  },
+  "contract_registry": "config/contracts/regulation_v1.json",
+  "feature_configuration": "config/features/regulation_team_state_v1.json"
+}

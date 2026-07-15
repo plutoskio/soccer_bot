@@ -1,0 +1,34 @@
+{
+  "artifact_version": "regulation_champion_model_artifact_v1",
+  "created_at": "2026-07-14T22:32:39.359617+00:00",
+  "logical_model_sha256": "8be7ffad15d12e7e603b2d9f3dd8dcd5e742e0f80846bcb6cd45c9ca40d7ef7a",
+  "model": {
+    "calibration_policy": "reuse_frozen_evaluation_calibration_temperature",
+    "contract": "regulation_moneyline",
+    "distribution_limitation": "moneyline_temperature_is_not_backpropagated_to_the_score_grid",
+    "feature_version": "regulation_team_state_v1",
+    "horizons": [
+      {
+        "away_rate_scale": 0.9844531339465376,
+        "home_rate_scale": 1.0058974441959208,
+        "information_state": "pre_lineup_24h_v1",
+        "shots_signal_coefficient": 0.3674365079830735,
+        "temperature": 1.1806793063486158,
+        "training_fixtures": 38445,
+        "xg_signal_coefficient": 0.04535923872629871
+      },
+      {
+        "away_rate_scale": 0.9835248592652595,
+        "home_rate_scale": 1.0035993349067114,
+        "information_state": "pre_lineup_72h_clean_v1",
+        "shots_signal_coefficient": 0.36566275238336765,
+        "temperature": 1.171755567418676,
+        "training_fixtures": 34813,
+        "xg_signal_coefficient": 0.035732697180626036
+      }
+    ],
+    "model_class": "independent_poisson_xg_shots_temperature_calibrated",
+    "model_version": "regulation_champion_v1",
+    "rich_feature_version": "regulation_rich_rate_v1"
+  }
+}

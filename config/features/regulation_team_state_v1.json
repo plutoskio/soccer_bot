@@ -1,0 +1,29 @@
+{
+  "feature_version": "regulation_team_state_v1",
+  "result_availability_delay_minutes": 150,
+  "horizons": [
+    {
+      "information_state": "pre_lineup_72h_clean_v1",
+      "minutes_before_kickoff": 4320,
+      "require_no_intervening_team_fixture": true
+    },
+    {
+      "information_state": "pre_lineup_24h_v1",
+      "minutes_before_kickoff": 1440,
+      "require_no_intervening_team_fixture": false
+    }
+  ],
+  "state_model": {
+    "team_prior_standard_deviation": 0.45,
+    "team_mean_reversion_half_life_days": 180.0,
+    "competition_log_goal_prior_mean": 0.22314355131420976,
+    "competition_log_goal_prior_standard_deviation": 0.3,
+    "competition_home_advantage_prior_mean": 0.13976194237515863,
+    "competition_home_advantage_prior_standard_deviation": 0.25,
+    "competition_mean_reversion_half_life_days": 730.0,
+    "minimum_expected_goals": 0.05,
+    "maximum_expected_goals": 6.0,
+    "cold_start_match_threshold": 5
+  },
+  "parameter_status": "provisional_baseline_tune_inside_temporal_development_folds"
+}

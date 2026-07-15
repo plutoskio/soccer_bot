@@ -1,0 +1,75 @@
+{
+  "exclusion_version": "regulation_score_exclusions_v1",
+  "task_version": "regulation_score_v1",
+  "policy": "exclude_reviewed_conflicts_and_fail_on_any_unreviewed_conflict",
+  "fixtures": [
+    {
+      "fixture_id": "647cba36-89eb-5b54-83c0-4561c223daf3",
+      "rule_code": "conflicting_final_regulation_score",
+      "observed_scores": [
+        {
+          "source_code": "football_data_uk",
+          "home_goals": 0,
+          "away_goals": 3
+        },
+        {
+          "source_code": "understat",
+          "home_goals": 2,
+          "away_goals": 1
+        }
+      ],
+      "decision": "exclude_pending_canonical_resolution"
+    },
+    {
+      "fixture_id": "c9666a33-e1dc-5ebd-a28d-a7de1206f23d",
+      "rule_code": "conflicting_final_regulation_score",
+      "observed_scores": [
+        {
+          "source_code": "api_football",
+          "home_goals": 0,
+          "away_goals": 0
+        },
+        {
+          "source_code": "statsbomb_open",
+          "home_goals": 1,
+          "away_goals": 1
+        }
+      ],
+      "decision": "exclude_pending_canonical_resolution"
+    },
+    {
+      "fixture_id": "8a0657a2-35fc-5306-ae82-b6fb18842392",
+      "rule_code": "conflicting_final_regulation_score",
+      "observed_scores": [
+        {
+          "source_code": "api_football",
+          "home_goals": 2,
+          "away_goals": 2
+        },
+        {
+          "source_code": "statsbomb_open",
+          "home_goals": 3,
+          "away_goals": 3
+        }
+      ],
+      "decision": "exclude_pending_canonical_resolution"
+    },
+    {
+      "fixture_id": "7ecd18b1-4a17-5f10-aa2b-8ecf726c801e",
+      "rule_code": "conflicting_final_regulation_score",
+      "observed_scores": [
+        {
+          "source_code": "football_data_uk",
+          "home_goals": 0,
+          "away_goals": 2
+        },
+        {
+          "source_code": "understat",
+          "home_goals": 1,
+          "away_goals": 1
+        }
+      ],
+      "decision": "exclude_pending_canonical_resolution"
+    }
+  ]
+}

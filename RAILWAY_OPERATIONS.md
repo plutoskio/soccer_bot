@@ -13,19 +13,23 @@ databases are not part of this deployment.
 - Immutable provider responses: `/app/data/raw/`
 - Historical staging files: `/app/data/staged/`
 - Daily Markdown health report: `/app/data/reports/collector/`
+- Prediction publication receipts: `/app/data/reports/predictions/publication.jsonl`
 - Start command: `python scripts/run_collector.py`
 - Schedule: every five minutes (`*/5 * * * *`)
 - Restart policy: never
 
 The process is intentionally run-once. It plans due work, acquires the collector
-lock, performs bounded requests, commits state, writes health information, and
-exits. Railway starts a new process at the next scheduled time.
+lock, performs bounded requests, commits state, writes health information,
+closes DuckDB, and then publishes a validated prediction snapshot while still
+holding the same lock. Railway starts a new process at the next scheduled time.
 
 ## Required configuration
 
-The service must have one secret variable named `API_FOOTBALL_KEY`. Never print
-its value, copy it into `railway.json`, add it to a command line, or commit it.
-The repository's `.env` is only for local execution and is ignored by Git.
+The service must have `API_FOOTBALL_KEY` plus the snapshot bucket variables
+listed in `RAILWAY_APPLICATION_DEPLOYMENT.md`. Bucket credentials must be
+Railway reference variables, not copied values. Never print secret values, copy
+them into `railway.json`, add them to a command line, or commit them. The
+repository's `.env` is only for local execution and is ignored by Git.
 
 Only one service may write to this volume. Do not create a scheduled local
 collector while Railway is production.
@@ -60,13 +64,22 @@ Review recent Railway logs in the dashboard. A successful collection run has:
 - a completed `collection_run` row;
 - `blocking_reason: null`;
 - exit code `0`;
-- no traceback or secret-bearing output.
+- no traceback or secret-bearing output;
+- `prediction_publication.status: uploaded`, unless the run has blocking health.
 
 Health severity `warning` is not automatically a failed run. Current controlled
 warnings include unresolved historical player aliases, missed pregame captures
 for fixtures first observed after the deadline, and retryable provider sections.
 Severity `blocking` or process exit code `2` requires investigation before the
 next schema or collector deployment.
+
+Publication is deliberately failure-isolated: generation, validation, upload,
+or receipt-I/O failure does not undo a successful collection run. A candidate
+is uploaded only after model-version, logical-model-hash, cutoff, horizon,
+fixture-time, uniqueness, and minimum-row guards pass. The uploaded object is
+then read back, compared byte-for-byte, and revalidated. If any guard fails,
+the previous object remains the application snapshot and the sanitized failure
+appears in the collector summary and append-only receipt.
 
 ## Read-only warehouse inspection
 
@@ -88,11 +101,20 @@ not run migrations, `CHECKPOINT`, `VACUUM`, repair scripts, or the collector.
 
 ## Backups and recovery
 
-Enable Railway volume backups in the project dashboard before treating the
+Enable Railway volume backups in the service's Backups tab before treating the
 service as unattended production. Use a daily backup if the plan permits it,
-retain at least one known-good backup, and test restoration to a separate
-volume or downloaded copy. Configure a cost warning near USD 7 and a hard
-monthly limit of USD 10 if those controls are available for the account.
+retain and lock at least one known-good backup, and test restoration to a
+separate staged volume or downloaded copy. Railway manual backups are limited
+when the live data exceeds half the volume capacity; resize the volume before
+relying on a manual backup if necessary. Configure a cost warning near USD 7
+and a hard monthly limit of USD 10 if those controls are available.
+
+The guarded publisher rollout retained a verified local compressed database
+backup at `data/backups/production/soccer-20260715T200224Z.duckdb.gz`.
+Decompressed size is 2,889,363,456 bytes and SHA-256 is
+`36269c7b4fcb79aeef001fe626c5be9a337ba4df981035a022192c92fc1ea760`.
+This is a database rollback copy, not a substitute for a scheduled native
+backup of every file on the production volume.
 
 Before any migration or manual warehouse repair:
 
@@ -118,6 +140,9 @@ provenance rows.
   disable cron, preserve logs, and diagnose before restarting.
 - Blocking health report: disable cron if continued writes could compound an
   integrity problem; inspect the required invalid components read-only.
+- Prediction publication failure: keep the prior snapshot, inspect the
+  sanitized `prediction_publication` result and persistent receipt, and fix the
+  producer or bucket without republishing an unreviewed file manually.
 - Lost or corrupt volume: do not initialize an empty replacement as production.
   Stop the service, restore the latest verified warehouse and its raw/staged
   artifacts, validate read-only, and then resume collection.

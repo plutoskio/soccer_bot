@@ -1,0 +1,119 @@
+{
+  "registry_version": "regulation_v1",
+  "sport": "soccer",
+  "period": "regulation",
+  "settlement": {
+    "includes_stoppage_time": true,
+    "includes_extra_time": false,
+    "includes_penalty_shootout": false,
+    "administrative_results_eligible": false
+  },
+  "score_engine": {
+    "engine_key": "joint_regulation_score",
+    "output": "P(home_goals, away_goals | information_state)",
+    "tail_policy": "explicit_probability_mass_required"
+  },
+  "information_states": [
+    "pre_lineup_72h_clean_v1",
+    "pre_lineup_24h_v1",
+    "confirmed_lineup_v1"
+  ],
+  "contracts": [
+    {
+      "contract_key": "regulation_exact_score",
+      "family": "exact_score",
+      "display_name": "Regulation exact score",
+      "selections": "nonnegative_home_and_away_goal_pair",
+      "eligibility_flag": "eligible_result_models",
+      "push_policy": "not_applicable"
+    },
+    {
+      "contract_key": "regulation_moneyline",
+      "family": "moneyline",
+      "display_name": "Regulation moneyline",
+      "selections": [
+        "home_win",
+        "draw",
+        "away_win"
+      ],
+      "eligibility_flag": "eligible_result_models",
+      "push_policy": "not_applicable"
+    },
+    {
+      "contract_key": "regulation_goal_handicap",
+      "family": "goal_handicap",
+      "display_name": "Regulation goal handicap",
+      "selections": [
+        "home",
+        "away"
+      ],
+      "line_increment": 0.25,
+      "line_convention": "handicap_added_to_selected_team_goal_difference",
+      "eligibility_flag": "eligible_result_models",
+      "settlement_outputs": [
+        "win",
+        "half_win",
+        "push",
+        "half_loss",
+        "loss"
+      ],
+      "push_policy": "refund",
+      "quarter_line_policy": "split_equally_between_adjacent_integer_or_half_lines"
+    },
+    {
+      "contract_key": "regulation_total_goals",
+      "family": "total_goals",
+      "display_name": "Regulation total goals",
+      "selections": [
+        "over",
+        "under"
+      ],
+      "line_increment": 0.25,
+      "eligibility_flag": "eligible_result_models",
+      "settlement_outputs": [
+        "win",
+        "half_win",
+        "push",
+        "half_loss",
+        "loss"
+      ],
+      "push_policy": "refund",
+      "quarter_line_policy": "split_equally_between_adjacent_integer_or_half_lines"
+    },
+    {
+      "contract_key": "regulation_team_total_goals",
+      "family": "team_total_goals",
+      "display_name": "Regulation team total goals",
+      "teams": [
+        "home",
+        "away"
+      ],
+      "selections": [
+        "over",
+        "under"
+      ],
+      "line_increment": 0.25,
+      "eligibility_flag": "eligible_result_models",
+      "settlement_outputs": [
+        "win",
+        "half_win",
+        "push",
+        "half_loss",
+        "loss"
+      ],
+      "push_policy": "refund",
+      "quarter_line_policy": "split_equally_between_adjacent_integer_or_half_lines"
+    },
+    {
+      "contract_key": "regulation_both_teams_to_score",
+      "family": "both_teams_to_score",
+      "display_name": "Regulation both teams to score",
+      "selections": [
+        "yes",
+        "no"
+      ],
+      "eligibility_flag": "eligible_result_models",
+      "push_policy": "not_applicable"
+    }
+  ]
+}

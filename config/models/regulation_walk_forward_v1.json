@@ -1,0 +1,47 @@
+{
+  "evaluation_version": "regulation_walk_forward_v1",
+  "result_availability_delay_minutes": 150,
+  "minimum_training_fixtures": 1000,
+  "probability_floor": 1e-15,
+  "poisson_tail_tolerance": 1e-12,
+  "rate_model": {
+    "minimum_expected_goals": 0.05,
+    "maximum_expected_goals": 8.0,
+    "scale_prior_observed_goals": 125.0,
+    "scale_prior_expected_goals": 125.0
+  },
+  "dixon_coles": {
+    "rho_prior_standard_deviation": 0.1,
+    "rho_hard_minimum": -0.25,
+    "rho_hard_maximum": 0.25
+  },
+  "uncertainty": {
+    "paired_block_unit": "calendar_month",
+    "bootstrap_replicates": 2000,
+    "bootstrap_seed": 20260714
+  },
+  "moneyline_calibration": {
+    "method": "temperature_scaling",
+    "fit_fold": "calibration",
+    "apply_fold": "test",
+    "minimum_fit_fixtures": 1000,
+    "temperature_minimum": 0.5,
+    "temperature_maximum": 2.0,
+    "optimizer_tolerance": 1e-8
+  },
+  "folds": [
+    {
+      "fold_key": "development",
+      "kickoff_end_exclusive": "2024-07-01T00:00:00+00:00"
+    },
+    {
+      "fold_key": "calibration",
+      "kickoff_end_exclusive": "2025-07-01T00:00:00+00:00"
+    },
+    {
+      "fold_key": "test",
+      "kickoff_end_exclusive": null
+    }
+  ],
+  "parameter_status": "baseline_fixed_before_final_test_comparison"
+}

@@ -2,12 +2,93 @@
 
 Local soccer forecasting and Polymarket market-research project.
 
-The intended interactive product and the current build sequence are described
-in [PRODUCT_VISION_AND_BUILD_PLAN.md](PRODUCT_VISION_AND_BUILD_PLAN.md).
+The intended interactive product and current build sequence are described in
+[PRODUCT_VISION_AND_BUILD_PLAN.md](PRODUCT_VISION_AND_BUILD_PLAN.md). The
+detailed quantitative architecture, model research standards, and probability
+roadmap are defined in
+[FORECASTING_SYSTEM_DESIGN.md](FORECASTING_SYSTEM_DESIGN.md).
+The reviewed market scope, inclusion decisions, settlement defaults, and engine
+dependencies are recorded in
+[PREDICTION_CONTRACT_CATALOG.md](PREDICTION_CONTRACT_CATALOG.md).
+The selected regulation model, production-refit policy, inference gates, and
+current parameters are documented in
+[REGULATION_CHAMPION_MODEL.md](REGULATION_CHAMPION_MODEL.md).
 
 ## Current stage
 
-The repository contains the data-source audit, data architecture, bounded validation harness, versioned DuckDB schema, historical backfill downloader, canonical loaders, entity reconciliation, and quality reporting. Source responses are retained unchanged and can be reprocessed idempotently as mappings and schemas evolve.
+The repository contains the data-source audit, data architecture, bounded
+validation harness, versioned DuckDB schema, historical backfill downloader,
+canonical loaders, entity reconciliation, quality reporting, the first
+versioned regulation contract registry, deterministic score-grid settlement,
+the regulation-score target builder, chronological feature construction,
+walk-forward evaluation, calibration, and market benchmarks. The current
+champion is a temperature-calibrated independent-Poisson score model corrected
+by chronological Understat xG and API-Football shots signals. Its T-72h and
+T-24h features cannot use the target match or a result that was unavailable at
+the prediction cutoff. Source responses are retained unchanged and can be
+reprocessed idempotently as mappings and schemas evolve.
+
+The frozen champion has also been refit on all eligible local history and an
+upcoming-fixture snapshot command is implemented. The generated artifacts stay
+under ignored `data/models/` and `data/predictions/` directories.
+
+The first custom application vertical slice is also implemented. A read-only
+FastAPI service validates the champion snapshot and exposes only supported
+regulation-moneyline prices. A custom Next.js interface provides fixture and
+T−72/T−24 selection, fair odds, evidence coverage, calibration movement, model
+identity, and warnings. Neither application service opens DuckDB.
+
+The probability desk reports both horizon-wide training size and selected-team
+history. It interprets these counts only against thresholds frozen in the model
+recipe, so a 38,445-fixture global training set is not presented as a substitute
+for sparse team-specific history.
+
+The first controlled Railway rollout is live at
+<https://soccer-bot-web-production.up.railway.app>. The web service calls the
+private API over Railway networking, and the API reads the immutable prediction
+snapshot from object storage. The existing collector and its writer volume were
+not queried by the application services. Guarded post-collection publication is
+implemented so the sole production collector can refresh the validated object
+after closing DuckDB while retaining its inter-process lock. The first guarded
+cycle published a fresh 13-fixture snapshot and passed browser QA.
+
+Freeze the current local modeling dataset and its reproducibility manifest:
+
+```bash
+.venv/bin/python scripts/build_regulation_modeling_dataset.py
+```
+
+Run the independent-Poisson and Dixon-Coles expanding-window baselines:
+
+```bash
+.venv/bin/python scripts/evaluate_regulation_baselines.py
+```
+
+Research the frozen xG/shots correction inside development only, then run its
+promotion-gated calibration and final evaluation:
+
+```bash
+.venv/bin/python scripts/research_rich_rate_features.py
+.venv/bin/python scripts/evaluate_promoted_rich_rate_model.py
+```
+
+Audit the strict point-in-time Polymarket benchmark and the explicitly
+retrospective bookmaker-closing yardstick:
+
+```bash
+.venv/bin/python scripts/evaluate_market_benchmarks.py
+```
+
+Refit the already-selected champion and generate an upcoming snapshot:
+
+```bash
+.venv/bin/python scripts/fit_regulation_champion.py
+.venv/bin/python scripts/predict_upcoming_regulation.py
+```
+
+These commands read the warehouse without modifying it. Generated Parquet,
+manifests, predictions, and metric reports are written under the ignored
+`data/features/regulation_team_state_v1/` directory.
 
 ## Local setup
 
@@ -15,6 +96,32 @@ The repository contains the data-source audit, data architecture, bounded valida
 python3 -m venv .venv
 .venv/bin/pip install -e .
 ```
+
+## Run the custom application
+
+Install the API and web dependencies:
+
+```bash
+.venv/bin/pip install -e '.[api]'
+npm --prefix apps/web install
+```
+
+Start the API from the repository root:
+
+```bash
+.venv/bin/uvicorn apps.api.main:app --reload --port 8000
+```
+
+In another terminal, start the web interface:
+
+```bash
+npm --prefix apps/web run dev
+```
+
+Open `http://localhost:3000`. The API reads the ignored local
+`data/predictions/regulation_champion_v1/latest.json` by default. Railway uses
+object storage and separate service definitions; see
+[RAILWAY_APPLICATION_DEPLOYMENT.md](RAILWAY_APPLICATION_DEPLOYMENT.md).
 
 ## Run validation
 
@@ -74,10 +181,11 @@ process to exit. `restartPolicyType` is deliberately `NEVER`; a later cron
 invocation handles retryable work, while the warehouse checkpoint state and
 collector lock make repeated or overlapping invocations safe.
 
-The only required secret is `API_FOOTBALL_KEY`, configured as a Railway service
-variable. The DuckDB warehouse, immutable raw responses, staged manifest, lock,
-and generated health reports all live below `/app/data`. Do not deploy a second
-service that writes to the same volume.
+The collector requires `API_FOOTBALL_KEY` plus private snapshot-bucket reference
+variables, configured in Railway and never committed. The DuckDB warehouse,
+immutable raw responses, staged manifest, lock, health reports, and publication
+receipts all live below `/app/data`. Do not deploy a second service that writes
+to the same volume.
 
 Operational checks, deployment commands, maintenance steps, and recovery rules
 are documented in [RAILWAY_OPERATIONS.md](RAILWAY_OPERATIONS.md).
