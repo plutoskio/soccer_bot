@@ -607,11 +607,12 @@ selected matchup separately reports home/away prior fixtures and rich-signal
 history. Pass/below-threshold labels come from the frozen recipe and explicitly
 state when a large global sample cannot compensate for sparse team history.
 
-Next, intentionally review and commit the application/producer changes before
-connecting the application services to GitHub. Operationally, resize the nearly
-4.0/5.0 GB collector volume, enable daily native backups, retain a locked restore
-point, and add publication-failure/staleness alerting. Quantitatively, keep
-collecting complete timestamped Polymarket books and define the new evaluation
-window for confirmed-lineup, player-strength, and distribution-level
-calibration challengers. Do not make more modeling decisions from the opened
-final test.
+The application/producer changes are committed and pushed. Operationally, the
+collector volume has been resized from 5 GB to 10 GB, the resize-created 3.91 GB
+manual restore point is retained, daily native backups are enabled with six-day
+retention, and volume-usage alerts are active. Next add
+publication-failure/staleness alerting and test restoration into an isolated
+volume. Quantitatively, keep collecting complete timestamped Polymarket books
+and define the new evaluation window for confirmed-lineup, player-strength,
+and distribution-level calibration challengers. Do not make more modeling
+decisions from the opened final test.

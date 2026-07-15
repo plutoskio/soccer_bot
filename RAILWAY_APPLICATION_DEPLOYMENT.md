@@ -184,14 +184,15 @@ freshness.
 The initial reviewed snapshot remains the rollback reference. Stale data stays
 visible with an explicit warning; an invalid or unavailable snapshot fails
 closed. The two application services were deployed from the reviewed local
-checkout. Connect their GitHub sources only after these application changes are
-intentionally committed and pushed; until then, automatic application
+checkout. Their source is now intentionally committed and pushed, but the two
+services remain manual Railway deployments and automatic application
 redeployment is not enabled.
 
 ## Guarded publisher rollout — 2026-07-15
 
-Automatic publication is active in collector deployment
-`c314a7c9-53c7-4541-9b90-1c1e136ff268`.
+Automatic publication was first activated in collector deployment
+`c314a7c9-53c7-4541-9b90-1c1e136ff268`; the current verified collector
+deployment is `6251e139-5b6f-4910-9dba-472a634d71bd`.
 
 - The schedule was replaced temporarily by `sleep infinity`; the tracked
   `railway.json` was restored locally immediately after that deployment.
@@ -200,10 +201,11 @@ Automatic publication is active in collector deployment
   `data/backups/production/soccer-20260715T200224Z.duckdb.gz`; gzip validation
   passed and its decompressed SHA-256 exactly matched production:
   `36269c7b4fcb79aeef001fe626c5be9a337ba4df981035a022192c92fc1ea760`.
-- Railway's native manual backup was not treated as sufficient because the
-  approximately 4.0 GB live volume exceeds half of its 5.0 GB capacity. Daily
-  native backups remain an operations follow-up after resizing or confirming
-  account support.
+- Railway Pro was enabled and the volume was resized online from 5 GB to 10 GB
+  on 2026-07-15. Railway reported 3,996.7 MB used and status `Ready` after the
+  resize. The operation created a 3.91 GB manual restore point named `Online
+  resize to 10000MB`; the UI offers `Restore` and delete but no separate lock
+  toggle. Native daily backups are enabled with six-day retention.
 - A read-only live query found England–Argentina, fixture
   `13011bbe-0327-5da4-a615-e0cbadd6f06a`, scheduled for 19:00 UTC. Pre-kickoff
   producer validation emitted its T−24 row correctly. Since controlled rollout
@@ -216,6 +218,12 @@ Automatic publication is active in collector deployment
   `c1ab3ee68196b729fa46fad839f7c8495351343ca5670cbddf8e48dd2ea736cb`.
 - Public browser QA confirmed the fresh 22:27 Luxembourg timestamp, all 13
   fixtures, no stale banner, and no runtime errors.
+
+After the source was committed and pushed, collector deployment
+`6251e139-5b6f-4910-9dba-472a634d71bd` reached `SUCCESS` on exact commit
+`e2c756cb802835e882216521d2f2f6f6f8b4cea8`. Its 2026-07-15 21:00 UTC run
+published 14 rows across 13 fixtures with the same reviewed row hash and no
+blocking health condition.
 
 Rollback is code-only unless the warehouse itself is changed: redeploy the
 previous collector revision or set `prediction_publication.enabled` to `false`.

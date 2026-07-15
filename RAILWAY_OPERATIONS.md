@@ -101,20 +101,22 @@ not run migrations, `CHECKPOINT`, `VACUUM`, repair scripts, or the collector.
 
 ## Backups and recovery
 
-Enable Railway volume backups in the service's Backups tab before treating the
-service as unattended production. Use a daily backup if the plan permits it,
-retain and lock at least one known-good backup, and test restoration to a
-separate staged volume or downloaded copy. Railway manual backups are limited
-when the live data exceeds half the volume capacity; resize the volume before
-relying on a manual backup if necessary. Configure a cost warning near USD 7
-and a hard monthly limit of USD 10 if those controls are available.
+Railway Pro was enabled on 2026-07-15. The production volume was resized online
+from 5 GB to 10 GB and immediately reported `Ready`, with 3,996.7 MB used.
+Railway created a 3.91 GB manual restore point named `Online resize to
+10000MB`, and native daily backups are enabled with six-day retention. The
+Backups UI exposes `Restore` and a delete-only actions menu for the manual
+restore point; it does not expose a separate lock control. Do not delete it
+until an isolated restoration test has succeeded. Volume-usage alerts are
+enabled at 80%, 95%, and 100%. Configure an account cost warning near USD 7 and
+a hard monthly limit of USD 10 if those controls are available.
 
 The guarded publisher rollout retained a verified local compressed database
 backup at `data/backups/production/soccer-20260715T200224Z.duckdb.gz`.
 Decompressed size is 2,889,363,456 bytes and SHA-256 is
 `36269c7b4fcb79aeef001fe626c5be9a337ba4df981035a022192c92fc1ea760`.
-This is a database rollback copy, not a substitute for a scheduled native
-backup of every file on the production volume.
+This is an independently verified database rollback copy. It complements the
+scheduled native backup of every file on the production volume.
 
 Before any migration or manual warehouse repair:
 

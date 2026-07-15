@@ -82,8 +82,8 @@ production deployment subsequently reached Railway status `SUCCESS`.
 - Schedule: every five minutes (`*/5 * * * *`)
 - Restart policy: `NEVER` because this is a run-once cron process
 - Persistent volume mount: `/app/data`
-- Volume capacity: 5 GB; approximately 4.0 GB was used at the guarded publisher
-  rollout and resizing is now urgent
+- Volume capacity: 10 GB; 3,996.7 MB was used immediately after the
+  2026-07-15 online resize and the volume reported `Ready`
 - Required collector variables: `API_FOOTBALL_KEY` plus the snapshot bucket
   references documented in `RAILWAY_APPLICATION_DEPLOYMENT.md`; never print
   their values
@@ -132,13 +132,17 @@ stopped scheduler, a verified backup, exact path review, and a rollback plan.
 
 The guarded publisher rollout retained a verified compressed DuckDB backup at
 `data/backups/production/soccer-20260715T200224Z.duckdb.gz`; its decompressed
-SHA-256 is recorded in `RAILWAY_APPLICATION_DEPLOYMENT.md`. Railway native daily
-backups and billing alerts are still an operational follow-up. Resize the
-volume, enable a daily backup, retain a locked restore point, and set the
-account warning/limit described in `RAILWAY_OPERATIONS.md`. Quarantined
+SHA-256 is recorded in `RAILWAY_APPLICATION_DEPLOYMENT.md`. Railway Pro was
+enabled on 2026-07-15, the production volume was resized online from 5 GB to
+10 GB, and Railway created the 3.91 GB manual restore point `Online resize to
+10000MB`. Native daily backups are enabled with Railway's six-day retention.
+The Backups UI exposes `Restore` and a delete-only actions menu for this manual
+restore point; it does not expose a separate lock toggle. Volume-usage alerts
+are enabled at 80%, 95%, and 100%; the account cost warning/limit described in
+`RAILWAY_OPERATIONS.md` remains an account-level follow-up. Quarantined
 bootstrap directories named `/app/data/bootstrap-warehouse-20260711` and
-`/app/data/bootstrap-raw-20260711` must not be deleted until a backup and
-automatic cron execution have both been verified.
+`/app/data/bootstrap-raw-20260711` must not be deleted until a restoration test
+has also been completed.
 
 ## Modeling Eligibility
 
@@ -266,16 +270,19 @@ manifest, upcoming-fixture inference, and the first Railway fixture-selection
 deployment are complete. The public web service is
 `https://soccer-bot-web-production.up.railway.app`; its API is private and reads
 the immutable snapshot from Railway object storage. Guarded automatic
-publication is live in collector deployment
-`c314a7c9-53c7-4541-9b90-1c1e136ff268`. The first cycle published 14 rows across
+publication was first activated in collector deployment
+`c314a7c9-53c7-4541-9b90-1c1e136ff268`; current verified deployment
+`6251e139-5b6f-4910-9dba-472a634d71bd` runs exact source commit
+`e2c756cb802835e882216521d2f2f6f6f8b4cea8`. The first cycle published 14 rows across
 13 fixtures as-of `2026-07-15T20:27:40.917313Z` and passed browser QA. The live
 UI now separates horizon-wide training size
 (38,445 T−24; 34,813 clean T−72) from selected-team result and rich-signal
 history, with labels derived from the frozen 1,000/5/20 evidence thresholds.
-Do not tune further against the current final-test report. Next resize the
-collector volume, enable native daily backups and publication alerts,
-intentionally commit/connect the application deployments, continue collecting
-complete timestamped Polymarket books, and begin confirmed-lineup/player
-research under a new forward or nested evaluation window. Treat T−24h as a comparable
+Do not tune further against the current final-test report. The collector volume
+resize, native daily backup schedule, guarded publication, and source commit are
+complete. Next add publication-failure/staleness alerting, test a restore into
+an isolated volume, continue collecting complete timestamped Polymarket books,
+and begin confirmed-lineup/player research under a new forward or nested
+evaluation window. Treat T−24h as a comparable
 pre-lineup anchor, not a separate model for every hour. Keep result, team, and
 player datasets separate where their eligibility requirements differ.
