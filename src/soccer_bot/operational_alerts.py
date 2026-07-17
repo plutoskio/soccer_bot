@@ -1,0 +1,489 @@
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping
+from datetime import datetime, timedelta, timezone
+import json
+import os
+from pathlib import Path
+import shutil
+from typing import Any
+
+
+STATUS_VERSION = "prediction_operations_status_v1"
+SEVERITY_ORDER = {"warning": 1, "critical": 2}
+
+
+class OperationalAlertError(RuntimeError):
+    """Raised when the watchdog cannot produce a trustworthy status record."""
+
+
+def run_operational_watchdog(
+    *,
+    root: Path,
+    collector_config: dict,
+    publication_result: Mapping[str, object],
+    now: datetime,
+    disk_usage: Callable[[Path], Any] = shutil.disk_usage,
+) -> dict[str, object]:
+    """Evaluate and durably record prediction-pipeline operational alerts.
+
+    The watchdog intentionally depends only on the sanitized publication result,
+    append-only publication receipts, configuration identities, and filesystem
+    capacity. It never opens the warehouse and never records environment values.
+    """
+
+    config = collector_config.get("operations", {})
+    if not config.get("enabled", False):
+        return {"status": "disabled", "should_fail_run": False, "alerts": []}
+    now = _utc(now)
+    report_directory = _inside_root(
+        root, config.get("report_directory", "data/reports/operations")
+    )
+    publication_config = collector_config.get("prediction_publication", {})
+    publication_report = _inside_root(
+        root,
+        Path(
+            str(
+                publication_config.get(
+                    "report_directory", "data/reports/predictions"
+                )
+            )
+        )
+        / "publication.jsonl",
+    )
+    stale_after_seconds = _positive_int(
+        config.get("publication_stale_after_seconds", 1200),
+        "publication_stale_after_seconds",
+    )
+    cycle_stale_after_seconds = _positive_int(
+        config.get("cycle_stale_after_seconds", 1200),
+        "cycle_stale_after_seconds",
+    )
+    warning_percent = _percentage(
+        config.get("volume_warning_percent", 80), "volume_warning_percent"
+    )
+    critical_percent = _percentage(
+        config.get("volume_critical_percent", 95), "volume_critical_percent"
+    )
+    if warning_percent >= critical_percent:
+        raise OperationalAlertError(
+            "volume_warning_percent must be below volume_critical_percent"
+        )
+
+    alerts: list[dict[str, object]] = []
+    checks: dict[str, object] = {}
+    _evaluate_publication(
+        alerts=alerts,
+        checks=checks,
+        result=publication_result,
+        publication_config=publication_config,
+        report_path=publication_report,
+        now=now,
+        stale_after_seconds=stale_after_seconds,
+    )
+    _evaluate_volume(
+        alerts=alerts,
+        checks=checks,
+        data_path=root / "data",
+        disk_usage=disk_usage,
+        warning_percent=warning_percent,
+        critical_percent=critical_percent,
+    )
+    alerts.sort(key=lambda item: (-SEVERITY_ORDER[str(item["severity"])], str(item["code"])))
+    overall = (
+        "critical"
+        if any(item["severity"] == "critical" for item in alerts)
+        else "warning" if alerts else "ok"
+    )
+    status: dict[str, object] = {
+        "status_version": STATUS_VERSION,
+        "generated_at": now.isoformat(),
+        "cycle_stale_after_seconds": cycle_stale_after_seconds,
+        "expected_next_cycle_by": (
+            now + timedelta(seconds=cycle_stale_after_seconds)
+        ).isoformat(),
+        "overall_status": overall,
+        "checks": checks,
+        "alerts": alerts,
+        "should_fail_run": bool(
+            config.get("fail_run_on_critical", True) and overall == "critical"
+        ),
+    }
+    _write_status_and_transitions(report_directory, status)
+    return status
+
+
+def _evaluate_publication(
+    *,
+    alerts: list[dict[str, object]],
+    checks: dict[str, object],
+    result: Mapping[str, object],
+    publication_config: Mapping[str, object],
+    report_path: Path,
+    now: datetime,
+    stale_after_seconds: int,
+) -> None:
+    expected_version = str(publication_config.get("model_version", ""))
+    expected_hash = str(publication_config.get("logical_model_sha256", ""))
+    minimum_rows = int(publication_config.get("minimum_prediction_rows", 1))
+    publication_status = str(result.get("status", "missing"))
+    current_as_of = _optional_timestamp(result.get("as_of"))
+    latest_success = (
+        current_as_of
+        if publication_status == "uploaded" and current_as_of is not None
+        else _latest_successful_as_of(report_path)
+    )
+    age_seconds = (
+        max(0.0, (now - latest_success).total_seconds())
+        if latest_success is not None
+        else None
+    )
+    checks["champion_publication"] = {
+        "status": publication_status,
+        "expected_model_version": expected_version,
+        "observed_model_version": result.get("model_version"),
+        "expected_logical_model_sha256": expected_hash,
+        "observed_logical_model_sha256": result.get("logical_model_sha256"),
+        "prediction_rows": result.get("prediction_rows"),
+        "last_successful_as_of": latest_success.isoformat() if latest_success else None,
+        "age_seconds": round(age_seconds, 3) if age_seconds is not None else None,
+        "stale_after_seconds": stale_after_seconds,
+    }
+    if publication_status != "uploaded":
+        _add_alert(
+            alerts,
+            code="champion_publication_failed",
+            severity="critical",
+            component="champion_publication",
+            summary=f"Champion publication status is {publication_status}",
+        )
+    if result.get("report_status") == "failed":
+        _add_alert(
+            alerts,
+            code="publication_receipt_write_failed",
+            severity="critical",
+            component="champion_publication",
+            summary="The append-only publication receipt could not be written",
+        )
+    if latest_success is None or age_seconds is None or age_seconds > stale_after_seconds:
+        _add_alert(
+            alerts,
+            code="champion_publication_stale",
+            severity="critical",
+            component="champion_publication",
+            summary="No sufficiently fresh successful champion publication exists",
+        )
+    if publication_status == "uploaded":
+        if result.get("model_version") != expected_version or result.get(
+            "logical_model_sha256"
+        ) != expected_hash:
+            _add_alert(
+                alerts,
+                code="champion_model_identity_mismatch",
+                severity="critical",
+                component="champion_publication",
+                summary="Published champion identity differs from frozen configuration",
+            )
+        rows = _nonnegative_int(result.get("prediction_rows"))
+        if rows is None or rows < minimum_rows:
+            _add_alert(
+                alerts,
+                code="champion_prediction_rows_below_minimum",
+                severity="critical",
+                component="champion_publication",
+                summary="Champion publication contains fewer rows than configured",
+            )
+    else:
+        publication_error = str(result.get("error", ""))
+        if "mismatch" in publication_error:
+            _add_alert(
+                alerts,
+                code="champion_model_identity_mismatch",
+                severity="critical",
+                component="champion_publication",
+                summary="Champion publication failed an identity check",
+            )
+        if "below_minimum_prediction_rows" in publication_error:
+            _add_alert(
+                alerts,
+                code="champion_prediction_rows_below_minimum",
+                severity="critical",
+                component="champion_publication",
+                summary="Champion candidate contains fewer rows than configured",
+            )
+
+    shadow_config = publication_config.get("shadow_score_grid", {})
+    if not isinstance(shadow_config, Mapping) or not shadow_config.get("enabled", False):
+        checks["shadow_score_grid"] = {"status": "disabled"}
+        return
+    shadow = result.get("shadow_score_grid")
+    if not isinstance(shadow, Mapping):
+        shadow = {}
+    shadow_status = str(shadow.get("status", "missing"))
+    expected_shadow_version = str(shadow_config.get("model_version", ""))
+    expected_shadow_hash = str(shadow_config.get("logical_model_sha256", ""))
+    shadow_minimum = int(shadow_config.get("minimum_prediction_rows", 1))
+    shadow_rows = _nonnegative_int(shadow.get("prediction_rows"))
+    checks["shadow_score_grid"] = {
+        "status": shadow_status,
+        "expected_model_version": expected_shadow_version,
+        "observed_model_version": shadow.get("model_version"),
+        "expected_logical_model_sha256": expected_shadow_hash,
+        "observed_logical_model_sha256": shadow.get("logical_model_sha256"),
+        "prediction_rows": shadow_rows,
+        "minimum_prediction_rows": shadow_minimum,
+    }
+    if shadow_status != "written_to_persistent_shadow_store":
+        _add_alert(
+            alerts,
+            code="shadow_score_grid_failed",
+            severity="critical",
+            component="shadow_score_grid",
+            summary=f"Shadow score-grid status is {shadow_status}",
+        )
+    if shadow_status == "written_to_persistent_shadow_store":
+        if shadow.get("model_version") != expected_shadow_version or shadow.get(
+            "logical_model_sha256"
+        ) != expected_shadow_hash:
+            _add_alert(
+                alerts,
+                code="shadow_model_identity_mismatch",
+                severity="critical",
+                component="shadow_score_grid",
+                summary="Shadow model identity differs from frozen configuration",
+            )
+        if shadow_rows is None or shadow_rows < shadow_minimum:
+            _add_alert(
+                alerts,
+                code="shadow_prediction_rows_below_minimum",
+                severity="critical",
+                component="shadow_score_grid",
+                summary="Shadow score grid contains fewer rows than configured",
+            )
+        parent_rows = _nonnegative_int(result.get("prediction_rows"))
+        if parent_rows is not None and shadow_rows is not None and shadow_rows != parent_rows:
+            _add_alert(
+                alerts,
+                code="shadow_parent_row_count_mismatch",
+                severity="critical",
+                component="shadow_score_grid",
+                summary="Shadow and champion prediction-row counts differ",
+            )
+    else:
+        shadow_error = str(shadow.get("error", ""))
+        if "mismatch" in shadow_error:
+            _add_alert(
+                alerts,
+                code="shadow_model_identity_mismatch",
+                severity="critical",
+                component="shadow_score_grid",
+                summary="Shadow generation failed an identity check",
+            )
+        if "below_minimum" in shadow_error:
+            _add_alert(
+                alerts,
+                code="shadow_prediction_rows_below_minimum",
+                severity="critical",
+                component="shadow_score_grid",
+                summary="Shadow candidate contains fewer rows than configured",
+            )
+
+
+def _evaluate_volume(
+    *,
+    alerts: list[dict[str, object]],
+    checks: dict[str, object],
+    data_path: Path,
+    disk_usage: Callable[[Path], Any],
+    warning_percent: float,
+    critical_percent: float,
+) -> None:
+    usage = disk_usage(data_path)
+    total = int(usage.total)
+    used = int(usage.used)
+    free = int(usage.free)
+    if total <= 0 or used < 0 or free < 0:
+        raise OperationalAlertError("filesystem returned invalid volume capacity")
+    used_percent = used * 100.0 / total
+    checks["persistent_volume"] = {
+        "total_bytes": total,
+        "used_bytes": used,
+        "free_bytes": free,
+        "used_percent": round(used_percent, 3),
+        "warning_percent": warning_percent,
+        "critical_percent": critical_percent,
+    }
+    if used_percent >= critical_percent:
+        _add_alert(
+            alerts,
+            code="persistent_volume_critical",
+            severity="critical",
+            component="persistent_volume",
+            summary="Persistent volume usage is at or above the critical threshold",
+        )
+    elif used_percent >= warning_percent:
+        _add_alert(
+            alerts,
+            code="persistent_volume_warning",
+            severity="warning",
+            component="persistent_volume",
+            summary="Persistent volume usage is at or above the warning threshold",
+        )
+
+
+def _write_status_and_transitions(directory: Path, status: dict[str, object]) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    current_path = directory / "current.json"
+    previous = _read_json_object(current_path)
+    previous_alerts = {
+        str(item.get("code")): item
+        for item in previous.get("alerts", [])
+        if isinstance(item, dict) and item.get("code")
+    }
+    current_alerts = {
+        str(item["code"]): item
+        for item in status["alerts"]
+        if isinstance(item, dict)
+    }
+    events: list[dict[str, object]] = []
+    generated_at = status["generated_at"]
+    for code, alert in current_alerts.items():
+        old = previous_alerts.get(code)
+        if old is None:
+            events.append({"recorded_at": generated_at, "event": "opened", **alert})
+        elif old.get("severity") != alert.get("severity"):
+            events.append({"recorded_at": generated_at, "event": "updated", **alert})
+    for code, alert in previous_alerts.items():
+        if code not in current_alerts:
+            events.append(
+                {
+                    "recorded_at": generated_at,
+                    "event": "resolved",
+                    "code": code,
+                    "severity": alert.get("severity"),
+                    "component": alert.get("component"),
+                    "summary": alert.get("summary"),
+                }
+            )
+    _atomic_json_write(current_path, status)
+    if events:
+        event_path = directory / "events.jsonl"
+        with event_path.open("a", encoding="utf-8") as handle:
+            for event in events:
+                handle.write(json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+
+
+def _atomic_json_write(path: Path, value: Mapping[str, object]) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        json.dump(value, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    temporary.replace(path)
+
+
+def _read_json_object(path: Path) -> dict[str, object]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, json.JSONDecodeError) as error:
+        raise OperationalAlertError("existing operational status is unreadable") from error
+    if not isinstance(value, dict):
+        raise OperationalAlertError("existing operational status is not an object")
+    return value
+
+
+def _latest_successful_as_of(path: Path) -> datetime | None:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise OperationalAlertError("publication receipt could not be read") from error
+    latest = None
+    for line in lines:
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(value, dict) or value.get("status") != "uploaded":
+            continue
+        candidate = _optional_timestamp(value.get("as_of"))
+        if candidate is not None and (latest is None or candidate > latest):
+            latest = candidate
+    return latest
+
+
+def _add_alert(
+    alerts: list[dict[str, object]],
+    *,
+    code: str,
+    severity: str,
+    component: str,
+    summary: str,
+) -> None:
+    alerts.append(
+        {
+            "code": code,
+            "severity": severity,
+            "component": component,
+            "summary": summary,
+        }
+    )
+
+
+def _optional_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _nonnegative_int(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def _positive_int(value: object, name: str) -> int:
+    if isinstance(value, bool):
+        raise OperationalAlertError(f"{name} must be a positive integer")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as error:
+        raise OperationalAlertError(f"{name} must be a positive integer") from error
+    if parsed <= 0:
+        raise OperationalAlertError(f"{name} must be a positive integer")
+    return parsed
+
+
+def _percentage(value: object, name: str) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as error:
+        raise OperationalAlertError(f"{name} must be between 0 and 100") from error
+    if not 0 < parsed <= 100:
+        raise OperationalAlertError(f"{name} must be between 0 and 100")
+    return parsed
+
+
+def _inside_root(root: Path, value: object) -> Path:
+    path = Path(str(value))
+    if path.is_absolute() or ".." in path.parts:
+        raise OperationalAlertError("configured operations path must stay inside root")
+    return root / path
+
+
+def _utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        raise OperationalAlertError("watchdog time must have a timezone")
+    return value.astimezone(timezone.utc)

@@ -39,6 +39,15 @@
   "health": {
     "report_directory": "data/reports/collector"
   },
+  "operations": {
+    "enabled": true,
+    "report_directory": "data/reports/operations",
+    "publication_stale_after_seconds": 1200,
+    "cycle_stale_after_seconds": 1200,
+    "volume_warning_percent": 80,
+    "volume_critical_percent": 95,
+    "fail_run_on_critical": true
+  },
   "prediction_publication": {
     "enabled": true,
     "model_version": "regulation_champion_v1",

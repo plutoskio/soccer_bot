@@ -164,6 +164,14 @@ class WarehouseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must stay inside"):
             validate_collector_config(config)
 
+        config = json.loads(
+            (ROOT / "config" / "collector.json").read_text(encoding="utf-8")
+        )
+        config["operations"]["volume_warning_percent"] = 95
+        config["operations"]["volume_critical_percent"] = 80
+        with self.assertRaisesRegex(ValueError, "volume thresholds"):
+            validate_collector_config(config)
+
 
 if __name__ == "__main__":
     unittest.main()

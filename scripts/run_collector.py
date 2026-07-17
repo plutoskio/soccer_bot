@@ -17,6 +17,7 @@ from soccer_bot.config import load_env, load_json
 from soccer_bot.database import Warehouse
 from soccer_bot.http import HttpClient
 from soccer_bot.locking import CollectorLock
+from soccer_bot.operational_alerts import run_operational_watchdog
 from soccer_bot.prediction_publication import run_prediction_publication
 from soccer_bot.raw_store import RawArtifactStore
 
@@ -99,19 +100,57 @@ def main() -> int:
             catch_up_days=args.catch_up_days,
         )
         health_severity = str(summary.get("health", {}).get("severity", "unknown"))
+        operational_exit = False
         if not args.dry_run:
             warehouse.close()
             warehouse = None
+            publication_as_of = datetime.now(timezone.utc)
             summary["prediction_publication"] = run_prediction_publication(
                 root=ROOT,
                 warehouse_path=ROOT / "data" / "warehouse" / "soccer.duckdb",
                 collector_config=config,
                 environment=env,
-                as_of=datetime.now(timezone.utc),
+                as_of=publication_as_of,
                 health_severity=health_severity,
             )
+            try:
+                operations = run_operational_watchdog(
+                    root=ROOT,
+                    collector_config=config,
+                    publication_result=summary["prediction_publication"],
+                    now=publication_as_of,
+                )
+            except Exception as error:
+                operations = {
+                    "status": "failed",
+                    "overall_status": "critical",
+                    "should_fail_run": True,
+                    "alerts": [
+                        {
+                            "code": "operational_watchdog_failed",
+                            "severity": "critical",
+                            "component": "operational_watchdog",
+                            "summary": type(error).__name__,
+                        }
+                    ],
+                }
+            summary["operational_watchdog"] = operations
+            operational_exit = bool(operations.get("should_fail_run", False))
+            if operations.get("alerts"):
+                print(
+                    json.dumps(
+                        {
+                            "operational_alerts": operations["alerts"],
+                            "overall_status": operations.get("overall_status"),
+                        },
+                        sort_keys=True,
+                    ),
+                    file=sys.stderr,
+                )
         print(json.dumps(summary, indent=2, sort_keys=True))
-        return 2 if health_severity == "blocking" else 0
+        if health_severity == "blocking":
+            return 2
+        return 3 if operational_exit else 0
     finally:
         if warehouse is not None:
             warehouse.close()

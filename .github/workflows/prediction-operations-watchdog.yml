@@ -1,0 +1,63 @@
+name: Prediction operations watchdog
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: prediction-operations-watchdog
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  verify-public-heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check freshness, row count, and frozen identity
+        id: watchdog
+        continue-on-error: true
+        run: |
+          python scripts/check_public_prediction_health.py > "$RUNNER_TEMP/watchdog.json"
+          cat "$RUNNER_TEMP/watchdog.json"
+
+      - name: Open one deduplicated incident issue
+        if: steps.watchdog.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WATCHDOG_TITLE: "[operations] Soccer Bot prediction watchdog"
+        run: |
+          issue_number="$(gh issue list --state open --json number,title --jq '.[] | select(.title == "[operations] Soccer Bot prediction watchdog") | .number' | head -n 1)"
+          if [ -z "$issue_number" ]; then
+            {
+              echo "The independent prediction watchdog failed."
+              echo
+              echo '```json'
+              cat "$RUNNER_TEMP/watchdog.json"
+              echo '```'
+              echo
+              echo "Workflow: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            } > "$RUNNER_TEMP/issue-body.md"
+            gh issue create --title "$WATCHDOG_TITLE" --body-file "$RUNNER_TEMP/issue-body.md"
+          fi
+
+      - name: Close the incident after recovery
+        if: steps.watchdog.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WATCHDOG_TITLE: "[operations] Soccer Bot prediction watchdog"
+        run: |
+          issue_number="$(gh issue list --state open --json number,title --jq '.[] | select(.title == "[operations] Soccer Bot prediction watchdog") | .number' | head -n 1)"
+          if [ -n "$issue_number" ]; then
+            gh issue close "$issue_number" --comment "The independent public heartbeat check recovered in run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID."
+          fi
+
+      - name: Mark failed checks red
+        if: steps.watchdog.outcome == 'failure'
+        run: exit 1

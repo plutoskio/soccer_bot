@@ -1939,6 +1939,7 @@ from production.
 | V3 tracked artifact | `artifacts/production/regulation_score_grid_v3_shadow/model.json` |
 | V3 refit and inference | `scripts/fit_score_grid_v3_shadow.py`, `scripts/predict_score_grid_v3_shadow.py` |
 | Read-only production snapshot retrieval | `scripts/download_prediction_snapshot.py` |
+| Prediction operational alerts | `src/soccer_bot/operational_alerts.py`, `scripts/check_public_prediction_health.py`, `OPERATIONAL_ALERTING.md` |
 
 ## 25. Quant-scientist audit checklist
 
@@ -2010,3 +2011,10 @@ the unproven prospective quality of v3's conditional score shape, and the lack
 of a complete timestamped market benchmark. Those limitations define the
 correct next research program rather than reasons to overstate what either v1
 or v3 already knows.
+
+Operational continuity now has a separate two-plane watchdog. Each collector
+run validates champion/shadow status, frozen identities, row counts, freshness,
+receipt durability, and volume pressure; an independent scheduled public
+heartbeat detects a Railway cron that no longer starts. These controls monitor
+artifact production only. They do not inspect prospective outcomes and cannot
+become a tuning channel around the frozen v3 decision gate.

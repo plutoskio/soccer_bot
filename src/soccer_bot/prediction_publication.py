@@ -187,6 +187,7 @@ def _generate_validate_publish(
         "status": "uploaded",
         "as_of": snapshot["as_of"],
         "model_version": snapshot["model_version"],
+        "logical_model_sha256": snapshot["logical_model_sha256"],
         "snapshot_version": snapshot["snapshot_version"],
         "prediction_rows": len(predictions),
         "fixture_count": len({row["fixture_id"] for row in predictions}),

@@ -457,6 +457,36 @@ def validate_collector_config(config: dict, catch_up_days: int | None = None) ->
         raise ValueError("health report_directory must be a non-empty path")
     if Path(report_directory).is_absolute() or ".." in Path(report_directory).parts:
         raise ValueError("health report_directory must stay inside the repository")
+    operations = config.get("operations", {})
+    if not isinstance(operations, dict):
+        raise ValueError("operations config must be an object")
+    if operations.get("enabled", False):
+        operations_report = operations.get(
+            "report_directory", "data/reports/operations"
+        )
+        if not isinstance(operations_report, str) or not operations_report.strip():
+            raise ValueError("operations report_directory must be a non-empty path")
+        operations_path = Path(operations_report)
+        if operations_path.is_absolute() or ".." in operations_path.parts:
+            raise ValueError(
+                "operations report_directory must stay inside the repository"
+            )
+        _positive_int(
+            operations.get("publication_stale_after_seconds", 1200),
+            "operations publication_stale_after_seconds",
+        )
+        _positive_int(
+            operations.get("cycle_stale_after_seconds", 1200),
+            "operations cycle_stale_after_seconds",
+        )
+        warning = float(operations.get("volume_warning_percent", 80))
+        critical = float(operations.get("volume_critical_percent", 95))
+        if not 0 < warning < critical <= 100:
+            raise ValueError(
+                "operations volume thresholds must satisfy 0 < warning < critical <= 100"
+            )
+        if not isinstance(operations.get("fail_run_on_critical", True), bool):
+            raise ValueError("operations fail_run_on_critical must be boolean")
     publication = config.get("prediction_publication", {})
     if not isinstance(publication, dict):
         raise ValueError("prediction_publication config must be an object")

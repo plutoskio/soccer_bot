@@ -14,6 +14,8 @@ databases are not part of this deployment.
 - Historical staging files: `/app/data/staged/`
 - Daily Markdown health report: `/app/data/reports/collector/`
 - Prediction publication receipts: `/app/data/reports/predictions/publication.jsonl`
+- Current prediction-operations status: `/app/data/reports/operations/current.json`
+- Prediction alert transitions: `/app/data/reports/operations/events.jsonl`
 - Start command: `python scripts/run_collector.py`
 - Schedule: every five minutes (`*/5 * * * *`)
 - Restart policy: never
@@ -81,6 +83,16 @@ then read back, compared byte-for-byte, and revalidated. If any guard fails,
 the previous object remains the application snapshot and the sanitized failure
 appears in the collector summary and append-only receipt.
 
+Prediction operations are monitored separately from general collection health.
+The in-process watchdog validates publication freshness, champion and shadow
+identity, row counts, champion-shadow row parity, receipt durability, and
+mounted-volume capacity. A critical condition exits with code `3` after
+collection has been safely committed. An independent GitHub Actions monitor
+runs every 15 minutes against the public snapshot and opens one deduplicated
+issue if the Railway cron stops refreshing it. Full thresholds, alert codes,
+transition semantics, and incident procedures are in
+`OPERATIONAL_ALERTING.md`.
+
 ## Read-only warehouse inspection
 
 Do not inspect the live DuckDB file while the collector is writing. Temporarily
@@ -145,6 +157,12 @@ provenance rows.
 - Prediction publication failure: keep the prior snapshot, inspect the
   sanitized `prediction_publication` result and persistent receipt, and fix the
   producer or bucket without republishing an unreviewed file manually.
+- Operational exit code `3`: inspect both `prediction_publication` and
+  `operational_watchdog`; preserve valid parent output, and never overwrite an
+  immutable shadow artifact to clear the alert.
+- GitHub issue `[operations] Soccer Bot prediction watchdog`: treat it as an
+  external stale-heartbeat incident and verify the Railway cron and exact
+  source commit before attempting a restart.
 - Lost or corrupt volume: do not initialize an empty replacement as production.
   Stop the service, restore the latest verified warehouse and its raw/staged
   artifacts, validate read-only, and then resume collection.
