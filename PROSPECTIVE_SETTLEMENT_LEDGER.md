@@ -236,8 +236,10 @@ report different final scores:
 Invalid final scores fail closed. A forecast fixture missing from the
 eligibility view also fails rather than remaining silently pending. A fixture
 with no final result remains pending and is reconsidered in the next cycle.
-An ineligible fixture is not appended and may be reconsidered if its canonical
-eligibility is later corrected.
+Before any final observation exists, a fixture remains pending even though the
+result-eligibility view is naturally false while its score is missing. Once a
+valid final score exists, an ineligible fixture is not appended and may be
+reconsidered if its canonical eligibility is later corrected.
 
 ## 7. Temporal integrity vector
 

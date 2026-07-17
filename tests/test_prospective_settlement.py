@@ -316,6 +316,21 @@ class ProspectiveSettlementTests(unittest.TestCase):
         self.assertEqual(result["pending_forecasts"], 1)
         self.assertEqual(result["records_added"], 0)
 
+    def test_upcoming_ineligibility_before_any_final_result_remains_pending(self) -> None:
+        connection = duckdb.connect(str(self.warehouse))
+        try:
+            connection.execute(
+                "UPDATE fixture_model_eligibility SET eligible_result_models=FALSE, reason_codes='[\"result_missing\"]'"
+            )
+        finally:
+            connection.close()
+
+        result = self._settle()
+
+        self.assertEqual(result["pending_forecasts"], 1)
+        self.assertEqual(result["ineligible_results"], 0)
+        self.assertEqual(result["records_added"], 0)
+
     def test_temporal_integrity_violation_is_recorded_but_gate_ineligible(self) -> None:
         self._insert_result(retrieved_at=self.snapshot_created_at - timedelta(seconds=1))
 

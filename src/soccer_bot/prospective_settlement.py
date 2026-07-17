@@ -104,9 +104,6 @@ def update_prospective_settlement_ledger(
                 raise ProspectiveSettlementError(
                     f"final result has invalid regulation score: {item['fixture_id']}"
                 )
-            if outcome["eligible_result_models"] is not True:
-                ineligible += 1
-                continue
             pending += 1
             continue
         scores = {
