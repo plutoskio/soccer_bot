@@ -183,6 +183,19 @@ def _generate_validate_publish(
         environment=subprocess_environment,
         timeout=timeout,
     )
+    settlement_result = _try_update_prospective_settlement(
+        root=root,
+        warehouse_path=warehouse_path,
+        shadow_config=config.get("shadow_score_grid", {}),
+        shadow_result=shadow_result,
+        command_runner=command_runner,
+        environment=subprocess_environment,
+        default_timeout=timeout,
+        # Settlement is an outcome-side action performed after collection.
+        # Its audit timestamp must be the actual invocation time, not the
+        # champion snapshot's earlier information cutoff.
+        settled_at=datetime.now(timezone.utc),
+    )
     return {
         "status": "uploaded",
         "as_of": snapshot["as_of"],
@@ -193,6 +206,7 @@ def _generate_validate_publish(
         "fixture_count": len({row["fixture_id"] for row in predictions}),
         "prediction_rows_sha256": snapshot["prediction_rows_sha256"],
         "shadow_score_grid": shadow_result,
+        "prospective_settlement_ledger": settlement_result,
     }
 
 
@@ -268,6 +282,117 @@ def _try_generate_shadow_score_grid(
             "error_type": type(error).__name__,
             "error": _safe_error(error),
         }
+
+
+def _try_update_prospective_settlement(
+    *,
+    root: Path,
+    warehouse_path: Path,
+    shadow_config: dict,
+    shadow_result: Mapping[str, object],
+    command_runner: CommandRunner,
+    environment: Mapping[str, str],
+    default_timeout: int,
+    settled_at: datetime,
+) -> dict[str, object]:
+    config = shadow_config.get("settlement_ledger", {})
+    if not config.get("enabled", False):
+        return {"status": "disabled"}
+    if shadow_result.get("status") != "written_to_persistent_shadow_store":
+        return {"status": "skipped", "reason": "shadow_score_grid_not_written"}
+    try:
+        evidence_directory = _inside_root(
+            root, Path(shadow_config["output_directory"]) / "evidence"
+        )
+        model_path = _inside_root(root, shadow_config["model_path"])
+        gate_path = _inside_root(root, shadow_config["prospective_gate_path"])
+        settlement_config = _inside_root(root, config["config_path"])
+        output_directory = _inside_root(root, config["output_directory"])
+        execution = command_runner(
+            [
+                sys.executable,
+                str(root / "scripts" / "settle_score_grid_v3_prospective.py"),
+                "--warehouse",
+                str(warehouse_path),
+                "--evidence-dir",
+                str(evidence_directory),
+                "--model",
+                str(model_path),
+                "--prospective-gate",
+                str(gate_path),
+                "--settlement-config",
+                str(settlement_config),
+                "--output-dir",
+                str(output_directory),
+                "--settled-at",
+                settled_at.isoformat(),
+            ],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=int(config.get("timeout_seconds", default_timeout)),
+            check=False,
+        )
+        if execution.returncode:
+            raise PredictionPublicationError(
+                f"prospective_settlement_exit_{execution.returncode}"
+            )
+        try:
+            result = json.loads(execution.stdout)
+        except json.JSONDecodeError as error:
+            raise PredictionPublicationError(
+                "invalid_prospective_settlement_receipt"
+            ) from error
+        if result.get("status") not in {"updated", "no_new_settlements"}:
+            raise PredictionPublicationError(
+                "prospective_settlement_not_confirmed"
+            )
+        counts = {
+            key: _validated_nonnegative_int(result.get(key), key)
+            for key in (
+                "records_added",
+                "ledger_records",
+                "pending_forecasts",
+                "ineligible_results",
+                "reviewed_exclusions",
+            )
+        }
+        if counts["records_added"] > counts["ledger_records"]:
+            raise PredictionPublicationError("invalid_prospective_settlement_counts")
+        ledger_head = result.get("ledger_head_sha256")
+        if counts["ledger_records"]:
+            if not _is_lowercase_sha256(ledger_head):
+                raise PredictionPublicationError("invalid_prospective_ledger_head")
+        elif ledger_head is not None:
+            raise PredictionPublicationError("unexpected_prospective_ledger_head")
+        return {
+            "status": result["status"],
+            **counts,
+            "ledger_head_sha256": ledger_head,
+            "performance_aggregates_written": result.get(
+                "performance_aggregates_written"
+            ),
+            "gate_decision_written": result.get("gate_decision_written"),
+        }
+    except Exception as error:
+        return {
+            "status": "failed",
+            "error_type": type(error).__name__,
+            "error": _safe_error(error),
+        }
+
+
+def _validated_nonnegative_int(value: object, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise PredictionPublicationError(f"invalid_prospective_{label}")
+    return value
+
+
+def _is_lowercase_sha256(value: object) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(
+        character in "0123456789abcdef" for character in value
+    )
 
 
 def _validate_shadow_candidate(

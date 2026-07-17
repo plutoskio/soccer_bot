@@ -20,6 +20,10 @@ from soccer_bot.modeling.score_grid_shadow import (
     predict_coherent_score_grid,
     score_grid_shadow_sha256,
 )
+from soccer_bot.prospective_evidence import (
+    materialize_legacy_evidence,
+    materialize_snapshot_evidence,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -188,10 +192,12 @@ def main() -> int:
         },
     }
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = as_of.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    timestamp_path = args.output_dir / f"{timestamp}.json"
     latest_path = args.output_dir / "latest.json"
-    _write_immutable_json(timestamp_path, snapshot)
+    legacy = materialize_legacy_evidence(args.output_dir)
+    evidence = materialize_snapshot_evidence(
+        output_directory=args.output_dir,
+        snapshot=snapshot,
+    )
     _atomic_write_json(latest_path, snapshot)
     print(
         json.dumps(
@@ -202,8 +208,12 @@ def main() -> int:
                 ],
                 "shadow_prediction_rows": len(records),
                 "excluded_pre_holdout": len(excluded_pre_holdout),
-                "snapshot": str(timestamp_path.resolve()),
                 "latest": str(latest_path.resolve()),
+                "legacy_snapshots_imported": legacy["legacy_snapshots"],
+                "legacy_evidence_added": legacy["new_evidence"],
+                "new_evidence": evidence["new_evidence"],
+                "existing_evidence": evidence["existing_evidence"],
+                "evidence_receipt": evidence["receipt_path"],
             },
             indent=2,
             sort_keys=True,

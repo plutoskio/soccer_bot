@@ -287,6 +287,71 @@ def _evaluate_publication(
                 component="shadow_score_grid",
                 summary="Shadow candidate contains fewer rows than configured",
             )
+    settlement_config = shadow_config.get("settlement_ledger", {})
+    if not isinstance(settlement_config, Mapping) or not settlement_config.get(
+        "enabled", False
+    ):
+        checks["prospective_settlement_ledger"] = {"status": "disabled"}
+        return
+    settlement = result.get("prospective_settlement_ledger")
+    if not isinstance(settlement, Mapping):
+        settlement = {}
+    settlement_status = str(settlement.get("status", "missing"))
+    settlement_counts = {
+        key: _nonnegative_int(settlement.get(key))
+        for key in (
+            "records_added",
+            "ledger_records",
+            "pending_forecasts",
+            "ineligible_results",
+            "reviewed_exclusions",
+        )
+    }
+    ledger_head = settlement.get("ledger_head_sha256")
+    checks["prospective_settlement_ledger"] = {
+        "status": settlement_status,
+        **settlement_counts,
+        "ledger_head_sha256": ledger_head,
+        "performance_aggregates_written": settlement.get(
+            "performance_aggregates_written"
+        ),
+        "gate_decision_written": settlement.get("gate_decision_written"),
+    }
+    if settlement_status not in {"updated", "no_new_settlements"}:
+        _add_alert(
+            alerts,
+            code="prospective_settlement_ledger_failed",
+            severity="critical",
+            component="prospective_settlement_ledger",
+            summary=f"Prospective settlement ledger status is {settlement_status}",
+        )
+    if settlement_status in {"updated", "no_new_settlements"} and (
+        settlement.get("performance_aggregates_written") is not False
+        or settlement.get("gate_decision_written") is not False
+    ):
+        _add_alert(
+            alerts,
+            code="premature_prospective_evaluation_output",
+            severity="critical",
+            component="prospective_settlement_ledger",
+            summary="Settlement process reported premature aggregate or gate output",
+        )
+    if settlement_status in {"updated", "no_new_settlements"}:
+        ledger_records = settlement_counts["ledger_records"]
+        invalid_receipt = (
+            any(value is None for value in settlement_counts.values())
+            or settlement_counts["records_added"] > ledger_records
+            or (ledger_records > 0 and not _is_lowercase_sha256(ledger_head))
+            or (ledger_records == 0 and ledger_head is not None)
+        )
+        if invalid_receipt:
+            _add_alert(
+                alerts,
+                code="prospective_settlement_receipt_invalid",
+                severity="critical",
+                component="prospective_settlement_ledger",
+                summary="Settlement process returned internally inconsistent counts or chain head",
+            )
 
 
 def _evaluate_volume(
@@ -452,6 +517,12 @@ def _nonnegative_int(value: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None
     return value
+
+
+def _is_lowercase_sha256(value: object) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(
+        character in "0123456789abcdef" for character in value
+    )
 
 
 def _positive_int(value: object, name: str) -> int:

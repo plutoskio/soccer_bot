@@ -64,7 +64,13 @@
       "model_path": "artifacts/production/regulation_score_grid_v3_shadow/model.json",
       "prospective_gate_path": "config/models/regulation_score_grid_v3_prospective_gate.json",
       "output_directory": "data/predictions/regulation_score_grid_v3_shadow",
-      "minimum_prediction_rows": 1
+      "minimum_prediction_rows": 1,
+      "settlement_ledger": {
+        "enabled": true,
+        "config_path": "config/models/regulation_score_grid_v3_settlement.json",
+        "output_directory": "data/predictions/regulation_score_grid_v3_settlement",
+        "timeout_seconds": 240
+      }
     }
   },
   "polymarket": {

@@ -1601,8 +1601,8 @@ validated object was downloaded read-only from the production snapshot bucket;
 the live warehouse was neither stopped nor opened for this operation.
 
 V3 transformed those parent rows at
-`2026-07-17T17:45:23.810020Z`, before every included kickoff. The immutable
-timestamped shadow file is
+`2026-07-17T17:45:23.810020Z`, before every included kickoff. The preserved
+first source snapshot is
 `data/predictions/regulation_score_grid_v3_shadow/20260717T174045Z.json`, with
 file SHA-256
 `824ecc70570417a351be8d1d428aad3a696172b2b2438fa32e5f5924496f2ce4`.
@@ -1612,6 +1612,14 @@ Each row contains parent and implied moneyline, full joint score grid, top 15
 exact scores, home/away/total/difference marginals, BTTS, and a grid hash. It is
 explicitly marked `prospective_shadow_not_for_production_betting` and
 `retrospective_performance_not_estimated`.
+
+Production evidence is now normalized to one immutable file per
+`(fixture_id, information_state)` under the shadow `evidence/` directory. The
+first valid row is canonical; later five-minute refreshes cannot create more
+evaluation weight or replace it. The original timestamped source snapshot is
+imported oldest-first and retained, while future cycles replace only
+`latest.json` and write compact receipts when genuinely new pairs appear. This
+changes storage representation, not the forecast values or frozen gate.
 
 ### 18.9 Frozen prospective gate
 
@@ -1654,6 +1662,30 @@ A shadow failure is recorded in the append-only prediction publication report
 but cannot undo or falsely mark as failed an already verified champion upload.
 This isolates experimental evidence collection from the public production
 service while ensuring failures remain observable.
+
+### 18.11 Prospective outcome settlement
+
+After a valid shadow cycle, a separate process opens the warehouse read-only
+and joins final regulation results to the first immutable forecast for each
+fixture/horizon pair. It starts from `fixture_model_eligibility`, requires
+`eligible_result_models`, excludes reviewed conflicts, and fails closed on any
+new provider disagreement or malformed final score.
+
+The ledger recomputes both frozen distributions: the fitted conditional tilt
+and the parent-moneyline-preserving zero-tilt Poisson control. The recomputed
+candidate grid hash must equal the stored evidence hash. Each append records
+exact-score, home-goal, away-goal, total-goal, goal-difference, moneyline, and
+BTTS log losses; moneyline and BTTS Brier scores; total and goal-difference
+RPS; candidate-minus-baseline deltas; and deterministic total/Asian-handicap
+settlements at frozen reference lines.
+
+Every row contains separate temporal and identity checks. Only their
+conjunction is eligible for the future gate. Existing rows are never rescored
+or rewritten when the warehouse changes. Records form an append-only SHA-256
+chain, while the original forecasts remain in a separate evidence directory.
+No aggregate mean, bootstrap interval, or gate decision is produced at this
+stage. See `PROSPECTIVE_SETTLEMENT_LEDGER.md` for the complete schema,
+equations, sign conventions, and failure policy.
 
 ## 19. Market benchmark and what it says about edge
 

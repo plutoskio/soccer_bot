@@ -226,7 +226,7 @@ player goals/assists, corners, and first team to score still require separate
 event or player processes; the final-score grid cannot identify event order or
 player attribution.
 
-## First eligible immutable evidence
+## First eligible source snapshot and canonical evidence
 
 The current production collector had already published a post-freeze champion
 snapshot to its validated S3-compatible object key. It was downloaded
@@ -256,9 +256,21 @@ maximum grid normalization error: 1.1102230246251565e-16
 minimum score-cell probability: 3.254728700035796e-27
 ```
 
-The timestamped file—not the mutable `latest.json` alias—is the evidence unit.
-Its prediction, model, gate, parent-source, and per-grid hashes allow later
-outcome joins to prove exactly which pre-match distribution was scored.
+That timestamped file is preserved as the first source snapshot. Production now
+materializes its oldest valid row for each `(fixture_id, information_state)` as
+an individual immutable file under `evidence/`. The per-pair file—not the
+mutable `latest.json` alias and not every five-minute refresh—is the canonical
+evaluation unit. Its prediction, model, gate, parent-source, originating
+snapshot, evidence-record, and per-grid hashes prove exactly which pre-match
+distribution was scored.
+
+Writing every full snapshot every five minutes would grow by roughly 316 MB per
+day at the observed snapshot size. The current writer therefore retains one
+full forecast per evaluation pair, writes a compact receipt only when a cycle
+adds new evidence, and replaces only `latest.json`. Existing timestamped
+snapshots are imported oldest-first exactly once. The complete settlement
+design, metrics, temporal checks, and hash chain are specified in
+`PROSPECTIVE_SETTLEMENT_LEDGER.md`.
 
 ## Commands
 
@@ -302,3 +314,9 @@ The guarded collector path can generate the private shadow after a successful
 champion upload and persist it under `/app/data`. Shadow failure is isolated
 and cannot invalidate an already-successful public champion publication. No
 public API exposure or automatic betting action is part of v3 at this stage.
+
+After shadow evidence is durable, the collector invokes the read-only
+prospective settlement updater. Completed eligible fixtures are appended to a
+separate hash-chained ledger. Per-fixture scores are stored, but aggregate
+performance and any gate decision are forbidden until the frozen evidence
+minimum is reached.

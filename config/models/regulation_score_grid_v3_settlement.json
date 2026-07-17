@@ -1,0 +1,53 @@
+{
+  "ledger_version": "regulation_score_grid_v3_prospective_settlement_v1",
+  "status": "frozen_before_first_predicted_fixture_result",
+  "model_version": "regulation_score_grid_v3_prospective_shadow",
+  "logical_model_sha256": "d17aa0334ad85914a396089430ad588ef8ca9381227de044106c1c777cbe00c7",
+  "prospective_gate_version": "regulation_score_grid_v3_prospective_gate_v1",
+  "contract_registry": "config/contracts/regulation_v1.json",
+  "reviewed_result_exclusions": "config/models/regulation_score_exclusions_v1.json",
+  "frozen_artifact_sha256": {
+    "contract_registry": "01922b58cd7073c56c17262ec3c27f61b63ea0d3769094372c90fe9a751cd40e",
+    "reviewed_result_exclusions": "85a7e4e577423e745d1fea067ab579e102c83528d6e86b70ada70addc8b0b234",
+    "prospective_gate": "970f3a8e89b1d1432c74f982fc1cfb41489685b33888f14d272ca9705a25b598",
+    "shadow_model_artifact": "70acc7837fa7ad88e0ffe36d57e9ea6b62fe058c061bb8a4afcb68364cb0fa7c"
+  },
+  "pairing_key": [
+    "fixture_id",
+    "information_state"
+  ],
+  "canonical_forecast_policy": "first_valid_immutable_evidence_per_pair",
+  "probability_floor": 1e-15,
+  "reference_lines": {
+    "total_goals": {
+      "minimum": 0.5,
+      "maximum": 6.5,
+      "increment": 0.25
+    },
+    "goal_handicap": {
+      "minimum": -2.5,
+      "maximum": 2.5,
+      "increment": 0.25
+    }
+  },
+  "integrity": {
+    "require_result_model_eligibility": true,
+    "require_current_kickoff_matches_prediction": true,
+    "require_prediction_at_or_before_first_snapshot_as_of": true,
+    "require_snapshot_creation_at_or_after_snapshot_as_of": true,
+    "require_prediction_horizon_matches_information_state": true,
+    "require_first_snapshot_as_of_before_kickoff": true,
+    "require_first_snapshot_created_before_kickoff": true,
+    "require_final_result_retrieved_after_forecast_creation": true,
+    "require_settlement_run_at_or_after_all_result_retrievals": true,
+    "require_score_grid_hash_match": true,
+    "require_recomputed_shadow_grid_match": true,
+    "append_only_hash_chain": true,
+    "never_rewrite_settled_records": true
+  },
+  "reporting_policy": {
+    "write_per_fixture_metrics": true,
+    "write_aggregate_performance_before_gate": false,
+    "write_gate_decision_before_minimum_evidence": false
+  }
+}

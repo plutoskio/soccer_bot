@@ -5,7 +5,8 @@ Status: implemented and fail-closed
 Primary configuration: `config/collector.json` → `operations`
 
 This document defines the operational alert boundary for the production
-champion publisher and prospective v3 score-grid shadow. The objective is to
+champion publisher, prospective v3 score-grid shadow, and prospective
+settlement ledger. The objective is to
 make each failure observable in the correct control plane, preserve an audit
 trail, prevent alert spam, and ensure that a dead scheduler is monitored by a
 process other than itself.
@@ -123,13 +124,31 @@ logical SHA-256 differs from frozen configuration. Generation errors containing
 configured minimum and contain one row for every champion
 fixture/information-state row. Zero rows cannot be silently successful.
 
-### 2.9 Persistent volume pressure
+### 2.9 Prospective settlement failure
+
+`prospective_settlement_ledger_failed` is critical when the enabled outcome
+join does not report `updated` or `no_new_settlements`. This includes frozen
+artifact drift, corrupt evidence, a broken hash chain, ambiguous results,
+read-only warehouse errors, or subprocess failure. It does not undo the
+already-published champion, but the cron exits `3` so settlement gaps cannot be
+silent.
+
+`premature_prospective_evaluation_output` is critical if the settlement receipt
+does not explicitly report both `performance_aggregates_written: false` and
+`gate_decision_written: false`. Per-fixture scoring is allowed; aggregate
+peeking before the frozen evidence minimum is not.
+
+`prospective_settlement_receipt_invalid` is critical when supposedly successful
+output has negative/missing counts, adds more rows than exist, omits a required
+chain head, or reports a chain head for an empty ledger.
+
+### 2.10 Persistent volume pressure
 
 `persistent_volume_warning` opens at 80% and does not fail a run.
 `persistent_volume_critical` opens at 95% and exits `3`. Railway's additional
 100% native alert remains enabled.
 
-### 2.10 Watchdog failure
+### 2.11 Watchdog failure
 
 `operational_watchdog_failed` is critical. If the watchdog cannot evaluate or
 durably write state, the collector prints only the exception type, never its
@@ -184,7 +203,8 @@ provider body, command stderr, or credential path enters either artifact.
    sections.
 2. Inspect persistent receipts only with the stopped-scheduler/read-only
    procedure from `RAILWAY_OPERATIONS.md`.
-3. Never manually replace public output or mutate a timestamped shadow file.
+3. Never manually replace public output or mutate a per-pair evidence file or
+   settled ledger row.
 4. Correct code, identity, configuration, or storage access and deploy normally.
 
 ### Volume pressure

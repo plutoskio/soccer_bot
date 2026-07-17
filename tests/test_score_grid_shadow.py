@@ -23,6 +23,7 @@ from soccer_bot.modeling.score_grid_shadow import (
     load_score_grid_shadow_config,
     load_score_grid_shadow_model,
     predict_coherent_score_grid,
+    predict_parent_preserving_poisson_grid,
     score_grid_shadow_sha256,
 )
 
@@ -84,7 +85,30 @@ class ResultMarginalPreservingShadowTests(unittest.TestCase):
         self.assertAlmostEqual(sum(grid.probabilities.values()), 1.0, places=12)
         for outcome, probability in self.parent.items():
             self.assertAlmostEqual(grid.moneyline()[outcome], probability, places=12)
-        self.assertTrue(all(value > 0 for value in grid.probabilities.values()))
+
+    def test_frozen_baseline_preserves_parent_but_differs_with_nonzero_tilt(self):
+        model = self.fitted_model()
+        candidate = predict_coherent_score_grid(
+            expected_home_goals=1.7,
+            expected_away_goals=1.1,
+            parent_moneyline=self.parent,
+            information_state="pre_lineup_24h_v1",
+            model=model,
+        )
+        baseline = predict_parent_preserving_poisson_grid(
+            expected_home_goals=1.7,
+            expected_away_goals=1.1,
+            parent_moneyline=self.parent,
+            information_state="pre_lineup_24h_v1",
+            model=model,
+        )
+
+        for outcome, probability in self.parent.items():
+            self.assertAlmostEqual(candidate.moneyline()[outcome], probability, places=12)
+            self.assertAlmostEqual(baseline.moneyline()[outcome], probability, places=12)
+        self.assertNotEqual(candidate.probabilities, baseline.probabilities)
+        self.assertTrue(all(value > 0 for value in candidate.probabilities.values()))
+        self.assertTrue(all(value > 0 for value in baseline.probabilities.values()))
 
     def test_prospective_gate_matches_frozen_model_identity(self):
         production_config = load_score_grid_shadow_config(

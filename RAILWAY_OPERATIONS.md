@@ -16,6 +16,10 @@ databases are not part of this deployment.
 - Prediction publication receipts: `/app/data/reports/predictions/publication.jsonl`
 - Current prediction-operations status: `/app/data/reports/operations/current.json`
 - Prediction alert transitions: `/app/data/reports/operations/events.jsonl`
+- Current private v3 view: `/app/data/predictions/regulation_score_grid_v3_shadow/latest.json`
+- Immutable v3 evidence: `/app/data/predictions/regulation_score_grid_v3_shadow/evidence/`
+- V3 evidence receipts: `/app/data/predictions/regulation_score_grid_v3_shadow/receipts/`
+- Prospective settlement ledger: `/app/data/predictions/regulation_score_grid_v3_settlement/ledger.jsonl`
 - Start command: `python scripts/run_collector.py`
 - Schedule: every five minutes (`*/5 * * * *`)
 - Restart policy: never
@@ -85,8 +89,9 @@ appears in the collector summary and append-only receipt.
 
 Prediction operations are monitored separately from general collection health.
 The in-process watchdog validates publication freshness, champion and shadow
-identity, row counts, champion-shadow row parity, receipt durability, and
-mounted-volume capacity. A critical condition exits with code `3` after
+identity, row counts, champion-shadow row parity, settlement completion,
+premature-analysis guards, receipt durability, and mounted-volume capacity. A
+critical condition exits with code `3` after
 collection has been safely committed. An independent GitHub Actions monitor
 runs every 15 minutes against the public snapshot and opens one deduplicated
 issue if the Railway cron stops refreshing it. Full thresholds, alert codes,
@@ -159,7 +164,10 @@ provenance rows.
   producer or bucket without republishing an unreviewed file manually.
 - Operational exit code `3`: inspect both `prediction_publication` and
   `operational_watchdog`; preserve valid parent output, and never overwrite an
-  immutable shadow artifact to clear the alert.
+  immutable shadow evidence file or settlement record to clear the alert.
+- Prospective settlement failure: preserve the existing ledger, inspect the
+  sanitized receipt and frozen hashes, and correct the producer. Never delete,
+  truncate, reorder, or hand-edit `ledger.jsonl`.
 - GitHub issue `[operations] Soccer Bot prediction watchdog`: treat it as an
   external stale-heartbeat incident and verify the Railway cron and exact
   source commit before attempting a restart.

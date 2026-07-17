@@ -23,11 +23,13 @@ class FakeRunner:
         generation_exit: int = 0,
         upload_exit: int = 0,
         shadow_exit: int = 0,
+        settlement_exit: int = 0,
     ):
         self.snapshot = snapshot
         self.generation_exit = generation_exit
         self.upload_exit = upload_exit
         self.shadow_exit = shadow_exit
+        self.settlement_exit = settlement_exit
         self.commands: list[list[str]] = []
 
     def __call__(self, command, **_kwargs):
@@ -89,6 +91,25 @@ class FakeRunner:
                 )
             return subprocess.CompletedProcess(
                 command, self.shadow_exit, stdout="{}", stderr="shadow secret"
+            )
+        if command[1].endswith("settle_score_grid_v3_prospective.py"):
+            return subprocess.CompletedProcess(
+                command,
+                self.settlement_exit,
+                stdout=json.dumps(
+                    {
+                        "status": "no_new_settlements",
+                        "records_added": 0,
+                        "ledger_records": 0,
+                        "pending_forecasts": len(self.snapshot["predictions"]),
+                        "ineligible_results": 0,
+                        "reviewed_exclusions": 0,
+                        "ledger_head_sha256": None,
+                        "performance_aggregates_written": False,
+                        "gate_decision_written": False,
+                    }
+                ),
+                stderr="settlement secret",
             )
         return subprocess.CompletedProcess(
             command,
@@ -164,6 +185,16 @@ class PredictionPublicationTests(unittest.TestCase):
                         "data/predictions/regulation_score_grid_v3_shadow"
                     ),
                     "minimum_prediction_rows": 1,
+                    "settlement_ledger": {
+                        "enabled": True,
+                        "config_path": (
+                            "config/models/regulation_score_grid_v3_settlement.json"
+                        ),
+                        "output_directory": (
+                            "data/predictions/regulation_score_grid_v3_settlement"
+                        ),
+                        "timeout_seconds": 30,
+                    },
                 },
             }
         }
@@ -214,10 +245,14 @@ class PredictionPublicationTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "uploaded")
         self.assertEqual(result["prediction_rows"], 1)
-        self.assertEqual(len(runner.commands), 3)
+        self.assertEqual(len(runner.commands), 4)
         self.assertEqual(
             result["shadow_score_grid"]["status"],
             "written_to_persistent_shadow_store",
+        )
+        self.assertEqual(
+            result["prospective_settlement_ledger"]["status"],
+            "no_new_settlements",
         )
         command_text = " ".join(part for command in runner.commands for part in command)
         for secret in self.environment.values():
@@ -277,6 +312,23 @@ class PredictionPublicationTests(unittest.TestCase):
         )
         self.assertEqual(len(runner.commands), 3)
         self.assertNotIn("shadow secret", json.dumps(result))
+
+    def test_settlement_failure_is_isolated_after_parent_and_shadow(self) -> None:
+        runner = FakeRunner(self.snapshot(), settlement_exit=31)
+        result = self.publish(runner)
+
+        self.assertEqual(result["status"], "uploaded")
+        self.assertEqual(
+            result["shadow_score_grid"]["status"],
+            "written_to_persistent_shadow_store",
+        )
+        self.assertEqual(result["prospective_settlement_ledger"]["status"], "failed")
+        self.assertEqual(
+            result["prospective_settlement_ledger"]["error"],
+            "prospective_settlement_exit_31",
+        )
+        self.assertEqual(len(runner.commands), 4)
+        self.assertNotIn("settlement secret", json.dumps(result))
 
     def test_report_write_failure_does_not_fail_collection_or_publication(self) -> None:
         runner = FakeRunner(self.snapshot())

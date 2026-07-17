@@ -281,6 +281,45 @@ def predict_coherent_score_grid(
     information_state: str,
     model: RegulationScoreGridShadowModel,
 ) -> ScoreGrid:
+    return _predict_parent_preserving_grid(
+        expected_home_goals=expected_home_goals,
+        expected_away_goals=expected_away_goals,
+        parent_moneyline=parent_moneyline,
+        information_state=information_state,
+        model=model,
+        apply_shadow_tilt=True,
+    )
+
+
+def predict_parent_preserving_poisson_grid(
+    *,
+    expected_home_goals: float,
+    expected_away_goals: float,
+    parent_moneyline: Mapping[str, float],
+    information_state: str,
+    model: RegulationScoreGridShadowModel,
+) -> ScoreGrid:
+    """Return the frozen gate's parent-preserving Poisson conditional baseline."""
+
+    return _predict_parent_preserving_grid(
+        expected_home_goals=expected_home_goals,
+        expected_away_goals=expected_away_goals,
+        parent_moneyline=parent_moneyline,
+        information_state=information_state,
+        model=model,
+        apply_shadow_tilt=False,
+    )
+
+
+def _predict_parent_preserving_grid(
+    *,
+    expected_home_goals: float,
+    expected_away_goals: float,
+    parent_moneyline: Mapping[str, float],
+    information_state: str,
+    model: RegulationScoreGridShadowModel,
+    apply_shadow_tilt: bool,
+) -> ScoreGrid:
     if model.status != "frozen_prospective_shadow_no_retrospective_promotion_claim":
         raise ScoreGridShadowError("Only the frozen prospective shadow may predict")
     matches = [
@@ -309,12 +348,17 @@ def predict_coherent_score_grid(
         features = _score_features(
             score, horizon.feature_names, horizon.feature_scales
         )
-        log_weights[score] = math.log(probability) + math.fsum(
-            coefficient * feature
-            for coefficient, feature in zip(
-                horizon.coefficients, features, strict=True
+        tilt = (
+            math.fsum(
+                coefficient * feature
+                for coefficient, feature in zip(
+                    horizon.coefficients, features, strict=True
+                )
             )
+            if apply_shadow_tilt
+            else 0.0
         )
+        log_weights[score] = math.log(probability) + tilt
     output: dict[tuple[int, int], float] = {}
     for result in RESULTS:
         scores = by_result[result]

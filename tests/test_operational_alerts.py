@@ -44,6 +44,7 @@ class OperationalAlertTests(unittest.TestCase):
                     "model_version": "regulation_score_grid_v3_prospective_shadow",
                     "logical_model_sha256": SHADOW_HASH,
                     "minimum_prediction_rows": 1,
+                    "settlement_ledger": {"enabled": True},
                 },
             },
         }
@@ -63,6 +64,17 @@ class OperationalAlertTests(unittest.TestCase):
                 "model_version": "regulation_score_grid_v3_prospective_shadow",
                 "logical_model_sha256": SHADOW_HASH,
                 "prediction_rows": 25,
+            },
+            "prospective_settlement_ledger": {
+                "status": "no_new_settlements",
+                "records_added": 0,
+                "ledger_records": 0,
+                "pending_forecasts": 25,
+                "ineligible_results": 0,
+                "reviewed_exclusions": 0,
+                "ledger_head_sha256": None,
+                "performance_aggregates_written": False,
+                "gate_decision_written": False,
             },
         }
         value.update(overrides)
@@ -190,6 +202,34 @@ class OperationalAlertTests(unittest.TestCase):
 
         self.assertIn("publication_receipt_write_failed", self.codes(status))
         self.assertTrue(status["should_fail_run"])
+
+    def test_settlement_failure_or_premature_evaluation_is_critical(self) -> None:
+        failed = self.result()
+        failed["prospective_settlement_ledger"] = {"status": "failed"}
+        self.assertIn(
+            "prospective_settlement_ledger_failed", self.codes(self.watchdog(failed))
+        )
+
+        premature = self.result()
+        premature["prospective_settlement_ledger"] = {
+            **premature["prospective_settlement_ledger"],
+            "performance_aggregates_written": True,
+        }
+        self.assertIn(
+            "premature_prospective_evaluation_output",
+            self.codes(self.watchdog(premature)),
+        )
+
+        invalid = self.result()
+        invalid["prospective_settlement_ledger"] = {
+            **invalid["prospective_settlement_ledger"],
+            "ledger_records": 1,
+            "ledger_head_sha256": None,
+        }
+        self.assertIn(
+            "prospective_settlement_receipt_invalid",
+            self.codes(self.watchdog(invalid)),
+        )
 
     def test_volume_thresholds_have_warning_and_critical_levels(self) -> None:
         warning = self.watchdog(used_percent=80)

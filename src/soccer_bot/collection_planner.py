@@ -561,6 +561,28 @@ def validate_collector_config(config: dict, catch_up_days: int | None = None) ->
                 shadow.get("minimum_prediction_rows", 1),
                 "prediction shadow_score_grid minimum_prediction_rows",
             )
+            settlement = shadow.get("settlement_ledger", {})
+            if not isinstance(settlement, dict):
+                raise ValueError(
+                    "prediction shadow settlement_ledger must be an object"
+                )
+            if settlement.get("enabled", False):
+                for key in ("config_path", "output_directory"):
+                    value = settlement.get(key)
+                    if not isinstance(value, str) or not value.strip():
+                        raise ValueError(
+                            f"prediction shadow settlement_ledger {key} must be non-empty"
+                        )
+                    path = Path(value)
+                    if path.is_absolute() or ".." in path.parts:
+                        raise ValueError(
+                            "prediction shadow settlement_ledger path must stay "
+                            "inside the repository"
+                        )
+                _positive_int(
+                    settlement.get("timeout_seconds", 240),
+                    "prediction shadow settlement_ledger timeout_seconds",
+                )
     identity = config.get("identity", {})
     if not isinstance(identity, dict):
         raise ValueError("identity config must be an object")
