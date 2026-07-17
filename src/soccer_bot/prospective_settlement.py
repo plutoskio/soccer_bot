@@ -29,6 +29,17 @@ class ProspectiveSettlementError(RuntimeError):
     """Raised when a prospective result cannot be joined without ambiguity."""
 
 
+def load_prospective_settlement_ledger(
+    *, ledger_path: Path, settlement_config_path: Path
+) -> tuple[list[dict[str, object]], str | None]:
+    """Load and fully verify the append-only prospective ledger hash chain."""
+
+    return _read_ledger(
+        ledger_path,
+        config=_read_object(settlement_config_path),
+    )
+
+
 def update_prospective_settlement_ledger(
     *,
     root: Path,

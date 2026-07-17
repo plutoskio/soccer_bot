@@ -142,13 +142,33 @@ peeking before the frozen evidence minimum is not.
 output has negative/missing counts, adds more rows than exist, omits a required
 chain head, or reports a chain head for an empty ledger.
 
-### 2.10 Persistent volume pressure
+### 2.10 Prospective evaluation readiness
+
+The routine evaluator path is count-only and has three valid states:
+`locked_insufficient_evidence`, `ready_for_explicit_one_shot_evaluation`, and
+`decision_already_exists`.
+
+`prospective_evaluation_readiness_failed` is critical for subprocess failure,
+missing output, or any unrecognized state.
+`prospective_evaluation_readiness_unsafe` is critical if the receipt exposes
+performance or permits automatic decision execution.
+`prospective_evaluation_config_identity_mismatch` is critical when the receipt
+does not match the collector-pinned frozen evaluation-config SHA-256.
+`prospective_evaluation_ledger_count_mismatch` is critical when readiness and
+the verified settlement receipt disagree on ledger length.
+
+`prospective_evaluation_ready` is a warning. It means the first deterministic
+cutoff has reached every frozen evidence minimum and the human-only one-shot
+command may be run. It does not fail the cron and never runs the decision
+automatically.
+
+### 2.11 Persistent volume pressure
 
 `persistent_volume_warning` opens at 80% and does not fail a run.
 `persistent_volume_critical` opens at 95% and exits `3`. Railway's additional
 100% native alert remains enabled.
 
-### 2.11 Watchdog failure
+### 2.12 Watchdog failure
 
 `operational_watchdog_failed` is critical. If the watchdog cannot evaluate or
 durably write state, the collector prints only the exception type, never its

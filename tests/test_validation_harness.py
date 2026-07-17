@@ -181,6 +181,15 @@ class WarehouseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "settlement_ledger path must stay"):
             validate_collector_config(config)
 
+        config = json.loads(
+            (ROOT / "config" / "collector.json").read_text(encoding="utf-8")
+        )
+        config["prediction_publication"]["shadow_score_grid"][
+            "settlement_ledger"
+        ]["evaluation_program"]["config_path"] = "../evaluation.json"
+        with self.assertRaisesRegex(ValueError, "evaluation_program path must stay"):
+            validate_collector_config(config)
+
 
 if __name__ == "__main__":
     unittest.main()

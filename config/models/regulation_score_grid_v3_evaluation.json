@@ -1,0 +1,70 @@
+{
+  "evaluation_version": "regulation_score_grid_v3_prospective_evaluation_v1",
+  "status": "frozen_before_first_eligible_settlement",
+  "frozen_at": "2026-07-17T21:24:52+00:00",
+  "model_version": "regulation_score_grid_v3_prospective_shadow",
+  "logical_model_sha256": "d17aa0334ad85914a396089430ad588ef8ca9381227de044106c1c777cbe00c7",
+  "prospective_gate_version": "regulation_score_grid_v3_prospective_gate_v1",
+  "ledger_version": "regulation_score_grid_v3_prospective_settlement_v1",
+  "horizons": [
+    "pre_lineup_24h_v1",
+    "pre_lineup_72h_clean_v1"
+  ],
+  "evaluation_window": {
+    "timezone": "UTC",
+    "first_month_policy": "first_full_calendar_month_starting_at_or_after_holdout",
+    "month_inclusion_policy": "include_every_calendar_month_from_first_full_month_through_deterministic_cutoff",
+    "result_maturity_days_after_month_end": 7,
+    "cutoff_policy": "first_matured_month_where_all_horizons_meet_every_minimum",
+    "block_count_policy": "nonempty_gate_eligible_calendar_months_per_horizon"
+  },
+  "readiness_policy": {
+    "automatic_mode": "counts_only",
+    "performance_statistics_before_ready": false,
+    "automatic_decision_execution": false,
+    "ready_status_requires_explicit_one_shot_command": true
+  },
+  "bootstrap": {
+    "method": "paired_calendar_month_cluster_percentile",
+    "resampling": "sample_month_labels_with_replacement_then_concatenate_all_paired_fixture_deltas",
+    "mean_weighting": "fixture_weighted_within_each_resampled_cluster_concatenation",
+    "replicates": 2000,
+    "seed": 20260717,
+    "lower_quantile": 0.025,
+    "upper_quantile": 0.975,
+    "quantile_interpolation": "linear_type_7",
+    "separate_deterministic_rng_per_horizon": true
+  },
+  "metric_policy": {
+    "delta_sign": "candidate_minus_baseline_negative_is_better",
+    "primary_metric": "exact_score_log_loss",
+    "primary_requires_negative_mean_each_horizon": true,
+    "primary_requires_upper_95_percentile_below_zero_each_horizon": true,
+    "nonpositive_mean_delta_metrics": [
+      "total_goals_log_loss",
+      "goal_difference_log_loss"
+    ],
+    "maximum_mean_delta": {
+      "home_goals_log_loss": 0.001,
+      "away_goals_log_loss": 0.001,
+      "both_teams_to_score_log_loss": 0.001,
+      "total_goals_rps": 0.001,
+      "goal_difference_rps": 0.001
+    },
+    "maximum_absolute_parent_moneyline_difference": 1e-10,
+    "all_gates_must_pass_at_every_horizon": true
+  },
+  "decision_policy": {
+    "write_once": true,
+    "immutable_filename": "decision.json",
+    "pass_means_eligible_for_human_promotion_review_only": true,
+    "automatic_publication_or_betting": false,
+    "failure_requires_new_challenger_and_untouched_holdout": true
+  },
+  "frozen_artifact_sha256": {
+    "prospective_gate": "970f3a8e89b1d1432c74f982fc1cfb41489685b33888f14d272ca9705a25b598",
+    "settlement_config": "30cebf661eda441c83bdf5306230828cddfadd535366fd5aaac4ffc245366efe",
+    "shadow_model_artifact": "70acc7837fa7ad88e0ffe36d57e9ea6b62fe058c061bb8a4afcb68364cb0fa7c",
+    "evaluation_module": "cc4d2eb3f66b3b7df23bc6f0f8a4ca42aeddd19fc0117183ce117edafb31cbbe"
+  }
+}

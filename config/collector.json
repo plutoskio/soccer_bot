@@ -69,7 +69,14 @@
         "enabled": true,
         "config_path": "config/models/regulation_score_grid_v3_settlement.json",
         "output_directory": "data/predictions/regulation_score_grid_v3_settlement",
-        "timeout_seconds": 240
+        "timeout_seconds": 240,
+        "evaluation_program": {
+          "enabled": true,
+          "config_path": "config/models/regulation_score_grid_v3_evaluation.json",
+          "evaluation_config_sha256": "5d0926eea8c670a1d6815bf33f0542aabe4b3a97a8ce18aa2287ca832810adb5",
+          "output_directory": "data/predictions/regulation_score_grid_v3_evaluation",
+          "timeout_seconds": 120
+        }
       }
     }
   },

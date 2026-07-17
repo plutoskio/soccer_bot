@@ -1683,9 +1683,55 @@ Every row contains separate temporal and identity checks. Only their
 conjunction is eligible for the future gate. Existing rows are never rescored
 or rewritten when the warehouse changes. Records form an append-only SHA-256
 chain, while the original forecasts remain in a separate evidence directory.
-No aggregate mean, bootstrap interval, or gate decision is produced at this
-stage. See `PROSPECTIVE_SETTLEMENT_LEDGER.md` for the complete schema,
+No aggregate mean, bootstrap interval, or gate decision is produced by the
+settlement stage. See `PROSPECTIVE_SETTLEMENT_LEDGER.md` for the complete schema,
 equations, sign conventions, and failure policy.
+
+### 18.12 Frozen one-shot prospective evaluation
+
+The evaluator is a third artifact boundary after immutable forecast evidence
+and append-only settlement. Its config and implementation module are
+byte-hash-pinned before performance inspection. The holdout begins on July 17,
+2026, so August 2026 is the first full UTC calendar block. Each month matures
+seven days after month end. The deterministic cutoff is the first mature month
+where both horizons independently have at least six nonempty blocks, 2,000
+eligible settled fixture/horizon rows, and five competitions.
+
+Routine collection performs count-only readiness. It verifies the ledger hash
+chain, frozen identities, timestamps, competition IDs, integrity Booleans, and
+eligibility conjunction, but deliberately does not access per-row metric
+fields. It cannot compute an aggregate or make a decision. Readiness requires
+an explicit one-shot command.
+
+For metric \(k\), horizon \(s\), and selected fixture \(i\), define the paired
+loss difference
+
+\[
+d_{i,s}^{(k)}=L_k(p_{\theta,i,s},Y_i)-L_k(p_{0,i,s},Y_i),
+\]
+
+so negative is favorable. Point estimates are fixture-weighted means. Exact
+score log loss additionally uses a paired calendar-month cluster percentile
+bootstrap: sample the observed month labels with replacement, concatenate all
+fixture deltas from each sampled month, and take the mean. The frozen program
+uses 2,000 replicates, seed 20260717, separate deterministic generators per
+horizon, and linear Type-7 2.5% and 97.5% quantiles.
+
+At both horizons, exact-score mean delta and its 97.5% bootstrap endpoint must
+be strictly negative. Total-goals and goal-difference log-loss mean deltas must
+be nonpositive. Home-goals, away-goals, BTTS log loss, total-goals RPS, and
+goal-difference RPS may each degrade by at most 0.001 in mean. The maximum
+candidate or baseline deviation from parent moneyline must remain at most
+\(10^{-10}\). Every Boolean must pass; there is no compensation across metrics
+or horizons.
+
+The decision is created once using create-if-absent and durable filesystem
+operations. It binds the frozen identities, ledger boundary and head, selected
+record-hash digest, cutoff, metrics, interval, and gate Booleans. Later ledger
+appends are permitted, but the original ledger prefix and selected evidence are
+revalidated. Pass means human promotion review only, never automatic
+publication or betting. See `PROSPECTIVE_EVALUATION_PROGRAM.md` for the full
+mathematical and operational specification.
 
 ## 19. Market benchmark and what it says about edge
 

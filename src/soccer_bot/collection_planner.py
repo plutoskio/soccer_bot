@@ -583,6 +583,41 @@ def validate_collector_config(config: dict, catch_up_days: int | None = None) ->
                     settlement.get("timeout_seconds", 240),
                     "prediction shadow settlement_ledger timeout_seconds",
                 )
+                evaluation = settlement.get("evaluation_program", {})
+                if not isinstance(evaluation, dict):
+                    raise ValueError(
+                        "prediction shadow evaluation_program must be an object"
+                    )
+                if evaluation.get("enabled", False):
+                    for key in (
+                        "config_path",
+                        "evaluation_config_sha256",
+                        "output_directory",
+                    ):
+                        value = evaluation.get(key)
+                        if not isinstance(value, str) or not value.strip():
+                            raise ValueError(
+                                f"prediction shadow evaluation_program {key} must be non-empty"
+                            )
+                        if key != "evaluation_config_sha256":
+                            path = Path(value)
+                            if path.is_absolute() or ".." in path.parts:
+                                raise ValueError(
+                                    "prediction shadow evaluation_program path must stay "
+                                    "inside the repository"
+                                )
+                    evaluation_hash = evaluation["evaluation_config_sha256"]
+                    if len(evaluation_hash) != 64 or any(
+                        character not in "0123456789abcdef"
+                        for character in evaluation_hash
+                    ):
+                        raise ValueError(
+                            "prediction shadow evaluation_program hash must be lowercase SHA-256"
+                        )
+                    _positive_int(
+                        evaluation.get("timeout_seconds", 120),
+                        "prediction shadow evaluation_program timeout_seconds",
+                    )
     identity = config.get("identity", {})
     if not isinstance(identity, dict):
         raise ValueError("identity config must be an object")

@@ -196,6 +196,15 @@ def _generate_validate_publish(
         # champion snapshot's earlier information cutoff.
         settled_at=datetime.now(timezone.utc),
     )
+    readiness_result = _try_update_prospective_evaluation_readiness(
+        root=root,
+        shadow_config=config.get("shadow_score_grid", {}),
+        settlement_result=settlement_result,
+        command_runner=command_runner,
+        environment=subprocess_environment,
+        default_timeout=timeout,
+        as_of=datetime.now(timezone.utc),
+    )
     return {
         "status": "uploaded",
         "as_of": snapshot["as_of"],
@@ -207,6 +216,7 @@ def _generate_validate_publish(
         "prediction_rows_sha256": snapshot["prediction_rows_sha256"],
         "shadow_score_grid": shadow_result,
         "prospective_settlement_ledger": settlement_result,
+        "prospective_evaluation_readiness": readiness_result,
     }
 
 
@@ -387,6 +397,138 @@ def _validated_nonnegative_int(value: object, label: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise PredictionPublicationError(f"invalid_prospective_{label}")
     return value
+
+
+def _try_update_prospective_evaluation_readiness(
+    *,
+    root: Path,
+    shadow_config: dict,
+    settlement_result: Mapping[str, object],
+    command_runner: CommandRunner,
+    environment: Mapping[str, str],
+    default_timeout: int,
+    as_of: datetime,
+) -> dict[str, object]:
+    settlement_config = shadow_config.get("settlement_ledger", {})
+    config = settlement_config.get("evaluation_program", {})
+    if not config.get("enabled", False):
+        return {"status": "disabled"}
+    if settlement_result.get("status") not in {"updated", "no_new_settlements"}:
+        return {"status": "skipped", "reason": "settlement_ledger_not_verified"}
+    try:
+        settlement_output = _inside_root(
+            root, settlement_config["output_directory"]
+        )
+        model_path = _inside_root(root, shadow_config["model_path"])
+        gate_path = _inside_root(root, shadow_config["prospective_gate_path"])
+        settlement_config_path = _inside_root(root, settlement_config["config_path"])
+        evaluation_config_path = _inside_root(root, config["config_path"])
+        output_directory = _inside_root(root, config["output_directory"])
+        execution = command_runner(
+            [
+                sys.executable,
+                str(root / "scripts/check_score_grid_v3_evaluation_readiness.py"),
+                "--ledger",
+                str(settlement_output / "ledger.jsonl"),
+                "--model",
+                str(model_path),
+                "--prospective-gate",
+                str(gate_path),
+                "--settlement-config",
+                str(settlement_config_path),
+                "--evaluation-config",
+                str(evaluation_config_path),
+                "--output-dir",
+                str(output_directory),
+                "--as-of",
+                as_of.isoformat(),
+            ],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=int(config.get("timeout_seconds", default_timeout)),
+            check=False,
+        )
+        if execution.returncode:
+            raise PredictionPublicationError(
+                f"prospective_readiness_exit_{execution.returncode}"
+            )
+        try:
+            result = json.loads(execution.stdout)
+        except json.JSONDecodeError as error:
+            raise PredictionPublicationError(
+                "invalid_prospective_readiness_receipt"
+            ) from error
+        _validate_readiness_receipt(
+            result,
+            expected_ledger_records=int(settlement_result["ledger_records"]),
+            expected_evaluation_config_sha256=str(
+                config["evaluation_config_sha256"]
+            ),
+        )
+        return result
+    except Exception as error:
+        return {
+            "status": "failed",
+            "error_type": type(error).__name__,
+            "error": _safe_error(error),
+        }
+
+
+def _validate_readiness_receipt(
+    value: object,
+    *,
+    expected_ledger_records: int,
+    expected_evaluation_config_sha256: str,
+) -> None:
+    if not isinstance(value, dict):
+        raise PredictionPublicationError("prospective_readiness_not_object")
+    if value.get("status") not in {
+        "locked_insufficient_evidence",
+        "ready_for_explicit_one_shot_evaluation",
+        "decision_already_exists",
+    }:
+        raise PredictionPublicationError("prospective_readiness_status_invalid")
+    if (
+        value.get("performance_statistics_exposed") is not False
+        or value.get("automatic_decision_execution") is not False
+        or value.get("explicit_one_shot_command_required") is not True
+    ):
+        raise PredictionPublicationError("prospective_readiness_anti_peeking_failed")
+    if value.get("evaluation_config_sha256") != expected_evaluation_config_sha256:
+        raise PredictionPublicationError("prospective_readiness_config_hash_mismatch")
+    if _validated_nonnegative_int(value.get("ledger_records"), "ledger_records") != (
+        expected_ledger_records
+    ):
+        raise PredictionPublicationError("prospective_readiness_ledger_count_mismatch")
+    horizons = value.get("horizons")
+    if not isinstance(horizons, dict) or set(horizons) != {
+        "pre_lineup_24h_v1",
+        "pre_lineup_72h_clean_v1",
+    }:
+        raise PredictionPublicationError("prospective_readiness_horizons_invalid")
+    for counts in horizons.values():
+        if not isinstance(counts, dict):
+            raise PredictionPublicationError("prospective_readiness_counts_invalid")
+        for key in (
+            "eligible_settled_fixtures",
+            "nonempty_mature_calendar_month_blocks",
+            "competitions",
+        ):
+            _validated_nonnegative_int(counts.get(key), key)
+    forbidden = (
+        "log_loss",
+        "brier",
+        "rps",
+        "mean_delta",
+        "confidence",
+        "bootstrap_interval",
+        "candidate_minus_baseline",
+    )
+    serialized = json.dumps(value, sort_keys=True).lower()
+    if any(term in serialized for term in forbidden):
+        raise PredictionPublicationError("prospective_readiness_exposed_performance")
 
 
 def _is_lowercase_sha256(value: object) -> bool:

@@ -441,9 +441,10 @@ gate_decision_written: false
 The operational watchdog treats a settlement failure as critical and also
 raises `premature_prospective_evaluation_output` if either flag is not exactly
 false. This is an intentional anti-peeking control. Per-fixture scores are
-needed to build future evidence, but aggregate inference is deferred until the
-frozen minimum of six complete calendar months, 2,000 fixtures per horizon,
-and five competitions per horizon is satisfied.
+needed to build future evidence, but the separate frozen evaluator exposes
+only evidence counts until the deterministic minimum is met. It does not even
+access metric fields on its automatic path. See
+`PROSPECTIVE_EVALUATION_PROGRAM.md`.
 
 ## 13. Collector execution order and failure isolation
 
@@ -454,8 +455,9 @@ After DuckDB is closed, one successful production cycle performs:
 3. private v3 generation;
 4. first-evidence materialization and `latest.json` update;
 5. read-only prospective settlement;
-6. append-only publication receipt;
-7. operational watchdog evaluation.
+6. count-only prospective evaluation-readiness update;
+7. append-only publication receipt;
+8. operational watchdog evaluation.
 
 Settlement uses its actual invocation time, not the champion's earlier
 information cutoff, because provider observations may be written during the
@@ -519,9 +521,9 @@ Run the complete repository validation:
 git diff --check
 ```
 
-## 16. What remains deliberately deferred
+## 16. Deliberate boundary with the frozen evaluator
 
-This ledger does not yet:
+This ledger will never:
 
 - aggregate rows by horizon or calendar month;
 - run the paired month-block bootstrap;
@@ -531,6 +533,10 @@ This ledger does not yet:
 - settle player, scorer-order, or corner contracts;
 - expose v3 through the public web service.
 
-Those are separate stages with separate leakage risks. The next prospective
-evaluation program should read only hash-verified, gate-eligible ledger rows
-after the frozen evidence minimum is actually reached.
+Aggregate score evaluation now exists as a separate frozen, hash-pinned,
+write-once program. Its scheduled path validates envelopes and reports counts
+only. Its explicit one-shot path becomes available at the first mature month
+where both horizons have six nonempty calendar-month blocks, 2,000 eligible
+settled rows, and five competitions. That path validates metric arithmetic,
+runs the paired month-block bootstrap, applies every frozen gate, and writes one
+immutable decision. It never edits this ledger or any forecast evidence.

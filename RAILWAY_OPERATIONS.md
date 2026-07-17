@@ -20,6 +20,8 @@ databases are not part of this deployment.
 - Immutable v3 evidence: `/app/data/predictions/regulation_score_grid_v3_shadow/evidence/`
 - V3 evidence receipts: `/app/data/predictions/regulation_score_grid_v3_shadow/receipts/`
 - Prospective settlement ledger: `/app/data/predictions/regulation_score_grid_v3_settlement/ledger.jsonl`
+- Count-only v3 evaluation readiness: `/app/data/predictions/regulation_score_grid_v3_evaluation/readiness.json`
+- Write-once v3 evaluation decision: `/app/data/predictions/regulation_score_grid_v3_evaluation/decision.json`
 - Start command: `python scripts/run_collector.py`
 - Schedule: every five minutes (`*/5 * * * *`)
 - Restart policy: never
@@ -90,8 +92,9 @@ appears in the collector summary and append-only receipt.
 Prediction operations are monitored separately from general collection health.
 The in-process watchdog validates publication freshness, champion and shadow
 identity, row counts, champion-shadow row parity, settlement completion,
-premature-analysis guards, receipt durability, and mounted-volume capacity. A
-critical condition exits with code `3` after
+count-only evaluation readiness, anti-peeking/config/ledger-count guards,
+receipt durability, and mounted-volume capacity. A critical condition exits
+with code `3` after
 collection has been safely committed. An independent GitHub Actions monitor
 runs every 15 minutes against the public snapshot and opens one deduplicated
 issue if the Railway cron stops refreshing it. Full thresholds, alert codes,
@@ -168,6 +171,14 @@ provenance rows.
 - Prospective settlement failure: preserve the existing ledger, inspect the
   sanitized receipt and frozen hashes, and correct the producer. Never delete,
   truncate, reorder, or hand-edit `ledger.jsonl`.
+- Prospective evaluation-readiness failure: preserve the ledger and both
+  evaluator artifacts, inspect frozen hashes and the sanitized readiness
+  receipt, and correct the producer. Never hand-edit readiness to suppress an
+  alert.
+- `prospective_evaluation_ready`: this is a warning, not an incident. Confirm
+  the frozen identities and backup state, then deliberately run
+  `scripts/evaluate_score_grid_v3_prospective.py` once. Do not add it to cron,
+  inspect raw performance first, or replace `decision.json` afterward.
 - GitHub issue `[operations] Soccer Bot prediction watchdog`: treat it as an
   external stale-heartbeat incident and verify the Railway cron and exact
   source commit before attempting a restart.

@@ -352,6 +352,97 @@ def _evaluate_publication(
                 component="prospective_settlement_ledger",
                 summary="Settlement process returned internally inconsistent counts or chain head",
             )
+    evaluation_config = settlement_config.get("evaluation_program", {})
+    if not isinstance(evaluation_config, Mapping) or not evaluation_config.get(
+        "enabled", False
+    ):
+        checks["prospective_evaluation_readiness"] = {"status": "disabled"}
+        return
+    readiness = result.get("prospective_evaluation_readiness")
+    if not isinstance(readiness, Mapping):
+        readiness = {}
+    readiness_status = str(readiness.get("status", "missing"))
+    checks["prospective_evaluation_readiness"] = {
+        "status": readiness_status,
+        "expected_evaluation_config_sha256": evaluation_config.get(
+            "evaluation_config_sha256"
+        ),
+        "observed_evaluation_config_sha256": readiness.get(
+            "evaluation_config_sha256"
+        ),
+        "ledger_records": readiness.get("ledger_records"),
+        "first_full_calendar_month": readiness.get("first_full_calendar_month"),
+        "latest_matured_calendar_month": readiness.get(
+            "latest_matured_calendar_month"
+        ),
+        "deterministic_evaluation_cutoff_month": readiness.get(
+            "deterministic_evaluation_cutoff_month"
+        ),
+        "horizons": readiness.get("horizons"),
+        "performance_statistics_exposed": readiness.get(
+            "performance_statistics_exposed"
+        ),
+        "automatic_decision_execution": readiness.get(
+            "automatic_decision_execution"
+        ),
+        "decision_written": readiness.get("decision_written"),
+    }
+    valid_readiness_statuses = {
+        "locked_insufficient_evidence",
+        "ready_for_explicit_one_shot_evaluation",
+        "decision_already_exists",
+    }
+    if readiness_status not in valid_readiness_statuses:
+        _add_alert(
+            alerts,
+            code="prospective_evaluation_readiness_failed",
+            severity="critical",
+            component="prospective_evaluation_readiness",
+            summary=f"Prospective evaluation readiness status is {readiness_status}",
+        )
+    if readiness_status in valid_readiness_statuses and (
+        readiness.get("performance_statistics_exposed") is not False
+        or readiness.get("automatic_decision_execution") is not False
+        or readiness.get("explicit_one_shot_command_required") is not True
+    ):
+        _add_alert(
+            alerts,
+            code="prospective_evaluation_readiness_unsafe",
+            severity="critical",
+            component="prospective_evaluation_readiness",
+            summary="Readiness output violated the frozen anti-peeking policy",
+        )
+    if readiness_status in valid_readiness_statuses and readiness.get(
+        "evaluation_config_sha256"
+    ) != evaluation_config.get("evaluation_config_sha256"):
+        _add_alert(
+            alerts,
+            code="prospective_evaluation_config_identity_mismatch",
+            severity="critical",
+            component="prospective_evaluation_readiness",
+            summary="Readiness evaluator configuration differs from frozen collector identity",
+        )
+    if readiness_status in valid_readiness_statuses:
+        readiness_records = _nonnegative_int(readiness.get("ledger_records"))
+        if (
+            readiness_records is None
+            or readiness_records != settlement_counts["ledger_records"]
+        ):
+            _add_alert(
+                alerts,
+                code="prospective_evaluation_ledger_count_mismatch",
+                severity="critical",
+                component="prospective_evaluation_readiness",
+                summary="Readiness and settlement disagree on ledger row count",
+            )
+    if readiness_status == "ready_for_explicit_one_shot_evaluation":
+        _add_alert(
+            alerts,
+            code="prospective_evaluation_ready",
+            severity="warning",
+            component="prospective_evaluation_readiness",
+            summary="Frozen evidence minimum is met; explicit one-shot evaluation is ready",
+        )
 
 
 def _evaluate_volume(

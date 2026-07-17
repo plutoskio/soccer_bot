@@ -44,7 +44,13 @@ class OperationalAlertTests(unittest.TestCase):
                     "model_version": "regulation_score_grid_v3_prospective_shadow",
                     "logical_model_sha256": SHADOW_HASH,
                     "minimum_prediction_rows": 1,
-                    "settlement_ledger": {"enabled": True},
+                    "settlement_ledger": {
+                        "enabled": True,
+                        "evaluation_program": {
+                            "enabled": True,
+                            "evaluation_config_sha256": "e" * 64,
+                        },
+                    },
                 },
             },
         }
@@ -75,6 +81,29 @@ class OperationalAlertTests(unittest.TestCase):
                 "ledger_head_sha256": None,
                 "performance_aggregates_written": False,
                 "gate_decision_written": False,
+            },
+            "prospective_evaluation_readiness": {
+                "status": "locked_insufficient_evidence",
+                "evaluation_config_sha256": "e" * 64,
+                "ledger_records": 0,
+                "first_full_calendar_month": "2026-08",
+                "latest_matured_calendar_month": None,
+                "deterministic_evaluation_cutoff_month": None,
+                "horizons": {
+                    horizon: {
+                        "eligible_settled_fixtures": 0,
+                        "nonempty_mature_calendar_month_blocks": 0,
+                        "competitions": 0,
+                    }
+                    for horizon in (
+                        "pre_lineup_24h_v1",
+                        "pre_lineup_72h_clean_v1",
+                    )
+                },
+                "performance_statistics_exposed": False,
+                "automatic_decision_execution": False,
+                "explicit_one_shot_command_required": True,
+                "decision_written": False,
             },
         }
         value.update(overrides)
@@ -229,6 +258,58 @@ class OperationalAlertTests(unittest.TestCase):
         self.assertIn(
             "prospective_settlement_receipt_invalid",
             self.codes(self.watchdog(invalid)),
+        )
+
+    def test_evaluation_readiness_failure_or_unsafe_output_is_critical(self) -> None:
+        failed = self.result()
+        failed["prospective_evaluation_readiness"] = {"status": "failed"}
+        self.assertIn(
+            "prospective_evaluation_readiness_failed",
+            self.codes(self.watchdog(failed)),
+        )
+
+        unsafe = self.result()
+        unsafe["prospective_evaluation_readiness"] = {
+            **unsafe["prospective_evaluation_readiness"],
+            "performance_statistics_exposed": True,
+        }
+        self.assertIn(
+            "prospective_evaluation_readiness_unsafe",
+            self.codes(self.watchdog(unsafe)),
+        )
+
+    def test_ready_evaluator_opens_warning_not_critical(self) -> None:
+        ready = self.result()
+        ready["prospective_evaluation_readiness"] = {
+            **ready["prospective_evaluation_readiness"],
+            "status": "ready_for_explicit_one_shot_evaluation",
+            "deterministic_evaluation_cutoff_month": "2027-01",
+        }
+        status = self.watchdog(ready)
+
+        self.assertIn("prospective_evaluation_ready", self.codes(status))
+        self.assertEqual(status["overall_status"], "warning")
+        self.assertFalse(status["should_fail_run"])
+
+    def test_evaluation_identity_or_ledger_count_mismatch_is_critical(self) -> None:
+        wrong_identity = self.result()
+        wrong_identity["prospective_evaluation_readiness"] = {
+            **wrong_identity["prospective_evaluation_readiness"],
+            "evaluation_config_sha256": "f" * 64,
+        }
+        self.assertIn(
+            "prospective_evaluation_config_identity_mismatch",
+            self.codes(self.watchdog(wrong_identity)),
+        )
+
+        wrong_count = self.result()
+        wrong_count["prospective_evaluation_readiness"] = {
+            **wrong_count["prospective_evaluation_readiness"],
+            "ledger_records": 1,
+        }
+        self.assertIn(
+            "prospective_evaluation_ledger_count_mismatch",
+            self.codes(self.watchdog(wrong_count)),
         )
 
     def test_volume_thresholds_have_warning_and_critical_levels(self) -> None:

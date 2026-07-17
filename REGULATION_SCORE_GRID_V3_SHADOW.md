@@ -189,6 +189,16 @@ market profitability cannot substitute for proper-distribution improvement.
 If the gate fails, any revised features, penalties, thresholds, or model form
 must use a new version and a new untouched forward holdout.
 
+The executable program is frozen separately in
+`config/models/regulation_score_grid_v3_evaluation.json`. July 2026 is excluded
+as a partial holdout month. A month matures seven days after its UTC month end,
+and the cutoff is the first mature month where both horizons meet all three
+minimums. The scheduled collector reports only counts; it neither reads metric
+fields nor runs the gate. A human must invoke the write-once command after a
+readiness warning. The exact estimands, bootstrap resampling law, Type-7
+quantiles, conjunction logic, and decision-integrity checks are documented in
+`PROSPECTIVE_EVALUATION_PROGRAM.md`.
+
 ## Numerical and data guardrails
 
 - Poisson support extends to at least 12 goals per team and until omitted
@@ -317,6 +327,7 @@ public API exposure or automatic betting action is part of v3 at this stage.
 
 After shadow evidence is durable, the collector invokes the read-only
 prospective settlement updater. Completed eligible fixtures are appended to a
-separate hash-chained ledger. Per-fixture scores are stored, but aggregate
-performance and any gate decision are forbidden until the frozen evidence
-minimum is reached.
+separate hash-chained ledger. It then updates count-only evaluation readiness.
+Per-fixture scores remain unaggregated during routine operation. When the
+deterministic frozen minimum is reached, an operational warning requests the
+explicit one-shot evaluation; no collector cycle can run it automatically.

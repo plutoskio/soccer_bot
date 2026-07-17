@@ -24,12 +24,14 @@ class FakeRunner:
         upload_exit: int = 0,
         shadow_exit: int = 0,
         settlement_exit: int = 0,
+        readiness_exit: int = 0,
     ):
         self.snapshot = snapshot
         self.generation_exit = generation_exit
         self.upload_exit = upload_exit
         self.shadow_exit = shadow_exit
         self.settlement_exit = settlement_exit
+        self.readiness_exit = readiness_exit
         self.commands: list[list[str]] = []
 
     def __call__(self, command, **_kwargs):
@@ -110,6 +112,36 @@ class FakeRunner:
                     }
                 ),
                 stderr="settlement secret",
+            )
+        if command[1].endswith("check_score_grid_v3_evaluation_readiness.py"):
+            return subprocess.CompletedProcess(
+                command,
+                self.readiness_exit,
+                stdout=json.dumps(
+                    {
+                        "readiness_version": "regulation_score_grid_v3_evaluation_readiness_v1",
+                        "status": "locked_insufficient_evidence",
+                        "evaluation_config_sha256": (
+                            "5d0926eea8c670a1d6815bf33f0542aabe4b3a97a8ce18aa2287ca832810adb5"
+                        ),
+                        "ledger_records": 0,
+                        "horizons": {
+                            horizon: {
+                                "eligible_settled_fixtures": 0,
+                                "nonempty_mature_calendar_month_blocks": 0,
+                                "competitions": 0,
+                            }
+                            for horizon in (
+                                "pre_lineup_24h_v1",
+                                "pre_lineup_72h_clean_v1",
+                            )
+                        },
+                        "performance_statistics_exposed": False,
+                        "automatic_decision_execution": False,
+                        "explicit_one_shot_command_required": True,
+                    }
+                ),
+                stderr="readiness secret",
             )
         return subprocess.CompletedProcess(
             command,
@@ -194,6 +226,19 @@ class PredictionPublicationTests(unittest.TestCase):
                             "data/predictions/regulation_score_grid_v3_settlement"
                         ),
                         "timeout_seconds": 30,
+                        "evaluation_program": {
+                            "enabled": True,
+                            "config_path": (
+                                "config/models/regulation_score_grid_v3_evaluation.json"
+                            ),
+                            "evaluation_config_sha256": (
+                                "5d0926eea8c670a1d6815bf33f0542aabe4b3a97a8ce18aa2287ca832810adb5"
+                            ),
+                            "output_directory": (
+                                "data/predictions/regulation_score_grid_v3_evaluation"
+                            ),
+                            "timeout_seconds": 30,
+                        },
                     },
                 },
             }
@@ -245,7 +290,7 @@ class PredictionPublicationTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "uploaded")
         self.assertEqual(result["prediction_rows"], 1)
-        self.assertEqual(len(runner.commands), 4)
+        self.assertEqual(len(runner.commands), 5)
         self.assertEqual(
             result["shadow_score_grid"]["status"],
             "written_to_persistent_shadow_store",
@@ -253,6 +298,10 @@ class PredictionPublicationTests(unittest.TestCase):
         self.assertEqual(
             result["prospective_settlement_ledger"]["status"],
             "no_new_settlements",
+        )
+        self.assertEqual(
+            result["prospective_evaluation_readiness"]["status"],
+            "locked_insufficient_evidence",
         )
         command_text = " ".join(part for command in runner.commands for part in command)
         for secret in self.environment.values():
@@ -329,6 +378,21 @@ class PredictionPublicationTests(unittest.TestCase):
         )
         self.assertEqual(len(runner.commands), 4)
         self.assertNotIn("settlement secret", json.dumps(result))
+
+    def test_readiness_failure_is_isolated_and_sanitized(self) -> None:
+        runner = FakeRunner(self.snapshot(), readiness_exit=37)
+        result = self.publish(runner)
+
+        self.assertEqual(result["status"], "uploaded")
+        self.assertEqual(
+            result["prospective_evaluation_readiness"]["status"], "failed"
+        )
+        self.assertEqual(
+            result["prospective_evaluation_readiness"]["error"],
+            "prospective_readiness_exit_37",
+        )
+        self.assertEqual(len(runner.commands), 5)
+        self.assertNotIn("readiness secret", json.dumps(result))
 
     def test_report_write_failure_does_not_fail_collection_or_publication(self) -> None:
         runner = FakeRunner(self.snapshot())
