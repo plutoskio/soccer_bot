@@ -16,10 +16,18 @@ LOGICAL_HASH = "8be7ffad15d12e7e603b2d9f3dd8dcd5e742e0f80846bcb6cd45c9ca40d7ef7a
 
 
 class FakeRunner:
-    def __init__(self, snapshot: dict, *, generation_exit: int = 0, upload_exit: int = 0):
+    def __init__(
+        self,
+        snapshot: dict,
+        *,
+        generation_exit: int = 0,
+        upload_exit: int = 0,
+        shadow_exit: int = 0,
+    ):
         self.snapshot = snapshot
         self.generation_exit = generation_exit
         self.upload_exit = upload_exit
+        self.shadow_exit = shadow_exit
         self.commands: list[list[str]] = []
 
     def __call__(self, command, **_kwargs):
@@ -33,6 +41,54 @@ class FakeRunner:
                 )
             return subprocess.CompletedProcess(
                 command, self.generation_exit, stdout="{}", stderr="provider secret"
+            )
+        if command[1].endswith("predict_score_grid_v3_shadow.py"):
+            if not self.shadow_exit:
+                output = Path(command[command.index("--output-dir") + 1])
+                output.mkdir(parents=True, exist_ok=True)
+                as_of = datetime.fromisoformat(self.snapshot["as_of"])
+                rows = [
+                    {
+                        "fixture_id": row["fixture_id"],
+                        "information_state": row["information_state"],
+                        "kickoff": row["kickoff"],
+                        "parent_moneyline": {
+                            "home_win": 0.4,
+                            "draw": 0.3,
+                            "away_win": 0.3,
+                        },
+                        "implied_moneyline": {
+                            "home_win": 0.4,
+                            "draw": 0.3,
+                            "away_win": 0.3,
+                        },
+                        "score_grid": [
+                            {"home_goals": 1, "away_goals": 0, "probability": 0.4},
+                            {"home_goals": 0, "away_goals": 0, "probability": 0.3},
+                            {"home_goals": 0, "away_goals": 1, "probability": 0.3},
+                        ],
+                    }
+                    for row in self.snapshot["predictions"]
+                ]
+                shadow = {
+                    "snapshot_version": "regulation_score_grid_v3_shadow_snapshot_v1",
+                    "created_at": (as_of + timedelta(minutes=1)).isoformat(),
+                    "as_of": self.snapshot["as_of"],
+                    "model_version": "regulation_score_grid_v3_prospective_shadow",
+                    "parent_model_version": "regulation_champion_v1",
+                    "logical_model_sha256": (
+                        "d17aa0334ad85914a396089430ad588ef8ca9381227de044106c1c777cbe00c7"
+                    ),
+                    "prospective_gate_version": (
+                        "regulation_score_grid_v3_prospective_gate_v1"
+                    ),
+                    "predictions": rows,
+                }
+                (output / "latest.json").write_text(
+                    json.dumps(shadow), encoding="utf-8"
+                )
+            return subprocess.CompletedProcess(
+                command, self.shadow_exit, stdout="{}", stderr="shadow secret"
             )
         return subprocess.CompletedProcess(
             command,
@@ -53,7 +109,35 @@ class PredictionPublicationTests(unittest.TestCase):
             .read_text(encoding="utf-8"),
             encoding="utf-8",
         )
-        self.as_of = datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc)
+        shadow_model = (
+            self.root
+            / "artifacts"
+            / "production"
+            / "regulation_score_grid_v3_shadow"
+        )
+        shadow_model.mkdir(parents=True)
+        shadow_model.joinpath("model.json").write_text(
+            (
+                ROOT
+                / "artifacts"
+                / "production"
+                / "regulation_score_grid_v3_shadow"
+                / "model.json"
+            ).read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        gate = self.root / "config" / "models"
+        gate.mkdir(parents=True)
+        gate.joinpath("regulation_score_grid_v3_prospective_gate.json").write_text(
+            (
+                ROOT
+                / "config"
+                / "models"
+                / "regulation_score_grid_v3_prospective_gate.json"
+            ).read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        self.as_of = datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)
         self.config = {
             "prediction_publication": {
                 "enabled": True,
@@ -64,6 +148,23 @@ class PredictionPublicationTests(unittest.TestCase):
                 "report_directory": "data/reports/predictions",
                 "minimum_prediction_rows": 1,
                 "timeout_seconds": 30,
+                "shadow_score_grid": {
+                    "enabled": True,
+                    "model_version": "regulation_score_grid_v3_prospective_shadow",
+                    "logical_model_sha256": (
+                        "d17aa0334ad85914a396089430ad588ef8ca9381227de044106c1c777cbe00c7"
+                    ),
+                    "model_path": (
+                        "artifacts/production/regulation_score_grid_v3_shadow/model.json"
+                    ),
+                    "prospective_gate_path": (
+                        "config/models/regulation_score_grid_v3_prospective_gate.json"
+                    ),
+                    "output_directory": (
+                        "data/predictions/regulation_score_grid_v3_shadow"
+                    ),
+                    "minimum_prediction_rows": 1,
+                },
             }
         }
         self.environment = {
@@ -113,7 +214,11 @@ class PredictionPublicationTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "uploaded")
         self.assertEqual(result["prediction_rows"], 1)
-        self.assertEqual(len(runner.commands), 2)
+        self.assertEqual(len(runner.commands), 3)
+        self.assertEqual(
+            result["shadow_score_grid"]["status"],
+            "written_to_persistent_shadow_store",
+        )
         command_text = " ".join(part for command in runner.commands for part in command)
         for secret in self.environment.values():
             self.assertNotIn(secret, command_text)
@@ -160,6 +265,18 @@ class PredictionPublicationTests(unittest.TestCase):
         self.assertEqual(result["error"], "snapshot_publication_exit_23")
         self.assertEqual(len(runner.commands), 2)
         self.assertNotIn("storage secret", json.dumps(result))
+
+    def test_shadow_failure_is_isolated_after_parent_upload(self) -> None:
+        runner = FakeRunner(self.snapshot(), shadow_exit=29)
+        result = self.publish(runner)
+
+        self.assertEqual(result["status"], "uploaded")
+        self.assertEqual(result["shadow_score_grid"]["status"], "failed")
+        self.assertEqual(
+            result["shadow_score_grid"]["error"], "shadow_generation_exit_29"
+        )
+        self.assertEqual(len(runner.commands), 3)
+        self.assertNotIn("shadow secret", json.dumps(result))
 
     def test_report_write_failure_does_not_fail_collection_or_publication(self) -> None:
         runner = FakeRunner(self.snapshot())

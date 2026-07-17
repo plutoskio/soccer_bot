@@ -1,0 +1,53 @@
+{
+  "gate_version": "regulation_score_grid_v3_prospective_gate_v1",
+  "model_version": "regulation_score_grid_v3_prospective_shadow",
+  "status": "frozen_before_first_eligible_shadow_prediction",
+  "prospective_holdout_kickoff_start_inclusive": "2026-07-17T00:00:00+00:00",
+  "baseline": "parent_moneyline_preserving_independent_poisson_conditionals",
+  "pairing_key": [
+    "fixture_id",
+    "information_state"
+  ],
+  "minimum_evidence": {
+    "complete_calendar_month_blocks": 6,
+    "fixtures_per_horizon": 2000,
+    "minimum_competitions_per_horizon": 5
+  },
+  "primary_gate": {
+    "metric": "exact_score_log_loss",
+    "require_negative_mean_delta_each_horizon": true,
+    "require_paired_month_block_bootstrap_95_upper_below_zero_each_horizon": true
+  },
+  "secondary_gates": {
+    "require_nonpositive_mean_delta_each_horizon": [
+      "total_goals_log_loss",
+      "goal_difference_log_loss"
+    ],
+    "maximum_mean_delta_each_horizon": {
+      "home_goals_log_loss": 0.001,
+      "away_goals_log_loss": 0.001,
+      "both_teams_to_score_log_loss": 0.001,
+      "total_goals_rps": 0.001,
+      "goal_difference_rps": 0.001
+    },
+    "maximum_absolute_parent_moneyline_difference": 1e-10
+  },
+  "uncertainty": {
+    "paired_block_unit": "calendar_month",
+    "bootstrap_replicates": 2000,
+    "bootstrap_seed": 20260717
+  },
+  "evidence_integrity": {
+    "snapshot_as_of_must_be_at_or_after_recipe_freeze": true,
+    "snapshot_creation_must_be_strictly_before_kickoff": true,
+    "prediction_and_model_hashes_required": true,
+    "outcomes_joined_only_after_prediction_artifacts_are_immutable": true,
+    "no_parameter_or_gate_changes_before_decision": true,
+    "retrospective_rows_before_holdout_are_ineligible": true
+  },
+  "decision_policy": {
+    "all_primary_and_secondary_gates_must_pass": true,
+    "market_profitability_is_not_a_substitute_for_proper_score_improvement": true,
+    "failure_creates_a_new_challenger_version": true
+  }
+}

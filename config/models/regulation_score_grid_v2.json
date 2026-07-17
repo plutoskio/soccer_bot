@@ -1,0 +1,99 @@
+{
+  "model_version": "regulation_score_grid_v2_challenger",
+  "research_status": "development_only_no_opened_final_test_access",
+  "baseline_model_key": "independent_poisson_score_grid",
+  "moneyline_control": {
+    "model_key": "rich_rate_moneyline_temperature_control",
+    "temperature_minimum": 0.5,
+    "temperature_maximum": 2.0,
+    "optimizer_tolerance": 1e-8,
+    "minimum_fit_fixtures_per_horizon": 1500,
+    "purpose": "protect_the_existing_champion_moneyline_calibration"
+  },
+  "forbidden_kickoff_start": "2025-07-01T00:00:00+00:00",
+  "support": {
+    "poisson_tail_tolerance": 1e-12,
+    "minimum_max_goals_per_team": 12,
+    "maximum_max_goals_per_team": 60,
+    "probability_floor": 1e-15
+  },
+  "windows": [
+    {
+      "window_key": "selection_2023_2024",
+      "source_key": "development_validation_predictions",
+      "fit_start_inclusive": "2023-07-01T00:00:00+00:00",
+      "fit_end_exclusive": "2024-01-01T00:00:00+00:00",
+      "validation_start_inclusive": "2024-01-01T00:00:00+00:00",
+      "validation_end_exclusive": "2024-07-01T00:00:00+00:00",
+      "purpose": "candidate_family_selection"
+    },
+    {
+      "window_key": "confirmation_2024_2025",
+      "source_key": "promoted_development_predictions",
+      "fit_start_inclusive": "2024-07-01T00:00:00+00:00",
+      "fit_end_exclusive": "2025-01-01T00:00:00+00:00",
+      "validation_start_inclusive": "2025-01-01T00:00:00+00:00",
+      "validation_end_exclusive": "2025-07-01T00:00:00+00:00",
+      "purpose": "selected_family_confirmation"
+    }
+  ],
+  "candidates": [
+    {
+      "model_key": "coherent_grid_temperature_v1",
+      "family": "grid_temperature",
+      "temperature_minimum": 0.5,
+      "temperature_maximum": 2.0,
+      "optimizer_tolerance": 1e-8,
+      "minimum_fit_fixtures_per_horizon": 1500
+    },
+    {
+      "model_key": "poisson_exponential_tilt_v1",
+      "family": "exponential_tilt",
+      "features": [
+        "home_goals",
+        "away_goals",
+        "log_factorial_sum",
+        "draw",
+        "zero_zero",
+        "both_teams_to_score"
+      ],
+      "feature_scales": {
+        "home_goals": 3.0,
+        "away_goals": 3.0,
+        "log_factorial_sum": 5.0,
+        "draw": 1.0,
+        "zero_zero": 1.0,
+        "both_teams_to_score": 1.0
+      },
+      "ridge_penalty": 25.0,
+      "maximum_newton_iterations": 30,
+      "optimizer_tolerance": 1e-8,
+      "minimum_fit_fixtures_per_horizon": 1500
+    }
+  ],
+  "selection_policy": {
+    "primary_metric": "exact_score_log_loss",
+    "require_negative_mean_delta_in_every_horizon": true,
+    "tie_break_metrics": [
+      "total_goals_log_loss",
+      "goal_difference_log_loss",
+      "moneyline_log_loss"
+    ]
+  },
+  "confirmation_gate": {
+    "require_exact_score_bootstrap_upper_below_zero": true,
+    "require_nonpositive_mean_delta_metrics": [
+      "home_goals_log_loss",
+      "away_goals_log_loss",
+      "total_goals_log_loss",
+      "goal_difference_log_loss"
+    ],
+    "moneyline_mean_delta_maximum": 0.001
+  },
+  "uncertainty": {
+    "paired_block_unit": "calendar_month",
+    "bootstrap_replicates": 2000,
+    "bootstrap_seed": 20260717
+  },
+  "parameter_status": "candidate_definitions_frozen_before_confirmation_window_scoring"
+}

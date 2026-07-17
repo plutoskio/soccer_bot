@@ -47,7 +47,16 @@
     "output_directory": "data/predictions/regulation_champion_v1",
     "report_directory": "data/reports/predictions",
     "minimum_prediction_rows": 1,
-    "timeout_seconds": 240
+    "timeout_seconds": 240,
+    "shadow_score_grid": {
+      "enabled": true,
+      "model_version": "regulation_score_grid_v3_prospective_shadow",
+      "logical_model_sha256": "d17aa0334ad85914a396089430ad588ef8ca9381227de044106c1c777cbe00c7",
+      "model_path": "artifacts/production/regulation_score_grid_v3_shadow/model.json",
+      "prospective_gate_path": "config/models/regulation_score_grid_v3_prospective_gate.json",
+      "output_directory": "data/predictions/regulation_score_grid_v3_shadow",
+      "minimum_prediction_rows": 1
+    }
   },
   "polymarket": {
     "soccer_tag_id": 100350,

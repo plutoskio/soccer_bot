@@ -1,0 +1,82 @@
+{
+  "artifact_version": "regulation_score_grid_shadow_model_v1",
+  "created_at": "2026-07-17T17:33:49.164696+00:00",
+  "logical_model_sha256": "d17aa0334ad85914a396089430ad588ef8ca9381227de044106c1c777cbe00c7",
+  "model": {
+    "horizons": [
+      {
+        "coefficients": [
+          0.29757947921797057,
+          0.3056410551420631,
+          -0.711568182660764,
+          0.004884124606541449,
+          -0.04075220964098525
+        ],
+        "converged": true,
+        "feature_names": [
+          "home_goals",
+          "away_goals",
+          "log_factorial_sum",
+          "zero_zero",
+          "both_teams_to_score"
+        ],
+        "feature_scales": [
+          3.0,
+          3.0,
+          5.0,
+          1.0,
+          1.0
+        ],
+        "information_state": "pre_lineup_24h_v1",
+        "iterations": 4,
+        "penalized_objective": 30892.367651379158,
+        "ridge_penalty": 25.0,
+        "training_fixtures": 15458,
+        "training_kickoff_end_exclusive": "2026-07-11T00:00:00+00:00",
+        "training_kickoff_start": "2023-07-01T16:00:00+00:00"
+      },
+      {
+        "coefficients": [
+          0.2624884326621019,
+          0.2746301569827476,
+          -0.6665581467915669,
+          0.009040232507651891,
+          -0.02150765088263769
+        ],
+        "converged": true,
+        "feature_names": [
+          "home_goals",
+          "away_goals",
+          "log_factorial_sum",
+          "zero_zero",
+          "both_teams_to_score"
+        ],
+        "feature_scales": [
+          3.0,
+          3.0,
+          5.0,
+          1.0,
+          1.0
+        ],
+        "information_state": "pre_lineup_72h_clean_v1",
+        "iterations": 4,
+        "penalized_objective": 28142.483965651518,
+        "ridge_penalty": 25.0,
+        "training_fixtures": 14139,
+        "training_kickoff_end_exclusive": "2026-07-11T00:00:00+00:00",
+        "training_kickoff_start": "2023-07-01T16:00:00+00:00"
+      }
+    ],
+    "maximum_max_goals": 60,
+    "minimum_max_goals": 12,
+    "model_family": "result_marginal_preserving_exponential_tilt",
+    "model_version": "regulation_score_grid_v3_prospective_shadow",
+    "normalization_tolerance": 1e-10,
+    "parent_moneyline_model_version": "regulation_champion_v1",
+    "poisson_tail_tolerance": 1e-12,
+    "prospective_holdout_start": "2026-07-17T00:00:00+00:00",
+    "recipe_frozen_at": "2026-07-17T00:00:00+00:00",
+    "status": "frozen_prospective_shadow_no_retrospective_promotion_claim",
+    "training_kickoff_end_exclusive": "2026-07-11T00:00:00+00:00"
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "model_version": "regulation_score_grid_v3_prospective_shadow",
+  "status": "frozen_prospective_shadow_no_retrospective_promotion_claim",
+  "parent_moneyline_model_version": "regulation_champion_v1",
+  "model_family": "result_marginal_preserving_exponential_tilt",
+  "recipe_frozen_at": "2026-07-17T00:00:00+00:00",
+  "training_kickoff_end_exclusive": "2026-07-11T00:00:00+00:00",
+  "prospective_holdout_kickoff_start_inclusive": "2026-07-17T00:00:00+00:00",
+  "support": {
+    "poisson_tail_tolerance": 1e-12,
+    "minimum_max_goals_per_team": 12,
+    "maximum_max_goals_per_team": 60,
+    "normalization_tolerance": 1e-10
+  },
+  "conditional_tilt": {
+    "features": [
+      "home_goals",
+      "away_goals",
+      "log_factorial_sum",
+      "zero_zero",
+      "both_teams_to_score"
+    ],
+    "feature_scales": {
+      "home_goals": 3.0,
+      "away_goals": 3.0,
+      "log_factorial_sum": 5.0,
+      "zero_zero": 1.0,
+      "both_teams_to_score": 1.0
+    },
+    "ridge_penalty": 25.0,
+    "maximum_newton_iterations": 30,
+    "optimizer_tolerance": 1e-8,
+    "minimum_fit_fixtures_per_horizon": 5000
+  },
+  "invariants": {
+    "preserve_parent_moneyline_exactly": true,
+    "all_score_cells_strictly_positive": true,
+    "all_contracts_derived_from_one_score_grid": true,
+    "extra_time_and_penalty_shootout_excluded": true
+  },
+  "evaluation": {
+    "mode": "prospective_only",
+    "minimum_complete_calendar_month_blocks": 6,
+    "primary_metric": "exact_score_log_loss",
+    "moneyline_delta_is_identically_zero_by_construction": true,
+    "required_secondary_metrics": [
+      "home_goals_log_loss",
+      "away_goals_log_loss",
+      "total_goals_log_loss",
+      "goal_difference_log_loss",
+      "both_teams_to_score_log_loss",
+      "total_goals_rps",
+      "goal_difference_rps"
+    ],
+    "promotion_requires_new_written_gate_before_outcomes_are_scored": true
+  },
+  "source_policy": {
+    "historical_rate_predictions_are_fit_inputs_not_evaluation_evidence": true,
+    "market_data_allowed": false,
+    "missing_values_may_not_be_replaced_with_zero": true
+  }
+}

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -11,6 +12,11 @@ from typing import Callable, Mapping
 from soccer_bot.modeling.production import (
     champion_model_sha256,
     load_regulation_champion,
+)
+from soccer_bot.modeling.score_grid_shadow import (
+    load_score_grid_prospective_gate,
+    load_score_grid_shadow_model,
+    score_grid_shadow_sha256,
 )
 
 
@@ -168,6 +174,15 @@ def _generate_validate_publish(
         raise PredictionPublicationError("publication_not_confirmed")
 
     predictions = snapshot["predictions"]
+    shadow_result = _try_generate_shadow_score_grid(
+        root=root,
+        parent_snapshot_path=snapshot_path,
+        parent_snapshot=snapshot,
+        config=config.get("shadow_score_grid", {}),
+        command_runner=command_runner,
+        environment=subprocess_environment,
+        timeout=timeout,
+    )
     return {
         "status": "uploaded",
         "as_of": snapshot["as_of"],
@@ -176,7 +191,185 @@ def _generate_validate_publish(
         "prediction_rows": len(predictions),
         "fixture_count": len({row["fixture_id"] for row in predictions}),
         "prediction_rows_sha256": snapshot["prediction_rows_sha256"],
+        "shadow_score_grid": shadow_result,
     }
+
+
+def _try_generate_shadow_score_grid(
+    *,
+    root: Path,
+    parent_snapshot_path: Path,
+    parent_snapshot: dict,
+    config: dict,
+    command_runner: CommandRunner,
+    environment: Mapping[str, str],
+    timeout: int,
+) -> dict[str, object]:
+    if not config.get("enabled", False):
+        return {"status": "disabled"}
+    try:
+        model_path = _inside_root(root, config["model_path"])
+        gate_path = _inside_root(root, config["prospective_gate_path"])
+        output_directory = _inside_root(root, config["output_directory"])
+        model = load_score_grid_shadow_model(model_path)
+        expected_hash = str(config["logical_model_sha256"])
+        if model.model_version != str(config["model_version"]):
+            raise PredictionPublicationError("shadow_model_version_mismatch")
+        if score_grid_shadow_sha256(model) != expected_hash:
+            raise PredictionPublicationError("shadow_logical_model_hash_mismatch")
+        gate = load_score_grid_prospective_gate(gate_path, model=model)
+        generation = command_runner(
+            [
+                sys.executable,
+                str(root / "scripts" / "predict_score_grid_v3_shadow.py"),
+                "--parent-snapshot",
+                str(parent_snapshot_path),
+                "--model",
+                str(model_path),
+                "--prospective-gate",
+                str(gate_path),
+                "--output-dir",
+                str(output_directory),
+            ],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        if generation.returncode:
+            raise PredictionPublicationError(
+                f"shadow_generation_exit_{generation.returncode}"
+            )
+        shadow_path = output_directory / "latest.json"
+        shadow = json.loads(shadow_path.read_text(encoding="utf-8"))
+        _validate_shadow_candidate(
+            shadow,
+            parent_snapshot=parent_snapshot,
+            expected_model_version=model.model_version,
+            expected_model_hash=expected_hash,
+            expected_gate_version=str(gate["gate_version"]),
+            minimum_prediction_rows=int(config.get("minimum_prediction_rows", 1)),
+        )
+        rows = shadow["predictions"]
+        return {
+            "status": "written_to_persistent_shadow_store",
+            "model_version": shadow["model_version"],
+            "logical_model_sha256": shadow["logical_model_sha256"],
+            "prospective_gate_version": shadow["prospective_gate_version"],
+            "prediction_rows": len(rows),
+            "fixture_count": len({row["fixture_id"] for row in rows}),
+        }
+    except Exception as error:
+        return {
+            "status": "failed",
+            "error_type": type(error).__name__,
+            "error": _safe_error(error),
+        }
+
+
+def _validate_shadow_candidate(
+    snapshot: object,
+    *,
+    parent_snapshot: dict,
+    expected_model_version: str,
+    expected_model_hash: str,
+    expected_gate_version: str,
+    minimum_prediction_rows: int,
+) -> None:
+    if not isinstance(snapshot, dict):
+        raise PredictionPublicationError("shadow_snapshot_not_object")
+    if snapshot.get("snapshot_version") != (
+        "regulation_score_grid_v3_shadow_snapshot_v1"
+    ):
+        raise PredictionPublicationError("unexpected_shadow_snapshot_version")
+    if snapshot.get("model_version") != expected_model_version:
+        raise PredictionPublicationError("shadow_snapshot_model_version_mismatch")
+    if snapshot.get("logical_model_sha256") != expected_model_hash:
+        raise PredictionPublicationError("shadow_snapshot_model_hash_mismatch")
+    if snapshot.get("prospective_gate_version") != expected_gate_version:
+        raise PredictionPublicationError("shadow_snapshot_gate_version_mismatch")
+    if snapshot.get("parent_model_version") != parent_snapshot.get("model_version"):
+        raise PredictionPublicationError("shadow_snapshot_parent_version_mismatch")
+    if _parse_timestamp(snapshot.get("as_of"), "shadow_as_of") != _parse_timestamp(
+        parent_snapshot.get("as_of"), "parent_as_of"
+    ):
+        raise PredictionPublicationError("shadow_snapshot_as_of_mismatch")
+    created_at = _parse_timestamp(snapshot.get("created_at"), "shadow_created_at")
+    predictions = snapshot.get("predictions")
+    if not isinstance(predictions, list) or len(predictions) < minimum_prediction_rows:
+        raise PredictionPublicationError("shadow_snapshot_below_minimum_rows")
+    keys = set()
+    maximum_moneyline_difference = 0.0
+    for row in predictions:
+        if not isinstance(row, dict):
+            raise PredictionPublicationError("shadow_prediction_not_object")
+        key = (str(row.get("fixture_id", "")), str(row.get("information_state", "")))
+        if not all(key) or key in keys:
+            raise PredictionPublicationError("invalid_or_duplicate_shadow_key")
+        keys.add(key)
+        if _parse_timestamp(row.get("kickoff"), "shadow_kickoff") <= created_at:
+            raise PredictionPublicationError("shadow_prediction_not_before_kickoff")
+        parent_moneyline = row.get("parent_moneyline")
+        implied_moneyline = row.get("implied_moneyline")
+        if not isinstance(parent_moneyline, dict) or not isinstance(
+            implied_moneyline, dict
+        ):
+            raise PredictionPublicationError("shadow_moneyline_not_object")
+        for outcome in ("home_win", "draw", "away_win"):
+            try:
+                difference = abs(
+                    float(parent_moneyline[outcome])
+                    - float(implied_moneyline[outcome])
+                )
+            except (KeyError, TypeError, ValueError) as error:
+                raise PredictionPublicationError(
+                    "invalid_shadow_moneyline"
+                ) from error
+            maximum_moneyline_difference = max(
+                maximum_moneyline_difference, difference
+            )
+        grid = row.get("score_grid")
+        if not isinstance(grid, list) or not grid:
+            raise PredictionPublicationError("shadow_score_grid_missing")
+        parsed_cells = []
+        try:
+            for cell in grid:
+                home = cell["home_goals"]
+                away = cell["away_goals"]
+                if (
+                    isinstance(home, bool)
+                    or not isinstance(home, int)
+                    or isinstance(away, bool)
+                    or not isinstance(away, int)
+                    or home < 0
+                    or away < 0
+                ):
+                    raise PredictionPublicationError("invalid_shadow_score")
+                parsed_cells.append((home, away, float(cell["probability"])))
+        except (KeyError, TypeError, ValueError) as error:
+            raise PredictionPublicationError("invalid_shadow_score_cell") from error
+        probabilities = [probability for _, _, probability in parsed_cells]
+        if any(not math.isfinite(value) or value <= 0 for value in probabilities):
+            raise PredictionPublicationError("invalid_shadow_score_probability")
+        if not math.isclose(math.fsum(probabilities), 1.0, abs_tol=1e-10):
+            raise PredictionPublicationError("shadow_score_grid_not_normalized")
+        grid_moneyline = {"home_win": 0.0, "draw": 0.0, "away_win": 0.0}
+        for home, away, probability in parsed_cells:
+            outcome = (
+                "home_win" if home > away else "draw" if home == away else "away_win"
+            )
+            grid_moneyline[outcome] += probability
+        if any(
+            abs(grid_moneyline[outcome] - float(implied_moneyline[outcome])) > 1e-10
+            for outcome in grid_moneyline
+        ):
+            raise PredictionPublicationError(
+                "shadow_grid_and_implied_moneyline_differ"
+            )
+    if maximum_moneyline_difference > 1e-10:
+        raise PredictionPublicationError("shadow_moneyline_invariant_failed")
 
 
 def _validate_candidate(
