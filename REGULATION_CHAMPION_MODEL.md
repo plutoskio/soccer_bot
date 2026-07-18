@@ -87,21 +87,36 @@ A horizon is emitted only when all of the following hold:
    fixture was scheduled.
 4. For clean T−72h, neither team has another scheduled or completed fixture
    between the anchor and kickoff.
-5. Historical results and xG/shots observations enter state only after the
-   configured 150-minute post-kickoff availability delay. Simultaneous matches
-   update as one order-invariant batch.
+5. Historical fixtures before the forward cutover are reconstructed with the
+   documented 150-minute post-kickoff availability assumption. Fixtures from
+   the cutover onward use the later of that delay and the observation's actual
+   retrieval time. Data collected after kickoff is therefore retained and can
+   update later matches, but can never flow backward into an earlier cutoff.
+   Simultaneous matches update as one order-invariant batch.
+6. The first valid forecast for a fixture, horizon, kickoff, and logical model
+   is written once as immutable evidence. After strict issuance begins, a
+   horizon missed by more than ten minutes is skipped instead of backdated.
 
 If a schedule was first discovered after the anchor, or a later reschedule is
 being applied retrospectively, that horizon fails closed with a typed reason.
 
-The output includes calibrated probabilities, raw Poisson probabilities,
+The v3 output includes calibrated probabilities, raw Poisson probabilities,
 expected goal rates, history depths, feature/model versions, exact timestamps,
+the maximum retrieval time of source observations, immutable issuance hashes,
 and warnings. Its public training-evidence block records the horizon-specific
 fit size plus the frozen sufficiency thresholds: 1,000 minimum fit fixtures,
 fewer than five team matches as cold start, and 20 observations as full
 xG/shots signal history. Cold-start or prior-only xG/shots rows are returned
 with warnings; they are not manually suppressed or shrunk because such a rule
 was not part of the evaluated recipe.
+
+The model package also contains a compact `reproducibility.json`. Publication
+verifies the model file, fitting-recipe identity, exact logical training-row
+hashes, and the approved serving code/configuration bundle before inference.
+The legacy champion predates whole-warehouse and training-source fingerprints,
+so those two fields are explicitly marked unavailable rather than reconstructed
+after the fact. Every future refit records both automatically; no database copy
+is created.
 
 The application must display global and fixture-specific sample sizes
 separately. For example, a T−24 model fit on 38,445 fixtures can still be

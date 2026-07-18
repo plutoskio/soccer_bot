@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from soccer_bot.config import load_json
+from soccer_bot.champion_evidence import freeze_first_valid_predictions
 from soccer_bot.datasets.features import (
     ChronologicalTeamStateBuilder,
     load_team_state_feature_config,
@@ -30,14 +31,15 @@ from soccer_bot.modeling.production import (
     champion_model_sha256,
     load_regulation_champion,
     predict_regulation_moneyline,
-    prediction_rows_sha256,
 )
 from soccer_bot.modeling.rich_rates import (
     ChronologicalRichRateBuilder,
     load_fixture_performance,
     load_rich_rate_config,
 )
+from soccer_bot.modeling.reproducibility import reproducibility_file_sha256
 from soccer_bot.modeling.walk_forward import load_walk_forward_config
+from soccer_bot.prediction_integrity import champion_prediction_rows_sha256
 
 
 def parse_args() -> argparse.Namespace:
@@ -84,6 +86,8 @@ def main() -> int:
     as_of = _parse_as_of(args.as_of)
     specification = load_json(args.model_config)
     inference_policy = specification["inference"]
+    availability_policy = specification["forward_availability"]
+    issuance_policy = specification["issuance"]
     if inference_policy.get("market_features_allowed") is not False:
         raise RuntimeError("Independent champion inference cannot use market data")
     team_config_path = (
@@ -101,15 +105,31 @@ def main() -> int:
     team_config = load_team_state_feature_config(team_config_path)
     rich_config = load_rich_rate_config(rich_config_path)
     walk = load_walk_forward_config(walk_config_path)
-    model = load_regulation_champion(args.model)
+    model = load_regulation_champion(
+        args.model,
+        model_config_path=args.model_config,
+        repository_root=ROOT,
+    )
     if model.model_version != specification["model_version"]:
         raise RuntimeError("Model artifact and inference specification differ")
 
+    strict_fixture_kickoff_start = _parse_policy_timestamp(
+        availability_policy["strict_fixture_kickoff_start"],
+        "strict_fixture_kickoff_start",
+    )
+    strict_prediction_at_start = _parse_policy_timestamp(
+        issuance_policy["strict_prediction_at_start"],
+        "strict_prediction_at_start",
+    )
     connection = duckdb.connect(str(args.warehouse), read_only=True)
     try:
         historical_targets = build_regulation_score_targets(
             connection,
             reviewed_exclusions=load_regulation_target_exclusions(exclusions_path),
+            strict_retrieval_from=strict_fixture_kickoff_start,
+            result_availability_delay=timedelta(
+                minutes=team_config.result_availability_delay_minutes
+            ),
         )
         fixtures, metadata, audit = load_upcoming_inference_fixtures(
             connection,
@@ -117,7 +137,11 @@ def main() -> int:
             lookahead_days=int(inference_policy["maximum_lookahead_days"]),
             feature_config=team_config,
         )
-        performance = load_fixture_performance(connection, rich_config)
+        performance = load_fixture_performance(
+            connection,
+            rich_config,
+            strict_retrieval_from=strict_fixture_kickoff_start,
+        )
     finally:
         connection.close()
     base_builder = ChronologicalTeamStateBuilder(team_config)
@@ -144,20 +168,40 @@ def main() -> int:
             item["eligible_before_clean_horizon_check"] = False
             item["reason"] = "intervening_team_fixture_blocks_clean_horizon"
 
-    records = []
+    candidate_records = []
     for prediction in predictions:
         item = asdict(prediction)
         item["prediction_at"] = prediction.prediction_at.isoformat()
         item["kickoff"] = prediction.kickoff.isoformat()
         item["fixture"] = asdict(metadata[prediction.fixture_id])
-        records.append(item)
+        candidate_records.append(item)
+    created_at = datetime.now(timezone.utc)
+    logical_model_hash = champion_model_sha256(model)
+    records, issuance_audit = freeze_first_valid_predictions(
+        output_directory=args.output_dir,
+        predictions=candidate_records,
+        as_of=as_of,
+        created_at=created_at,
+        model_version=model.model_version,
+        logical_model_sha256=logical_model_hash,
+        strict_prediction_at_start=strict_prediction_at_start,
+        maximum_issue_delay=timedelta(
+            minutes=int(issuance_policy["maximum_issue_delay_minutes"])
+        ),
+        issuance_policy_version=str(issuance_policy["policy_version"]),
+        availability_policy_version=str(availability_policy["policy_version"]),
+    )
+    audit["issuance"] = issuance_audit
     snapshot = {
-        "snapshot_version": "upcoming_regulation_moneyline_snapshot_v2",
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "snapshot_version": "upcoming_regulation_moneyline_snapshot_v3",
+        "created_at": created_at.isoformat(),
         "as_of": as_of.isoformat(),
         "model_version": model.model_version,
-        "logical_model_sha256": champion_model_sha256(model),
-        "prediction_rows_sha256": prediction_rows_sha256(predictions),
+        "logical_model_sha256": logical_model_hash,
+        "model_reproducibility_sha256": reproducibility_file_sha256(args.model),
+        "prediction_rows_sha256": champion_prediction_rows_sha256(records),
+        "availability_policy": availability_policy,
+        "issuance_policy": issuance_policy,
         "supported_output": inference_policy["supported_output"],
         "distribution_limitation": model.distribution_limitation,
         "training_evidence": {
@@ -197,9 +241,9 @@ def main() -> int:
         json.dumps(
             {
                 "as_of": snapshot["as_of"],
-                "fixtures": len({row.fixture_id for row in predictions}),
+                "fixtures": len({row["fixture_id"] for row in records}),
                 "latest": str(latest_path.resolve()),
-                "prediction_rows": len(predictions),
+                "prediction_rows": len(records),
                 "snapshot": str(timestamp_path.resolve()),
             },
             indent=2,
@@ -214,6 +258,15 @@ def _parse_as_of(value: str | None) -> datetime:
     if parsed.tzinfo is None:
         raise ValueError("--as-of must include a timezone offset")
     return parsed
+
+
+def _parse_policy_timestamp(value: object, field: str) -> datetime:
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be an ISO timestamp")
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        raise ValueError(f"{field} must include a timezone offset")
+    return parsed.astimezone(timezone.utc)
 
 
 def _atomic_write_json(path: Path, value: dict) -> None:

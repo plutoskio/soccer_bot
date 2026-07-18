@@ -525,6 +525,8 @@ def validate_collector_config(config: dict, catch_up_days: int | None = None) ->
             "model_version",
             "logical_model_sha256",
             "model_path",
+            "model_config_path",
+            "reproducibility_sha256",
             "output_directory",
             "report_directory",
         ):
@@ -538,7 +540,20 @@ def validate_collector_config(config: dict, catch_up_days: int | None = None) ->
             raise ValueError(
                 "prediction_publication logical_model_sha256 must be lowercase SHA-256"
             )
-        for key in ("model_path", "output_directory", "report_directory"):
+        reproducibility_hash = publication["reproducibility_sha256"]
+        if len(reproducibility_hash) != 64 or any(
+            character not in "0123456789abcdef"
+            for character in reproducibility_hash
+        ):
+            raise ValueError(
+                "prediction_publication reproducibility_sha256 must be lowercase SHA-256"
+            )
+        for key in (
+            "model_path",
+            "model_config_path",
+            "output_directory",
+            "report_directory",
+        ):
             path = Path(publication[key])
             if path.is_absolute() or ".." in path.parts:
                 raise ValueError(

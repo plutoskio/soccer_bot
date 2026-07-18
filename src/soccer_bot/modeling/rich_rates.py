@@ -59,6 +59,8 @@ class FixturePerformance:
     away_xg: float | None
     home_shots: float | None
     away_shots: float | None
+    available_at: datetime | None = None
+    source_max_retrieved_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -82,6 +84,11 @@ class RichRateFeatureRow:
     away_xg_history: int
     home_shots_history: int
     away_shots_history: int
+
+
+@dataclass(frozen=True)
+class RichRateInferenceFeatureRow(RichRateFeatureRow):
+    source_max_retrieved_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -152,6 +159,7 @@ class _RichTeamState:
     shots_defense: _EvidenceState
     xg_history: int = 0
     shots_history: int = 0
+    source_max_retrieved_at: datetime | None = None
 
 
 def load_rich_rate_config(path: Path) -> RichRateConfig:
@@ -219,8 +227,13 @@ def load_rich_rate_config(path: Path) -> RichRateConfig:
 
 
 def load_fixture_performance(
-    connection, config: RichRateConfig
+    connection,
+    config: RichRateConfig,
+    *,
+    strict_retrieval_from: datetime | None = None,
 ) -> dict[str, FixturePerformance]:
+    if strict_retrieval_from is not None and strict_retrieval_from.tzinfo is None:
+        raise ValueError("strict_retrieval_from must be timezone-aware")
     rows = connection.execute(
         """
         SELECT
@@ -236,11 +249,20 @@ def load_fixture_performance(
             count(*) FILTER (WHERE s.source_code=? AND s.team_id=f.home_team_id
                              AND s.shots IS NOT NULL),
             count(*) FILTER (WHERE s.source_code=? AND s.team_id=f.away_team_id
-                             AND s.shots IS NOT NULL)
+                             AND s.shots IS NOT NULL),
+            f.scheduled_kickoff,
+            max(s.retrieved_at) FILTER (
+                WHERE s.source_code=? AND s.xg IS NOT NULL
+                  AND s.team_id IN (f.home_team_id, f.away_team_id)
+            ),
+            max(s.retrieved_at) FILTER (
+                WHERE s.source_code=? AND s.shots IS NOT NULL
+                  AND s.team_id IN (f.home_team_id, f.away_team_id)
+            )
         FROM fixture f
         JOIN team_match_stat_observation s USING (fixture_id)
         WHERE s.period='regulation' AND s.source_code IN (?, ?)
-        GROUP BY f.fixture_id
+        GROUP BY f.fixture_id, f.scheduled_kickoff
         """,
         [
             config.xg.source_code,
@@ -250,6 +272,8 @@ def load_fixture_performance(
             config.xg.source_code,
             config.xg.source_code,
             config.shots.source_code,
+            config.shots.source_code,
+            config.xg.source_code,
             config.shots.source_code,
             config.xg.source_code,
             config.shots.source_code,
@@ -265,6 +289,26 @@ def load_fixture_performance(
         home_shots, away_shots = (
             (row[3], row[4]) if row[7] == row[8] == 1 else (None, None)
         )
+        kickoff = row[9]
+        contributing_retrievals = []
+        if home_xg is not None:
+            contributing_retrievals.append(row[10])
+        if home_shots is not None:
+            contributing_retrievals.append(row[11])
+        source_max_retrieved_at = (
+            max(contributing_retrievals) if contributing_retrievals else None
+        )
+        strict_forward_fixture = (
+            strict_retrieval_from is not None
+            and kickoff >= strict_retrieval_from
+        )
+        available_at = None
+        if strict_forward_fixture and source_max_retrieved_at is not None:
+            available_at = max(
+                kickoff
+                + timedelta(minutes=config.result_availability_delay_minutes),
+                source_max_retrieved_at,
+            )
         if any(
             value is not None and value < 0
             for value in (home_xg, away_xg, home_shots, away_shots)
@@ -278,6 +322,10 @@ def load_fixture_performance(
             away_xg=away_xg,
             home_shots=home_shots,
             away_shots=away_shots,
+            available_at=available_at,
+            source_max_retrieved_at=(
+                source_max_retrieved_at if strict_forward_fixture else None
+            ),
         )
     return values
 
@@ -322,7 +370,7 @@ class ChronologicalRichRateBuilder:
         historical_base_rows: list[RegulationFeatureRow],
         inference_rows: list[RegulationInferenceFeatureRow],
         performance: dict[str, FixturePerformance],
-    ) -> list[RichRateFeatureRow]:
+    ) -> list[RichRateInferenceFeatureRow]:
         self.teams = {}
         if not inference_rows:
             return []
@@ -337,8 +385,12 @@ class ChronologicalRichRateBuilder:
         latest_snapshot = max(snapshots)
         results: dict[datetime, list[RegulationFeatureRow]] = defaultdict(list)
         for target in historical_targets.values():
-            available_at = target.kickoff + timedelta(
-                minutes=self.config.result_availability_delay_minutes
+            observed = performance.get(target.fixture_id)
+            available_at = (
+                observed.available_at
+                if observed is not None and observed.available_at is not None
+                else target.kickoff
+                + timedelta(minutes=self.config.result_availability_delay_minutes)
             )
             if available_at <= latest_snapshot:
                 results[available_at].append(target)
@@ -348,7 +400,7 @@ class ChronologicalRichRateBuilder:
                 snapshots.get(at, []),
                 key=lambda item: (item.fixture_id, item.information_state),
             ):
-                output.append(self._snapshot(row, at))
+                output.append(self._snapshot_inference(row, at))
             self._apply_batch(results.get(at, []), performance, at)
         return sorted(
             output,
@@ -399,6 +451,20 @@ class ChronologicalRichRateBuilder:
             away_shots_history=away.shots_history,
         )
 
+    def _snapshot_inference(
+        self, row: RegulationInferenceFeatureRow, at: datetime
+    ) -> RichRateInferenceFeatureRow:
+        base = self._snapshot(row, at)
+        home = self.teams[row.home_team_id]
+        away = self.teams[row.away_team_id]
+        return RichRateInferenceFeatureRow(
+            **asdict(base),
+            source_max_retrieved_at=_maximum_timestamp(
+                home.source_max_retrieved_at,
+                away.source_max_retrieved_at,
+            ),
+        )
+
     def _apply_batch(
         self,
         rows: list[RegulationFeatureRow],
@@ -432,6 +498,20 @@ class ChronologicalRichRateBuilder:
                 home.shots_defense.update(observed.away_shots)
                 home.shots_history += 1
                 away.shots_history += 1
+            if observed.source_max_retrieved_at is not None:
+                home.source_max_retrieved_at = _maximum_timestamp(
+                    home.source_max_retrieved_at,
+                    observed.source_max_retrieved_at,
+                )
+                away.source_max_retrieved_at = _maximum_timestamp(
+                    away.source_max_retrieved_at,
+                    observed.source_max_retrieved_at,
+                )
+
+
+def _maximum_timestamp(*values: datetime | None) -> datetime | None:
+    present = [value for value in values if value is not None]
+    return max(present) if present else None
 
 
 def research_rich_rate_candidate(

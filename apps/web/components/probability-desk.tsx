@@ -140,7 +140,7 @@ export function ProbabilityDesk({ snapshot }: { snapshot: PredictionSnapshot }) 
               </div>
 
               <div className="evidence-section">
-                <div className="section-title"><p className="eyebrow">Model evidence</p><p>Only data knowable by {horizon === "pre_lineup_24h_v1" ? "T−24" : "clean T−72"}</p></div>
+                <div className="section-title"><p className="eyebrow">Model evidence</p><p>{snapshot.snapshot_version === "upcoming_regulation_moneyline_snapshot_v3" ? "Forecast inputs respect the exact cutoff" : "Legacy reconstructed forecast"}; historical training uses a documented post-match timing assumption</p></div>
                 <div className="evidence-grid">
                   <Evidence label="Expected goals" home={prediction.expected_home_goals} away={prediction.expected_away_goals} digits={2} />
                   <Evidence label="xG coverage" home={prediction.home_xg_history} away={prediction.away_xg_history} />

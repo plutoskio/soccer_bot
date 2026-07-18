@@ -23,6 +23,8 @@ from soccer_bot.modeling.score_grid_shadow import (
     load_score_grid_shadow_model,
     score_grid_shadow_sha256,
 )
+from soccer_bot.modeling.reproducibility import reproducibility_file_sha256
+from soccer_bot.prediction_integrity import champion_prediction_rows_sha256
 
 
 CommandRunner = Callable[..., subprocess.CompletedProcess[str]]
@@ -106,14 +108,27 @@ def _generate_validate_publish(
         )
 
     model_path = _inside_root(root, config["model_path"])
+    model_config_path = _inside_root(
+        root,
+        config.get(
+            "model_config_path", "config/models/regulation_champion_v1.json"
+        ),
+    )
     output_directory = _inside_root(root, config["output_directory"])
     expected_model_version = str(config["model_version"])
     expected_logical_hash = str(config["logical_model_sha256"])
-    model = load_regulation_champion(model_path)
+    model = load_regulation_champion(
+        model_path,
+        model_config_path=model_config_path,
+    )
     if model.model_version != expected_model_version:
         raise PredictionPublicationError("model_version_mismatch")
     if champion_model_sha256(model) != expected_logical_hash:
         raise PredictionPublicationError("logical_model_hash_mismatch")
+    expected_reproducibility_hash = str(config["reproducibility_sha256"])
+    observed_reproducibility_hash = reproducibility_file_sha256(model_path)
+    if observed_reproducibility_hash != expected_reproducibility_hash:
+        raise PredictionPublicationError("reproducibility_hash_mismatch")
 
     timeout = int(config.get("timeout_seconds", 240))
     subprocess_environment = dict(os.environ)
@@ -126,6 +141,8 @@ def _generate_validate_publish(
             str(warehouse_path),
             "--model",
             str(model_path),
+            "--model-config",
+            str(model_config_path),
             "--as-of",
             as_of.isoformat(),
             "--output-dir",
@@ -150,6 +167,7 @@ def _generate_validate_publish(
         expected_as_of=as_of,
         expected_model_version=expected_model_version,
         expected_logical_hash=expected_logical_hash,
+        expected_reproducibility_hash=expected_reproducibility_hash,
         minimum_prediction_rows=int(config.get("minimum_prediction_rows", 1)),
     )
 
@@ -257,6 +275,9 @@ def _generate_validate_publish(
         "as_of": snapshot["as_of"],
         "model_version": snapshot["model_version"],
         "logical_model_sha256": snapshot["logical_model_sha256"],
+        "model_reproducibility_sha256": snapshot[
+            "model_reproducibility_sha256"
+        ],
         "snapshot_version": snapshot["snapshot_version"],
         "prediction_rows": len(predictions),
         "fixture_count": len({row["fixture_id"] for row in predictions}),
@@ -1164,16 +1185,22 @@ def _validate_candidate(
     expected_as_of: datetime,
     expected_model_version: str,
     expected_logical_hash: str,
+    expected_reproducibility_hash: str,
     minimum_prediction_rows: int,
 ) -> None:
     if not isinstance(snapshot, dict):
         raise PredictionPublicationError("snapshot_not_object")
-    if snapshot.get("snapshot_version") != "upcoming_regulation_moneyline_snapshot_v2":
+    if snapshot.get("snapshot_version") != "upcoming_regulation_moneyline_snapshot_v3":
         raise PredictionPublicationError("unexpected_snapshot_version")
     if snapshot.get("model_version") != expected_model_version:
         raise PredictionPublicationError("snapshot_model_version_mismatch")
     if snapshot.get("logical_model_sha256") != expected_logical_hash:
         raise PredictionPublicationError("snapshot_logical_hash_mismatch")
+    if (
+        snapshot.get("model_reproducibility_sha256")
+        != expected_reproducibility_hash
+    ):
+        raise PredictionPublicationError("snapshot_reproducibility_hash_mismatch")
     parsed_as_of = _parse_timestamp(snapshot.get("as_of"), "snapshot_as_of")
     if parsed_as_of != expected_as_of:
         raise PredictionPublicationError("snapshot_as_of_mismatch")
@@ -1183,6 +1210,12 @@ def _validate_candidate(
     if len(predictions) < minimum_prediction_rows:
         raise PredictionPublicationError("snapshot_below_minimum_prediction_rows")
     keys: set[tuple[str, str]] = set()
+    availability_policy = snapshot.get("availability_policy")
+    issuance_policy = snapshot.get("issuance_policy")
+    if not isinstance(availability_policy, dict) or not isinstance(
+        issuance_policy, dict
+    ):
+        raise PredictionPublicationError("snapshot_forecast_policy_missing")
     for row in predictions:
         if not isinstance(row, dict):
             raise PredictionPublicationError("snapshot_prediction_not_object")
@@ -1194,10 +1227,42 @@ def _validate_candidate(
             raise PredictionPublicationError("snapshot_contains_started_fixture")
         if _parse_timestamp(row.get("prediction_at"), "prediction_at") > parsed_as_of:
             raise PredictionPublicationError("snapshot_contains_future_horizon")
+        prediction_at = _parse_timestamp(row.get("prediction_at"), "prediction_at")
+        kickoff = _parse_timestamp(row.get("kickoff"), "kickoff")
+        issued_at = _parse_timestamp(row.get("issued_at"), "issued_at")
+        if issued_at < prediction_at or issued_at >= kickoff:
+            raise PredictionPublicationError("invalid_prediction_issuance_time")
+        source_max = row.get("source_max_retrieved_at")
+        if source_max is not None and _parse_timestamp(
+            source_max, "source_max_retrieved_at"
+        ) > prediction_at:
+            raise PredictionPublicationError("prediction_uses_late_observation")
+        if row.get("availability_policy_version") != availability_policy.get(
+            "policy_version"
+        ) or row.get("issuance_policy_version") != issuance_policy.get(
+            "policy_version"
+        ):
+            raise PredictionPublicationError("prediction_policy_mismatch")
+        unhashed = dict(row)
+        immutable_hash = unhashed.pop("immutable_prediction_sha256", None)
+        try:
+            expected_immutable_hash = champion_prediction_rows_sha256([unhashed])
+        except (TypeError, ValueError) as error:
+            raise PredictionPublicationError(
+                "invalid_immutable_prediction_hash"
+            ) from error
+        if immutable_hash != expected_immutable_hash:
+            raise PredictionPublicationError("immutable_prediction_hash_mismatch")
     if not isinstance(snapshot.get("prediction_rows_sha256"), str) or len(
         snapshot["prediction_rows_sha256"]
     ) != 64:
         raise PredictionPublicationError("invalid_prediction_rows_hash")
+    try:
+        expected_rows_hash = champion_prediction_rows_sha256(predictions)
+    except (TypeError, ValueError) as error:
+        raise PredictionPublicationError("invalid_prediction_rows_hash") from error
+    if snapshot["prediction_rows_sha256"] != expected_rows_hash:
+        raise PredictionPublicationError("prediction_rows_hash_mismatch")
 
 
 def _write_report(root: Path, config: dict, result: dict[str, object]) -> None:

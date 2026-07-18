@@ -140,6 +140,51 @@ class RichRateTests(unittest.TestCase):
         self.assertEqual(rows[0].home_shots_history, 1)
         self.assertGreater(rows[0].home_xg_attack, self.config.xg.prior_mean)
 
+    def test_late_rich_stats_skip_earlier_forecast_but_update_a_later_game(self):
+        historical = self._shared_teams(
+            feature_row("history", self.start, 1, 0)
+        )
+        first_source = self._shared_teams(
+            feature_row("first", self.start + timedelta(days=7), 0, 0),
+            away="team-c",
+        )
+        later_source = self._shared_teams(
+            feature_row("later", self.start + timedelta(days=14), 0, 0),
+            away="team-d",
+        )
+
+        def inference(source):
+            value = asdict(source)
+            value.pop("home_goals")
+            value.pop("away_goals")
+            return RegulationInferenceFeatureRow(**value)
+
+        first = inference(first_source)
+        later = inference(later_source)
+        retrieved_at = first.prediction_at + timedelta(hours=1)
+        performance = {
+            "history": FixturePerformance(
+                "history",
+                3.0,
+                0.5,
+                20.0,
+                5.0,
+                available_at=retrieved_at,
+                source_max_retrieved_at=retrieved_at,
+            )
+        }
+
+        first_row = ChronologicalRichRateBuilder(self.config).build_inference(
+            [historical], [first], performance
+        )[0]
+        later_row = ChronologicalRichRateBuilder(self.config).build_inference(
+            [historical], [later], performance
+        )[0]
+
+        self.assertEqual(first_row.home_xg_history, 0)
+        self.assertEqual(later_row.home_xg_history, 1)
+        self.assertEqual(later_row.source_max_retrieved_at, retrieved_at)
+
     def test_candidate_fit_and_validation_never_use_later_folds(self):
         walk = replace(
             load_walk_forward_config(

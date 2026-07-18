@@ -9,6 +9,8 @@ import unittest
 from unittest.mock import patch
 
 from soccer_bot.prediction_publication import run_prediction_publication
+from soccer_bot.prediction_integrity import champion_prediction_rows_sha256
+from soccer_bot.modeling.reproducibility import file_sha256
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -271,6 +273,16 @@ class PredictionPublicationTests(unittest.TestCase):
             .read_text(encoding="utf-8"),
             encoding="utf-8",
         )
+        model.joinpath("reproducibility.json").write_text(
+            (
+                ROOT
+                / "artifacts"
+                / "production"
+                / "regulation_champion_v1"
+                / "reproducibility.json"
+            ).read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
         shadow_model = (
             self.root
             / "artifacts"
@@ -290,6 +302,12 @@ class PredictionPublicationTests(unittest.TestCase):
         )
         gate = self.root / "config" / "models"
         gate.mkdir(parents=True)
+        gate.joinpath("regulation_champion_v1.json").write_text(
+            (ROOT / "config" / "models" / "regulation_champion_v1.json").read_text(
+                encoding="utf-8"
+            ),
+            encoding="utf-8",
+        )
         gate.joinpath("regulation_score_grid_v3_prospective_gate.json").write_text(
             (
                 ROOT
@@ -344,6 +362,10 @@ class PredictionPublicationTests(unittest.TestCase):
                 "enabled": True,
                 "model_version": "regulation_champion_v1",
                 "logical_model_sha256": LOGICAL_HASH,
+                "model_config_path": "config/models/regulation_champion_v1.json",
+                "reproducibility_sha256": file_sha256(
+                    model / "reproducibility.json"
+                ),
                 "model_path": "artifacts/production/regulation_champion_v1/model.json",
                 "output_directory": "data/predictions/regulation_champion_v1",
                 "report_directory": "data/reports/predictions",
@@ -421,23 +443,66 @@ class PredictionPublicationTests(unittest.TestCase):
 
     def snapshot(self, *, predictions: int = 1, as_of: datetime | None = None) -> dict:
         effective_as_of = as_of or self.as_of
-        rows = [
-            {
+        rows = []
+        for index in range(predictions):
+            row = {
+                "model_version": "regulation_champion_v1",
                 "fixture_id": f"fixture-{index}",
                 "information_state": "pre_lineup_24h_v1",
                 "prediction_at": (effective_as_of - timedelta(hours=1)).isoformat(),
                 "kickoff": (effective_as_of + timedelta(hours=5)).isoformat(),
+                "competition_id": "competition-1",
+                "season_id": "season-1",
+                "home_team_id": "home-team",
+                "away_team_id": "away-team",
+                "expected_home_goals": 1.4,
+                "expected_away_goals": 1.0,
+                "raw_home_win_probability": 0.5,
+                "raw_draw_probability": 0.3,
+                "raw_away_win_probability": 0.2,
+                "home_win_probability": 0.48,
+                "draw_probability": 0.31,
+                "away_win_probability": 0.21,
+                "home_history_matches": 10,
+                "away_history_matches": 10,
+                "home_xg_history": 8,
+                "away_xg_history": 8,
+                "home_shots_history": 9,
+                "away_shots_history": 9,
+                "source_max_retrieved_at": (
+                    effective_as_of - timedelta(hours=2)
+                ).isoformat(),
+                "warnings": [],
+                "issued_at": effective_as_of.isoformat(),
+                "issuance_status": "legacy_reconstructed_frozen",
+                "issuance_policy_version": "immutable_champion_forecast_v1",
+                "availability_policy_version": (
+                    "forward_observation_availability_v1"
+                ),
             }
-            for index in range(predictions)
-        ]
-        return {
-            "snapshot_version": "upcoming_regulation_moneyline_snapshot_v2",
+            row["immutable_prediction_sha256"] = (
+                champion_prediction_rows_sha256([row])
+            )
+            rows.append(row)
+        snapshot = {
+            "snapshot_version": "upcoming_regulation_moneyline_snapshot_v3",
             "model_version": "regulation_champion_v1",
             "logical_model_sha256": LOGICAL_HASH,
-            "prediction_rows_sha256": "a" * 64,
+            "model_reproducibility_sha256": self.config[
+                "prediction_publication"
+            ]["reproducibility_sha256"],
+            "prediction_rows_sha256": "",
             "as_of": effective_as_of.isoformat(),
+            "availability_policy": {
+                "policy_version": "forward_observation_availability_v1"
+            },
+            "issuance_policy": {
+                "policy_version": "immutable_champion_forecast_v1"
+            },
             "predictions": rows,
         }
+        snapshot["prediction_rows_sha256"] = champion_prediction_rows_sha256(rows)
+        return snapshot
 
     def publish(self, runner: FakeRunner, *, health: str = "warning") -> dict:
         return run_prediction_publication(
@@ -497,6 +562,16 @@ class PredictionPublicationTests(unittest.TestCase):
         self.assertEqual(result["error"], "prediction_generation_exit_17")
         self.assertEqual(len(runner.commands), 1)
         self.assertNotIn("provider secret", json.dumps(result))
+
+    def test_reproducibility_mismatch_stops_before_generation(self) -> None:
+        runner = FakeRunner(self.snapshot())
+        self.config["prediction_publication"]["reproducibility_sha256"] = "0" * 64
+
+        result = self.publish(runner)
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["error"], "reproducibility_hash_mismatch")
+        self.assertEqual(runner.commands, [])
 
     def test_empty_candidate_is_rejected_before_upload(self) -> None:
         runner = FakeRunner(self.snapshot(predictions=0))

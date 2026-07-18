@@ -38,6 +38,10 @@ from soccer_bot.modeling.rich_rates import (
     load_rich_rate_config,
     rich_feature_rows_sha256,
 )
+from soccer_bot.modeling.reproducibility import (
+    REPRODUCIBILITY_FILENAME,
+    build_champion_reproducibility_manifest,
+)
 from soccer_bot.modeling.walk_forward import load_walk_forward_config
 
 
@@ -124,6 +128,7 @@ def main() -> int:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     model_path = args.output_dir / "model.json"
     manifest_path = args.output_dir / "manifest.json"
+    reproducibility_path = args.output_dir / REPRODUCIBILITY_FILENAME
     _atomic_write_json(
         model_path,
         {
@@ -133,6 +138,26 @@ def main() -> int:
             "model": asdict(model),
         },
     )
+    training_identity = {
+        "eligibility_flag": "eligible_result_models",
+        "targets": len(targets),
+        "feature_rows": len(feature_rows),
+        "horizon_rows": dict(
+            sorted(Counter(row.information_state for row in feature_rows).items())
+        ),
+        "kickoff_start": min(row.kickoff for row in feature_rows).isoformat(),
+        "kickoff_end": max(row.kickoff for row in feature_rows).isoformat(),
+        "feature_rows_sha256": feature_rows_sha256(feature_rows),
+        "rich_rows_sha256": rich_feature_rows_sha256(rich_rows),
+    }
+    reproducibility = build_champion_reproducibility_manifest(
+        repository_root=ROOT,
+        model_path=model_path,
+        specification=specification,
+        training_identity=training_identity,
+        warehouse_path=args.warehouse,
+    )
+    _atomic_write_json(reproducibility_path, reproducibility)
     warehouse_stat = args.warehouse.stat()
     manifest = {
         "artifact_version": "regulation_champion_manifest_v1",
@@ -150,16 +175,7 @@ def main() -> int:
             "final_test": selection_report["final_test"],
         },
         "training": {
-            "eligibility_flag": "eligible_result_models",
-            "targets": len(targets),
-            "feature_rows": len(feature_rows),
-            "horizon_rows": dict(
-                sorted(Counter(row.information_state for row in feature_rows).items())
-            ),
-            "kickoff_start": min(row.kickoff for row in feature_rows).isoformat(),
-            "kickoff_end": max(row.kickoff for row in feature_rows).isoformat(),
-            "feature_rows_sha256": feature_rows_sha256(feature_rows),
-            "rich_rows_sha256": rich_feature_rows_sha256(rich_rows),
+            **training_identity,
             "feature_schema": [field.name for field in fields(type(feature_rows[0]))],
             "inference_feature_schema": [
                 field.name for field in fields(RegulationInferenceFeatureRow)
@@ -171,6 +187,11 @@ def main() -> int:
             "modified_at": datetime.fromtimestamp(
                 warehouse_stat.st_mtime, timezone.utc
             ).isoformat(),
+            "sha256": reproducibility["training_warehouse"]["sha256"],
+        },
+        "reproducibility": {
+            "path": str(reproducibility_path.resolve()),
+            "sha256": _file_sha256(reproducibility_path),
         },
         "source_files": {
             name: {"path": str(path.resolve()), "sha256": _file_sha256(path)}
@@ -189,6 +210,7 @@ def main() -> int:
                 "logical_model_sha256": logical_hash,
                 "manifest": str(manifest_path.resolve()),
                 "model": str(model_path.resolve()),
+                "reproducibility": str(reproducibility_path.resolve()),
                 "targets": len(targets),
             },
             indent=2,

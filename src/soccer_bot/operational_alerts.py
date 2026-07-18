@@ -125,6 +125,9 @@ def _evaluate_publication(
 ) -> None:
     expected_version = str(publication_config.get("model_version", ""))
     expected_hash = str(publication_config.get("logical_model_sha256", ""))
+    expected_reproducibility_hash = str(
+        publication_config.get("reproducibility_sha256", "")
+    )
     minimum_rows = int(publication_config.get("minimum_prediction_rows", 1))
     publication_status = str(result.get("status", "missing"))
     current_as_of = _optional_timestamp(result.get("as_of"))
@@ -144,6 +147,10 @@ def _evaluate_publication(
         "observed_model_version": result.get("model_version"),
         "expected_logical_model_sha256": expected_hash,
         "observed_logical_model_sha256": result.get("logical_model_sha256"),
+        "expected_reproducibility_sha256": expected_reproducibility_hash,
+        "observed_reproducibility_sha256": result.get(
+            "model_reproducibility_sha256"
+        ),
         "prediction_rows": result.get("prediction_rows"),
         "last_successful_as_of": latest_success.isoformat() if latest_success else None,
         "age_seconds": round(age_seconds, 3) if age_seconds is not None else None,
@@ -176,7 +183,11 @@ def _evaluate_publication(
     if publication_status == "uploaded":
         if result.get("model_version") != expected_version or result.get(
             "logical_model_sha256"
-        ) != expected_hash:
+        ) != expected_hash or (
+            expected_reproducibility_hash
+            and result.get("model_reproducibility_sha256")
+            != expected_reproducibility_hash
+        ):
             _add_alert(
                 alerts,
                 code="champion_model_identity_mismatch",

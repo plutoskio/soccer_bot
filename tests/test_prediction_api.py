@@ -14,15 +14,16 @@ from apps.api.snapshot_store import (
     SnapshotStore,
     SnapshotValidationError,
 )
+from soccer_bot.prediction_integrity import champion_prediction_rows_sha256
 
 
 def sample_snapshot() -> dict:
     now = datetime.now(timezone.utc)
-    return {
+    snapshot = {
         "snapshot_version": "upcoming_regulation_moneyline_snapshot_v2",
         "model_version": "regulation_champion_v1",
         "logical_model_sha256": "logical-hash",
-        "prediction_rows_sha256": "rows-hash",
+        "prediction_rows_sha256": "",
         "created_at": now.isoformat(),
         "as_of": now.isoformat(),
         "supported_output": "regulation_moneyline",
@@ -50,6 +51,10 @@ def sample_snapshot() -> dict:
                 "prediction_at": now.isoformat(),
                 "information_state": "pre_lineup_24h_v1",
                 "model_version": "regulation_champion_v1",
+                "competition_id": "competition-1",
+                "season_id": "season-1",
+                "home_team_id": "team-home",
+                "away_team_id": "team-away",
                 "home_win_probability": 0.5,
                 "draw_probability": 0.3,
                 "away_win_probability": 0.2,
@@ -68,6 +73,40 @@ def sample_snapshot() -> dict:
             }
         ],
     }
+    snapshot["prediction_rows_sha256"] = champion_prediction_rows_sha256(
+        snapshot["predictions"]
+    )
+    return snapshot
+
+
+def sample_v3_snapshot() -> dict:
+    snapshot = sample_snapshot()
+    snapshot["snapshot_version"] = "upcoming_regulation_moneyline_snapshot_v3"
+    snapshot["model_reproducibility_sha256"] = "f" * 64
+    snapshot["availability_policy"] = {
+        "policy_version": "forward_observation_availability_v1"
+    }
+    snapshot["issuance_policy"] = {
+        "policy_version": "immutable_champion_forecast_v1"
+    }
+    row = snapshot["predictions"][0]
+    prediction_at = datetime.fromisoformat(row["prediction_at"])
+    row.update(
+        {
+            "source_max_retrieved_at": (
+                prediction_at - timedelta(minutes=1)
+            ).isoformat(),
+            "issued_at": prediction_at.isoformat(),
+            "issuance_status": "strict_forward_frozen",
+            "issuance_policy_version": "immutable_champion_forecast_v1",
+            "availability_policy_version": "forward_observation_availability_v1",
+        }
+    )
+    row["immutable_prediction_sha256"] = champion_prediction_rows_sha256([row])
+    snapshot["prediction_rows_sha256"] = champion_prediction_rows_sha256(
+        snapshot["predictions"]
+    )
+    return snapshot
 
 
 class PredictionApiTests(unittest.TestCase):
@@ -153,6 +192,44 @@ class PredictionApiTests(unittest.TestCase):
         value["predictions"][0]["home_win_probability"] = 0.6
         self.path.write_text(json.dumps(value), encoding="utf-8")
         with self.assertRaises(SnapshotValidationError):
+            SnapshotStore(self.path).load()
+
+    def test_changed_prediction_with_stale_hash_fails_closed(self) -> None:
+        value = sample_snapshot()
+        value["predictions"][0]["home_win_probability"] = 0.51
+        value["predictions"][0]["draw_probability"] = 0.29
+        self.path.write_text(json.dumps(value), encoding="utf-8")
+        with self.assertRaisesRegex(SnapshotValidationError, "SHA-256 mismatch"):
+            SnapshotStore(self.path).load()
+
+    def test_v3_immutable_forward_snapshot_is_accepted(self) -> None:
+        self.path.write_text(json.dumps(sample_v3_snapshot()), encoding="utf-8")
+
+        value = SnapshotStore(self.path).load()
+
+        self.assertEqual(
+            value["snapshot_version"],
+            "upcoming_regulation_moneyline_snapshot_v3",
+        )
+
+    def test_v3_rejects_data_retrieved_after_the_forecast_cutoff(self) -> None:
+        value = sample_v3_snapshot()
+        row = value["predictions"][0]
+        prediction_at = datetime.fromisoformat(row["prediction_at"])
+        row["source_max_retrieved_at"] = (
+            prediction_at + timedelta(seconds=1)
+        ).isoformat()
+        unhashed = dict(row)
+        unhashed.pop("immutable_prediction_sha256")
+        row["immutable_prediction_sha256"] = champion_prediction_rows_sha256(
+            [unhashed]
+        )
+        value["prediction_rows_sha256"] = champion_prediction_rows_sha256(
+            value["predictions"]
+        )
+        self.path.write_text(json.dumps(value), encoding="utf-8")
+
+        with self.assertRaisesRegex(SnapshotValidationError, "retrieved after"):
             SnapshotStore(self.path).load()
 
     def test_invalid_ui_evidence_fails_closed(self) -> None:

@@ -30,6 +30,8 @@ class RegulationScoreTarget:
     goal_difference: int
     both_teams_to_score: bool
     agreeing_source_codes: tuple[str, ...]
+    result_available_at: datetime | None = None
+    source_max_retrieved_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -46,6 +48,8 @@ def build_regulation_score_targets(
     kickoff_start: datetime | None = None,
     kickoff_end: datetime | None = None,
     reviewed_exclusions: Mapping[str, RegulationTargetExclusion] | None = None,
+    strict_retrieval_from: datetime | None = None,
+    result_availability_delay: timedelta = timedelta(minutes=150),
 ) -> list[RegulationScoreTarget]:
     """Build deterministic regulation targets from result-eligible fixtures.
 
@@ -57,6 +61,10 @@ def build_regulation_score_targets(
 
     if prediction_offset < timedelta(0):
         raise ValueError("prediction_offset must be nonnegative")
+    if result_availability_delay <= timedelta(0):
+        raise ValueError("result_availability_delay must be positive")
+    if strict_retrieval_from is not None and strict_retrieval_from.tzinfo is None:
+        raise ValueError("strict_retrieval_from must be timezone-aware")
 
     conditions = [
         "e.eligible_result_models",
@@ -87,7 +95,8 @@ def build_regulation_score_targets(
             coalesce(f.neutral_venue, false),
             r.home_score_regulation,
             r.away_score_regulation,
-            r.source_code
+            r.source_code,
+            r.retrieved_at
         FROM fixture_model_eligibility e
         JOIN fixture f USING (fixture_id)
         JOIN fixture_result_observation r USING (fixture_id)
@@ -129,6 +138,16 @@ def build_regulation_score_targets(
         else:
             result = "away_win"
         kickoff = first[5]
+        source_retrieved_at = max(row[10] for row in fixture_rows)
+        strict_forward_fixture = (
+            strict_retrieval_from is not None
+            and kickoff >= strict_retrieval_from
+        )
+        result_available_at = (
+            max(kickoff + result_availability_delay, source_retrieved_at)
+            if strict_forward_fixture
+            else None
+        )
         targets.append(
             RegulationScoreTarget(
                 fixture_id=fixture_id,
@@ -147,6 +166,10 @@ def build_regulation_score_targets(
                 both_teams_to_score=home_goals > 0 and away_goals > 0,
                 agreeing_source_codes=tuple(
                     sorted({row[9] for row in fixture_rows})
+                ),
+                result_available_at=result_available_at,
+                source_max_retrieved_at=(
+                    source_retrieved_at if strict_forward_fixture else None
                 ),
             )
         )

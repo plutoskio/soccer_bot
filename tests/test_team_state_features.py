@@ -248,6 +248,53 @@ class ChronologicalTeamStateTests(unittest.TestCase):
         self.assertEqual(rows[0].home_history_matches, 1)
         self.assertGreater(rows[0].expected_home_goals, BASELINE_GOALS)
 
+    def test_late_result_skips_earlier_forecast_but_updates_a_later_game(self):
+        history = replace(
+            target("history", self.start, "A", "B", 4, 0),
+            result_available_at=self.start + timedelta(days=9, hours=12),
+            source_max_retrieved_at=self.start + timedelta(days=9, hours=12),
+        )
+        first_kickoff = self.start + timedelta(days=10)
+        later_kickoff = self.start + timedelta(days=17)
+        fixtures = [
+            RegulationInferenceFixture(
+                fixture_id="first",
+                competition_id="competition",
+                season_id="season",
+                home_team_id="A",
+                away_team_id="C",
+                neutral_venue=False,
+                kickoff=first_kickoff,
+                allowed_information_states=("pre_lineup_24h_v1",),
+            ),
+            RegulationInferenceFixture(
+                fixture_id="later",
+                competition_id="competition",
+                season_id="season",
+                home_team_id="A",
+                away_team_id="D",
+                neutral_venue=False,
+                kickoff=later_kickoff,
+                allowed_information_states=("pre_lineup_24h_v1",),
+            ),
+        ]
+
+        first_rows = ChronologicalTeamStateBuilder(self.config).build_inference(
+            [history], [fixtures[0]], as_of=first_kickoff - timedelta(hours=24)
+        )
+        later_rows = ChronologicalTeamStateBuilder(self.config).build_inference(
+            [history], [fixtures[1]], as_of=later_kickoff - timedelta(hours=24)
+        )
+
+        first = first_rows[0]
+        later = later_rows[0]
+        self.assertEqual(first.home_history_matches, 0)
+        self.assertEqual(later.home_history_matches, 1)
+        self.assertEqual(
+            later.source_max_retrieved_at,
+            history.source_max_retrieved_at,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

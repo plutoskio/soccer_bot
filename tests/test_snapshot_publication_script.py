@@ -4,6 +4,7 @@ import json
 import unittest
 
 from scripts.publish_prediction_snapshot import upload_and_verify
+from soccer_bot.prediction_integrity import champion_prediction_rows_sha256
 
 
 class _Body:
@@ -28,11 +29,11 @@ class _Client:
 
 
 def _snapshot() -> dict:
-    return {
+    snapshot = {
         "snapshot_version": "upcoming_regulation_moneyline_snapshot_v2",
         "model_version": "regulation_champion_v1",
         "logical_model_sha256": "a" * 64,
-        "prediction_rows_sha256": "c" * 64,
+        "prediction_rows_sha256": "",
         "as_of": "2026-07-15T12:00:00+00:00",
         "created_at": "2026-07-15T12:00:01+00:00",
         "supported_output": "regulation_moneyline",
@@ -47,6 +48,10 @@ def _snapshot() -> dict:
         },
         "predictions": [],
     }
+    snapshot["prediction_rows_sha256"] = champion_prediction_rows_sha256(
+        snapshot["predictions"]
+    )
+    return snapshot
 
 
 class SnapshotPublicationScriptTests(unittest.TestCase):

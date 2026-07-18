@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 import hashlib
 import json
 import math
@@ -16,14 +16,19 @@ from soccer_bot.modeling.calibration import temperature_scale_probabilities
 from soccer_bot.modeling.rich_rates import (
     RichRateConfig,
     RichRateFeatureRow,
+    RichRateInferenceFeatureRow,
     apply_rich_rate_correction,
     fit_rich_rate_coefficients,
+)
+from soccer_bot.modeling.reproducibility import (
+    validate_champion_reproducibility,
 )
 from soccer_bot.modeling.walk_forward import (
     WalkForwardConfig,
     fit_score_rate_scales,
     moneyline_probabilities,
 )
+from soccer_bot.prediction_integrity import champion_prediction_rows_sha256
 
 
 class ProductionModelError(RuntimeError):
@@ -78,6 +83,7 @@ class ChampionMoneylinePrediction:
     away_xg_history: int
     home_shots_history: int
     away_shots_history: int
+    source_max_retrieved_at: datetime | None
     warnings: tuple[str, ...]
 
 
@@ -183,7 +189,7 @@ def fit_regulation_champion(
 
 def predict_regulation_moneyline(
     feature_rows: list[RegulationInferenceFeatureRow],
-    rich_rows: list[RichRateFeatureRow],
+    rich_rows: list[RichRateInferenceFeatureRow | RichRateFeatureRow],
     model: RegulationChampionModel,
     *,
     rich_config: RichRateConfig,
@@ -264,6 +270,10 @@ def predict_regulation_moneyline(
                 away_xg_history=rich_row.away_xg_history,
                 home_shots_history=rich_row.home_shots_history,
                 away_shots_history=rich_row.away_shots_history,
+                source_max_retrieved_at=_maximum_timestamp(
+                    row.source_max_retrieved_at,
+                    getattr(rich_row, "source_max_retrieved_at", None),
+                ),
                 warnings=tuple(warnings),
             )
         )
@@ -280,7 +290,26 @@ def champion_model_sha256(model: RegulationChampionModel) -> str:
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
-def load_regulation_champion(path: Path) -> RegulationChampionModel:
+def load_regulation_champion(
+    path: Path,
+    *,
+    model_config_path: Path | None = None,
+    repository_root: Path | None = None,
+) -> RegulationChampionModel:
+    resolved_root = (
+        Path(__file__).resolve().parents[3]
+        if repository_root is None
+        else repository_root
+    )
+    validate_champion_reproducibility(
+        model_path=path,
+        model_config_path=(
+            resolved_root / "config" / "models" / "regulation_champion_v1.json"
+            if model_config_path is None
+            else model_config_path
+        ),
+        repository_root=resolved_root,
+    )
     raw = json.loads(path.read_text(encoding="utf-8"))
     model = raw.get("model", raw)
     horizons = tuple(
@@ -296,19 +325,13 @@ def load_regulation_champion(path: Path) -> RegulationChampionModel:
 
 
 def prediction_rows_sha256(rows: list[ChampionMoneylinePrediction]) -> str:
-    values = []
-    for row in rows:
-        value = asdict(row)
-        value["prediction_at"] = row.prediction_at.astimezone(
-            timezone.utc
-        ).isoformat()
-        value["kickoff"] = row.kickoff.astimezone(timezone.utc).isoformat()
-        values.append(value)
-    body = json.dumps(
-        values, sort_keys=True, separators=(",", ":"), allow_nan=False
-    )
-    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+    return champion_prediction_rows_sha256([asdict(row) for row in rows])
 
 
 def _clamp(value: float, lower: float, upper: float) -> float:
     return min(max(value, lower), upper)
+
+
+def _maximum_timestamp(*values: datetime | None) -> datetime | None:
+    present = [value for value in values if value is not None]
+    return max(present) if present else None

@@ -9,6 +9,8 @@ import threading
 import time
 from typing import Any
 
+from soccer_bot.prediction_integrity import champion_prediction_rows_sha256
+
 
 DEFAULT_SNAPSHOT_PATH = Path(
     "data/predictions/regulation_champion_v1/latest.json"
@@ -17,6 +19,10 @@ SUPPORTED_OUTPUT = "regulation_moneyline"
 SUPPORTED_INFORMATION_STATES = {
     "pre_lineup_72h_clean_v1",
     "pre_lineup_24h_v1",
+}
+SUPPORTED_SNAPSHOT_VERSIONS = {
+    "upcoming_regulation_moneyline_snapshot_v2",
+    "upcoming_regulation_moneyline_snapshot_v3",
 }
 
 
@@ -137,21 +143,50 @@ def validate_snapshot(value: object) -> None:
         raise SnapshotValidationError(
             f"Unsupported snapshot output: {value['supported_output']!r}"
         )
-    _parse_timestamp(value["as_of"], "as_of")
-    _parse_timestamp(value["created_at"], "created_at")
+    snapshot_version = value["snapshot_version"]
+    if snapshot_version not in SUPPORTED_SNAPSHOT_VERSIONS:
+        raise SnapshotValidationError(
+            f"Unsupported snapshot version: {snapshot_version!r}"
+        )
+    strict_v3 = snapshot_version == "upcoming_regulation_moneyline_snapshot_v3"
+    if strict_v3:
+        if not _is_sha256(value.get("model_reproducibility_sha256")):
+            raise SnapshotValidationError("Invalid model reproducibility SHA-256")
+        for key in ("availability_policy", "issuance_policy"):
+            if not isinstance(value.get(key), dict):
+                raise SnapshotValidationError(f"Snapshot is missing {key}")
+    as_of = _parse_timestamp(value["as_of"], "as_of")
+    created_at = _parse_timestamp(value["created_at"], "created_at")
+    if created_at < as_of:
+        raise SnapshotValidationError("created_at cannot precede as_of")
     _validate_training_evidence(value["training_evidence"])
     predictions = value["predictions"]
     if not isinstance(predictions, list):
         raise SnapshotValidationError("predictions must be a list")
     keys: set[tuple[str, str]] = set()
     for index, prediction in enumerate(predictions):
-        _validate_prediction(prediction, index)
+        _validate_prediction(
+            prediction,
+            index,
+            strict_v3=strict_v3,
+            availability_policy=value.get("availability_policy"),
+            issuance_policy=value.get("issuance_policy"),
+            snapshot_created_at=created_at,
+        )
         key = (prediction["fixture_id"], prediction["information_state"])
         if key in keys:
             raise SnapshotValidationError(
                 f"Duplicate fixture/information-state prediction: {key}"
             )
         keys.add(key)
+    try:
+        observed_hash = champion_prediction_rows_sha256(predictions)
+    except (TypeError, ValueError) as exc:
+        raise SnapshotValidationError(
+            "Prediction rows could not be canonically hashed"
+        ) from exc
+    if value["prediction_rows_sha256"] != observed_hash:
+        raise SnapshotValidationError("Prediction rows SHA-256 mismatch")
 
 
 def public_snapshot(value: dict[str, Any]) -> dict[str, Any]:
@@ -171,11 +206,16 @@ def public_snapshot(value: dict[str, Any]) -> dict[str, Any]:
         "snapshot_version": value["snapshot_version"],
         "model_version": value["model_version"],
         "logical_model_sha256": value["logical_model_sha256"],
+        "model_reproducibility_sha256": value.get(
+            "model_reproducibility_sha256"
+        ),
         "prediction_rows_sha256": value["prediction_rows_sha256"],
         "created_at": value["created_at"],
         "as_of": value["as_of"],
         "supported_output": value["supported_output"],
         "distribution_limitation": value.get("distribution_limitation"),
+        "availability_policy": deepcopy(value.get("availability_policy")),
+        "issuance_policy": deepcopy(value.get("issuance_policy")),
         "training_evidence": deepcopy(value["training_evidence"]),
         "fixture_count": fixture_count,
         "prediction_count": len(predictions),
@@ -212,7 +252,15 @@ def _validate_training_evidence(value: object) -> None:
         _positive_integer(value[key], f"training_evidence {key}")
 
 
-def _validate_prediction(value: object, index: int) -> None:
+def _validate_prediction(
+    value: object,
+    index: int,
+    *,
+    strict_v3: bool,
+    availability_policy: object,
+    issuance_policy: object,
+    snapshot_created_at: datetime,
+) -> None:
     if not isinstance(value, dict):
         raise SnapshotValidationError(f"Prediction {index} must be an object")
     required = (
@@ -240,6 +288,17 @@ def _validate_prediction(value: object, index: int) -> None:
     for key in required:
         if key not in value:
             raise SnapshotValidationError(f"Prediction {index} is missing {key}")
+    if strict_v3:
+        for key in (
+            "source_max_retrieved_at",
+            "issued_at",
+            "issuance_status",
+            "issuance_policy_version",
+            "availability_policy_version",
+            "immutable_prediction_sha256",
+        ):
+            if key not in value:
+                raise SnapshotValidationError(f"Prediction {index} is missing {key}")
     if not isinstance(value["fixture_id"], str) or not value["fixture_id"]:
         raise SnapshotValidationError(f"Prediction {index} has invalid fixture_id")
     fixture = value["fixture"]
@@ -265,6 +324,47 @@ def _validate_prediction(value: object, index: int) -> None:
         raise SnapshotValidationError(
             f"Prediction {index} cutoff must precede kickoff"
         )
+    if strict_v3:
+        issued_at = _parse_timestamp(value["issued_at"], "issued_at")
+        if issued_at < prediction_at or issued_at >= kickoff:
+            raise SnapshotValidationError(
+                f"Prediction {index} has an invalid issuance time"
+            )
+        if issued_at > snapshot_created_at:
+            raise SnapshotValidationError(
+                f"Prediction {index} was issued after snapshot creation"
+            )
+        source_max = value["source_max_retrieved_at"]
+        if source_max is not None and _parse_timestamp(
+            source_max, "source_max_retrieved_at"
+        ) > prediction_at:
+            raise SnapshotValidationError(
+                f"Prediction {index} uses data retrieved after its cutoff"
+            )
+        if not isinstance(availability_policy, dict) or value[
+            "availability_policy_version"
+        ] != availability_policy.get("policy_version"):
+            raise SnapshotValidationError(
+                f"Prediction {index} availability policy mismatch"
+            )
+        if not isinstance(issuance_policy, dict) or value[
+            "issuance_policy_version"
+        ] != issuance_policy.get("policy_version"):
+            raise SnapshotValidationError(
+                f"Prediction {index} issuance policy mismatch"
+            )
+        unhashed = dict(value)
+        immutable_hash = unhashed.pop("immutable_prediction_sha256")
+        try:
+            expected_immutable_hash = champion_prediction_rows_sha256([unhashed])
+        except (TypeError, ValueError) as exc:
+            raise SnapshotValidationError(
+                f"Prediction {index} immutable hash could not be verified"
+            ) from exc
+        if immutable_hash != expected_immutable_hash:
+            raise SnapshotValidationError(
+                f"Prediction {index} immutable hash mismatch"
+            )
     probabilities = [
         _probability(value[key], f"Prediction {index} {key}")
         for key in (
@@ -322,6 +422,14 @@ def _parse_timestamp(value: object, field: str) -> datetime:
     if parsed.tzinfo is None:
         raise SnapshotValidationError(f"{field} must include a timezone")
     return parsed.astimezone(timezone.utc)
+
+
+def _is_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
 
 
 def _probability(value: object, field: str) -> float:

@@ -111,6 +111,18 @@ class RegulationScoreTargetTests(unittest.TestCase):
         )
         self.assertEqual(target.prediction_at, target.kickoff - timedelta(hours=24))
 
+    def test_forward_result_waits_for_actual_retrieval_time(self):
+        self._insert_fixture("fixture")
+        self._insert_result("fixture", "source-a", 2, 1)
+
+        target = build_regulation_score_targets(
+            self.connection,
+            strict_retrieval_from=self.kickoff - timedelta(days=1),
+        )[0]
+
+        self.assertEqual(target.source_max_retrieved_at, self.kickoff + timedelta(hours=3))
+        self.assertEqual(target.result_available_at, self.kickoff + timedelta(hours=3))
+
     def test_administrative_result_is_excluded_by_eligibility(self):
         self._insert_fixture(
             "administrative", status="administrative_result_unplayed"

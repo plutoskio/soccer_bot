@@ -28,6 +28,12 @@ export interface Prediction {
   away_xg_history: number;
   home_shots_history: number;
   away_shots_history: number;
+  source_max_retrieved_at?: string | null;
+  issued_at?: string;
+  issuance_status?: "strict_forward_frozen" | "legacy_reconstructed_frozen";
+  issuance_policy_version?: string;
+  availability_policy_version?: string;
+  immutable_prediction_sha256?: string;
   warnings: string[];
 }
 
@@ -35,11 +41,20 @@ export interface PredictionSnapshot {
   snapshot_version: string;
   model_version: string;
   logical_model_sha256: string;
+  model_reproducibility_sha256?: string | null;
   prediction_rows_sha256: string;
   created_at: string;
   as_of: string;
   supported_output: "regulation_moneyline";
   distribution_limitation: string | null;
+  availability_policy?: {
+    policy_version: string;
+    [key: string]: unknown;
+  } | null;
+  issuance_policy?: {
+    policy_version: string;
+    [key: string]: unknown;
+  } | null;
   training_evidence: {
     horizon_training_fixtures: Record<InformationState, number>;
     minimum_training_fixtures: number;

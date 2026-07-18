@@ -53,6 +53,8 @@
     "model_version": "regulation_champion_v1",
     "logical_model_sha256": "8be7ffad15d12e7e603b2d9f3dd8dcd5e742e0f80846bcb6cd45c9ca40d7ef7a",
     "model_path": "artifacts/production/regulation_champion_v1/model.json",
+    "model_config_path": "config/models/regulation_champion_v1.json",
+    "reproducibility_sha256": "75a72ce4fd8ebe464c2d10d8fdff6873467cdcd7ee73902cc56548564e2f1303",
     "output_directory": "data/predictions/regulation_champion_v1",
     "report_directory": "data/reports/predictions",
     "minimum_prediction_rows": 1,

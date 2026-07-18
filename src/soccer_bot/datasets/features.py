@@ -75,6 +75,7 @@ class _TeamState:
     attack: _ScalarState
     defense: _ScalarState
     match_kickoffs: list[datetime]
+    source_max_retrieved_at: datetime | None = None
 
 
 @dataclass
@@ -82,6 +83,7 @@ class _CompetitionState:
     log_goal_level: _ScalarState
     home_advantage: _ScalarState
     matches: int = 0
+    source_max_retrieved_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -186,6 +188,7 @@ class RegulationInferenceFeatureRow:
     away_matches_last_30d: int
     home_cold_start: bool
     away_cold_start: bool
+    source_max_retrieved_at: datetime | None = None
 
 
 def load_team_state_feature_config(path: Path) -> TeamStateFeatureConfig:
@@ -340,8 +343,9 @@ class ChronologicalTeamStateBuilder:
         latest_snapshot = max(snapshots)
         results: dict[datetime, list[RegulationScoreTarget]] = defaultdict(list)
         for target in ordered_targets:
-            available_at = target.kickoff + timedelta(
-                minutes=self.config.result_availability_delay_minutes
+            available_at = target.result_available_at or (
+                target.kickoff
+                + timedelta(minutes=self.config.result_availability_delay_minutes)
             )
             if available_at <= latest_snapshot:
                 results[available_at].append(target)
@@ -352,9 +356,17 @@ class ChronologicalTeamStateBuilder:
                 key=lambda item: (item[0].fixture_id, item[1].information_state),
             ):
                 values = self._snapshot_values(fixture, timestamp)
+                home = self.teams[fixture.home_team_id]
+                away = self.teams[fixture.away_team_id]
+                competition = self.competitions[fixture.competition_id]
                 rows.append(
                     RegulationInferenceFeatureRow(
                         information_state=horizon.information_state,
+                        source_max_retrieved_at=_maximum_timestamp(
+                            home.source_max_retrieved_at,
+                            away.source_max_retrieved_at,
+                            competition.source_max_retrieved_at,
+                        ),
                         **values,
                     )
                 )
@@ -499,6 +511,19 @@ class ChronologicalTeamStateBuilder:
             home.match_kickoffs.append(target.kickoff)
             away.match_kickoffs.append(target.kickoff)
             competition.matches += 1
+            if target.source_max_retrieved_at is not None:
+                home.source_max_retrieved_at = _maximum_timestamp(
+                    home.source_max_retrieved_at,
+                    target.source_max_retrieved_at,
+                )
+                away.source_max_retrieved_at = _maximum_timestamp(
+                    away.source_max_retrieved_at,
+                    target.source_max_retrieved_at,
+                )
+                competition.source_max_retrieved_at = _maximum_timestamp(
+                    competition.source_max_retrieved_at,
+                    target.source_max_retrieved_at,
+                )
 
 
 def feature_rows_sha256(rows: list[RegulationFeatureRow]) -> str:
@@ -562,3 +587,8 @@ def _recent_count(kickoffs: list[datetime], target_kickoff: datetime, days: int)
 
 def _clamp(value: float, lower: float, upper: float) -> float:
     return min(max(value, lower), upper)
+
+
+def _maximum_timestamp(*values: datetime | None) -> datetime | None:
+    present = [value for value in values if value is not None]
+    return max(present) if present else None

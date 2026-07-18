@@ -25,5 +25,18 @@
     "supported_output": "regulation_moneyline",
     "distribution_limitation": "moneyline_temperature_is_not_backpropagated_to_the_score_grid"
   },
+  "forward_availability": {
+    "policy_version": "forward_observation_availability_v1",
+    "strict_fixture_kickoff_start": "2026-07-15T00:00:00+00:00",
+    "historical_result_policy": "kickoff_plus_configured_delay_reconstruction",
+    "forward_result_policy": "maximum_of_kickoff_plus_configured_delay_and_actual_retrieval_time"
+  },
+  "issuance": {
+    "policy_version": "immutable_champion_forecast_v1",
+    "strict_prediction_at_start": "2026-07-19T00:00:00+00:00",
+    "maximum_issue_delay_minutes": 10,
+    "missed_horizon_policy": "skip_instead_of_backdating",
+    "reschedule_identity_policy": "fixture_horizon_kickoff_and_logical_model_hash"
+  },
   "parameter_status": "recipe_frozen_after_final_test_production_parameters_refittable"
 }
