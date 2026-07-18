@@ -229,3 +229,53 @@ Rollback is code-only unless the warehouse itself is changed: redeploy the
 previous collector revision or set `prediction_publication.enabled` to `false`.
 The application continues serving the last validated object during a producer
 failure.
+
+## Guarded Polymarket and player-shadow rollout — 2026-07-18
+
+The market-evidence schema and confirmed-lineup player shadow were released by
+the same stopped-writer protocol used for the original publisher rollout.
+
+- Commit `c3616bb5bdda94ff89caa025a68eac7045866ae5` temporarily replaced the
+  collector command with `sleep infinity` and removed the cron schedule.
+  Maintenance deployment `fcb2edf2-2e83-436b-80da-8d11f457d3dd` reached
+  `SUCCESS`; `/proc` contained only PID 1 `sleep infinity` before backup.
+- Railway created a fresh manual restore point named
+  `2026-07-18 13:44 UTC`, size 5.92 GB, with `Restore` available. Existing
+  daily and resize restore points were left untouched.
+- The two reviewed feature commits were rebased on the maintenance commit and
+  deployed as exact source commit
+  `389c833781c76924337079fa691eb08c14e200cd`. Deployment
+  `1d134d46-1a2f-45b1-90cb-22793f476fc2` reached `SUCCESS` with no cron and
+  `sleep infinity` still effective.
+- The production artifact, player configuration, and migration file matched
+  their local SHA-256 digests byte for byte. The complete 264-test suite,
+  collector dry-run, and `git diff --check` passed on the exact rebased tree.
+- Read-only inspection found only migration
+  `014_polymarket_market_evidence` pending. It was applied transactionally at
+  `2026-07-18T13:48:04.011503Z`; immediate read-only verification found both
+  mapping tables, every required order-book column, zero synthetic mapping
+  rows, and no remaining migration.
+- One supervised collector run exited zero. Its durable publication receipt is
+  as-of `2026-07-18T13:53:34.492668Z`: 16 champion rows across nine fixtures,
+  prediction-row SHA-256
+  `e8d6ed7abd0089860fd18f96431f08cc9c3fcf092899d21739298a43edb99a84`,
+  and 16 coherent score-grid shadow rows.
+- The player shadow matched logical model SHA-256
+  `bca9a13af829032b43de9e7cbbd94e070f36fcfbda76675972565748b8e8963a`
+  and configuration SHA-256
+  `1fa75dd3f847d5c863aabab9ffd59068d79ec3912380363368c00dc2d652e36f`.
+  It returned the healthy cold-start state `no_eligible_confirmed_lineups`,
+  wrote no player prediction, and remained unauthorized to replace the
+  champion.
+- The Polymarket layer wrote 2,194 contract mappings, 1,040 canonical outcome
+  mappings, and retained 248 complete timing-valid T−5 books. It performed no
+  order or trading action and wrote no outcome/performance field.
+- Operations ended warning-only because the already-frozen T−24h/T−72h rows
+  did not have historical pre-cutoff books. `should_fail_run` was false, volume
+  use was 59.519%, and no critical alert was active.
+
+The tracked final configuration restores `python scripts/run_collector.py`,
+cron `*/5 * * * *`, and restart policy `NEVER`. Release is complete only after
+Railway reports those exact effective values and a post-restore automatic cycle
+publishes a fresh receipt; the maintenance and backup identifiers above remain
+the rollback audit trail.

@@ -447,3 +447,50 @@ The immediate operational task is therefore accumulation, not tuning: keep the
 collector healthy through real T−72h and T−24h windows, audit capture-gap
 warnings, and allow immutable evidence to build before opening any performance
 analysis.
+
+## 13. Production activation record — 2026-07-18
+
+The frozen evidence protocol was activated under a stopped scheduler, a fresh
+Railway restore point, and a maintenance deployment whose only PID before
+migration was `sleep infinity`.
+
+Migration `014_polymarket_market_evidence` was the sole pending migration and
+was applied transactionally at `2026-07-18T13:48:04.011503Z`. A new read-only
+connection then verified:
+
+- exactly one `014_polymarket_market_evidence` schema-migration record;
+- both `polymarket_contract_mapping` and
+  `polymarket_contract_outcome_mapping` tables;
+- all nine timing, completeness, trade, and book-hash columns on
+  `orderbook_snapshot`;
+- zero mapping rows immediately after migration, proving that schema creation
+  did not synthesize market evidence or rewrite historical observations;
+- no remaining pending migration.
+
+The first supervised cycle then reviewed 2,194 provider markets and wrote 520
+accepted and 1,674 rejected immutable contract mappings. The accepted mappings
+produced 1,040 canonical outcome mappings. It also retained 248 distinct
+`market_t_minus_5` order books for which capture timing was valid, the book was
+complete, and a non-null distinct book hash existed.
+
+The paired champion snapshot contained 16 horizon rows across nine fixtures.
+At each of T−24h and clean T−72h, eight prediction rows were examined and one
+row had a complete moneyline mapping, but none had the required complete book
+strictly before that older prediction cutoff. Therefore the evidence result was
+correctly `no_new_evidence`, with zero executable records. The watchdog opened
+the warning `polymarket_pre_cutoff_capture_gap`; it did not manufacture a stale
+book, move the cutoff, or treat the warning as corrupted soccer probabilities.
+
+The durable receipt explicitly records:
+
+- policy SHA-256
+  `e11ebe375845ec8293249730b889478a907e102abf401f87cfbcc96b8f4f900b`;
+- `orders_or_trading_actions_performed: false`;
+- `outcome_or_performance_fields_written: false`;
+- zero evidence and zero economically executable records;
+- a warning-only operations state with `should_fail_run: false`.
+
+This is the expected cold-start boundary. T−5 books collected on activation day
+cannot be relabeled as T−24h or T−72h evidence for forecasts that were already
+frozen. Coverage must accumulate prospectively as new fixtures traverse their
+real cutoffs.

@@ -618,16 +618,43 @@ Zero output is correct when no lineup passes every timing and identity gate.
 
 The implementation packages a compressed, hash-verified production shadow
 artifact and enables the failure-isolated player-shadow block in collector
-configuration. It has not been pushed or deployed to Railway. The local
-verification cycle correctly returned `no_eligible_confirmed_lineups` because
-the local warehouse has zero eligible pregame lineup fixtures.
+configuration. It was activated in Railway's production shadow path on
+2026-07-18 under the repository's stopped-cron/current-backup procedure.
 
-Production activation still requires the repository's stopped-cron/current-
-backup deployment procedure, verification that the artifact and config hashes
-survive deployment, a healthy zero-row cycle, validation of the first immutable
-pre-kickoff record, and continued collection without tuning against the
-prospective cohort.
+The activation evidence is deliberately stronger than a successful process
+exit:
+
+- Railway manual restore point `2026-07-18 13:44 UTC` was created from the
+  stopped 5.92 GB volume before migration or model execution;
+- model deployment `1d134d46-1a2f-45b1-90cb-22793f476fc2` ran exact source
+  commit `389c833781c76924337079fa691eb08c14e200cd` under `sleep infinity`, with
+  no cron schedule;
+- the deployed compressed artifact's file SHA-256 was
+  `40b3c0eb6e4ac37591a8c0fb2fe1227133f6cf7187011ec770a9e4ff50453624`;
+- its decoded logical model SHA-256 matched the frozen configuration exactly:
+  `bca9a13af829032b43de9e7cbbd94e070f36fcfbda76675972565748b8e8963a`;
+- the deployed configuration SHA-256 matched exactly:
+  `1fa75dd3f847d5c863aabab9ffd59068d79ec3912380363368c00dc2d652e36f`;
+- one supervised production cycle completed with exit code zero and produced
+  a durable publication receipt as-of `2026-07-18T13:53:34.492668Z`;
+- the player block returned the explicitly healthy status
+  `no_eligible_confirmed_lineups`, with zero prediction records, zero records
+  added, and `champion_replacement_authorized: false`;
+- the independent regulation champion and score-grid shadow each published 16
+  rows across nine fixtures, proving that the zero-row player condition did
+  not suppress or corrupt parent publication;
+- the operations watchdog independently re-read the receipt identities and
+  reported no player-model alert and no critical alert.
+
+Zero player rows are the only scientifically correct output for this cycle:
+no production fixture had a strictly pre-kickoff, exact-schedule, two-team
+confirmed lineup satisfying every identity and cutoff requirement. It is not
+permission to weaken the gate, substitute a likely lineup, or backfill an
+after-kickoff lineup as if it were known beforehand.
 
 The next scientific action is not another historical lineup backtest. It is to
 collect and settle the first genuinely timestamp-safe confirmed-lineup cohort
-under this already frozen protocol.
+under this already frozen protocol. The first nonzero record must still be
+audited for lineup retrieval time, generation time, kickoff version, parent
+forecast cutoff, model/config hashes, team-rate reconciliation, and immutable
+write-once behavior before it is treated as valid prospective evidence.

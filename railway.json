@@ -5,7 +5,8 @@
     "buildCommand": "python -m pip install ."
   },
   "deploy": {
-    "startCommand": "sleep infinity",
-    "restartPolicyType": "NEVER"
+    "startCommand": "python scripts/run_collector.py",
+    "restartPolicyType": "NEVER",
+    "cronSchedule": "*/5 * * * *"
   }
 }
