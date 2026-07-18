@@ -326,9 +326,14 @@ participation state
 ```
 
 Outputs must include both unconditional match probability and
-conditional-on-start probability. The current warehouse has complete non-null
-goals and assists for 722,825 positive-minute player observations across 23,592
-player-eligible fixtures.
+conditional-on-start probability. The frozen `confirmed_lineup_player_v1`
+target artifact contains 722,569 safe, supported-position, positive-minute rows
+across 23,590 fixtures after excluding ambiguous scores, placeholder identities,
+unsupported positions, and invalid minutes. Its confirmed-starter shadow output
+is implemented, but unconditional substitute output remains disabled because
+missing-minute and substitution-event semantics conflict. The local warehouse
+has zero historical fixtures with two timestamp-safe pre-kickoff lineups, so the
+contract remains prospective-shadow rather than public/validated.
 
 ### 6.2 First goalscorer — `LATER`
 
@@ -362,8 +367,11 @@ probabilities:
 P(G ∪ A) = P(G) + P(A) - P(G ∩ A)
 ```
 
-The player engine must estimate or preserve goal/assist dependence. This target
-has complete goal/assist fields on eligible positive-minute observations.
+The player engine must estimate or preserve goal/assist dependence. The first
+implementation uses mutually exclusive scorer/assister marks per team goal and
+computes the union as
+`1-exp(-lambda_team*(scorer_share+assister_share))`; it does not add anytime
+probabilities. This remains a prospective-shadow output pending calibration.
 
 ### 6.4 Player assists — `NEXT`
 
@@ -380,6 +388,9 @@ Required engine:
 - hierarchical shrinkage for sparse histories.
 
 Provider assist definitions must be compatible with market settlement rules.
+`confirmed_lineup_player_v1` estimates the provider-specific assisted-goal mass,
+allocates it through shrunk player shares, and preserves an explicit unassisted
+bucket. External market activation still requires a settlement-semantics audit.
 
 ### 6.5 Player shots — `BLOCKED_DATA`
 

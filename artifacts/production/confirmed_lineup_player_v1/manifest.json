@@ -1,0 +1,37 @@
+{
+  "artifact_version": "confirmed_lineup_player_model_manifest_v1",
+  "created_at": "2026-07-18T13:22:25.368388+00:00",
+  "logical_model_sha256": "bca9a13af829032b43de9e7cbbd94e070f36fcfbda76675972565748b8e8963a",
+  "model": {
+    "path": "artifacts/production/confirmed_lineup_player_v1/model.json.gz",
+    "sha256": "40b3c0eb6e4ac37591a8c0fb2fe1227133f6cf7187011ec770a9e4ff50453624"
+  },
+  "model_version": "confirmed_lineup_player_v1",
+  "safety": {
+    "apply_to_public_champion": false,
+    "historical_confirmed_lineup_evaluation": false,
+    "market_features_used": false,
+    "prospective_shadow_only": true,
+    "trading_actions": false
+  },
+  "sources": {
+    "config": {
+      "path": "config/models/confirmed_lineup_player_v1.json",
+      "sha256": "1fa75dd3f847d5c863aabab9ffd59068d79ec3912380363368c00dc2d652e36f"
+    },
+    "dataset_manifest": {
+      "path": "data/features/confirmed_lineup_player_v1/manifest.json",
+      "sha256": "f022efcf8b7880f781e653b1f2e55036bbcd91da5be5725310eb02169cd389f3"
+    },
+    "targets": {
+      "path": "data/features/confirmed_lineup_player_v1/targets.parquet",
+      "sha256": "ca555acb3e70239ef58b6824491decee92aafaf3b8d8ba33963a67b04bfaf3d9"
+    }
+  },
+  "training": {
+    "fit_end_exclusive": "2026-07-15T00:00:00+00:00",
+    "fixtures": 23590,
+    "players": 18234,
+    "rows": 722569
+  }
+}

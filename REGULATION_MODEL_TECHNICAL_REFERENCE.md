@@ -2073,6 +2073,8 @@ from production.
 | Market audit | `config/models/regulation_market_benchmark_v1.json`, `src/soccer_bot/modeling/markets.py` |
 | Prospective Polymarket policy and semantic mapping | `config/contracts/polymarket_regulation_v1.json`, `src/soccer_bot/polymarket_contracts.py` |
 | Immutable market evidence and depth pricing | `src/soccer_bot/polymarket_evidence.py`, `scripts/capture_polymarket_market_evidence.py`, `POLYMARKET_MARKET_EVIDENCE.md` |
+| Confirmed-lineup/player hierarchy | `config/models/confirmed_lineup_player_v1.json`, `src/soccer_bot/datasets/players.py`, `src/soccer_bot/modeling/player_hierarchy.py`, `CONFIRMED_LINEUP_PLAYER_MODEL.md` |
+| Player dataset, diagnostic, fit, and shadow inference | `scripts/build_player_modeling_dataset.py`, `scripts/evaluate_player_components.py`, `scripts/fit_confirmed_lineup_player_model.py`, `scripts/predict_confirmed_lineup_player_shadow.py` |
 | Snapshot validation | `apps/api/snapshot_store.py`, `src/soccer_bot/prediction_publication.py` |
 | V2 score-grid research | `config/models/regulation_score_grid_v2.json`, `src/soccer_bot/modeling/score_grid.py`, `scripts/research_score_grid_v2.py` |
 | V3 conditional score model | `config/models/regulation_score_grid_v3_shadow.json`, `src/soccer_bot/modeling/score_grid_shadow.py` |
@@ -2120,6 +2122,14 @@ Before interpreting or changing this model, answer these questions explicitly:
     semantic mapping, full-depth, fee-status, and write-once evidence rules?
 18. Is a theoretical depth-walk expected value being mislabeled as a fill,
     realized P&L, or betting recommendation?
+19. Was a lineup genuinely retrieved before kickoff, or merely recovered during
+    a historical backfill and then mislabeled as pre-match information?
+20. Do named-player goal expectations plus the residual bucket reconcile exactly
+    to the parent team rate, and do assists plus unassisted goals do likewise?
+21. Is an unconditional substitute probability being inferred from a missing
+    minute field whose zero semantics have not been validated?
+22. Is an oracle-lineup component diagnostic being mistaken for a timestamp-safe
+    confirmed-lineup backtest or a promotion result?
 
 ## 26. Bottom line
 
@@ -2147,7 +2157,16 @@ gate: it preserves the champion moneyline algebraically and learns only
 within-result score shape. Its first 25 post-freeze horizon rows are immutable
 prospective evidence, not a performance conclusion.
 
-Its strongest virtue is not exotic model complexity. It is the explicit
+The separate `confirmed_lineup_player_v1` track now implements hierarchical
+starter minutes, player goal/assist shrinkage, team-rate reconciliation, strict
+pregame lineup selection, and immutable shadow inference. Its component
+diagnostic is favorable against position priors, but zero historical lineups
+satisfy the pre-kickoff capture contract. It is therefore correctly disabled
+for public activation and champion replacement pending a new prospective
+cohort. See `CONFIRMED_LINEUP_PLAYER_MODEL.md` for the full mathematics and
+gates.
+
+The system's strongest virtue is not exotic model complexity. It is the explicit
 information-time contract and the ability to explain every probability from
 canonical evidence through a small number of equations. Its most important
 remaining weaknesses are lineup/player absence, diagonal and plug-in parameter

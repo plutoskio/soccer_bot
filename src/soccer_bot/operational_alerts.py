@@ -352,6 +352,82 @@ def _evaluate_publication(
                         summary="Mapped prediction rows are missing complete pre-cutoff books",
                     )
 
+    player_config = publication_config.get("confirmed_lineup_player_shadow", {})
+    if not isinstance(player_config, Mapping) or not player_config.get(
+        "enabled", False
+    ):
+        checks["confirmed_lineup_player_shadow"] = {"status": "disabled"}
+    else:
+        player_shadow = result.get("confirmed_lineup_player_shadow")
+        if not isinstance(player_shadow, Mapping):
+            player_shadow = {}
+        player_status = str(player_shadow.get("status", "missing"))
+        player_records = _nonnegative_int(player_shadow.get("prediction_records"))
+        player_added = _nonnegative_int(player_shadow.get("records_added"))
+        checks["confirmed_lineup_player_shadow"] = {
+            "status": player_status,
+            "expected_model_version": player_config.get("model_version"),
+            "observed_model_version": player_shadow.get("model_version"),
+            "expected_logical_model_sha256": player_config.get(
+                "logical_model_sha256"
+            ),
+            "observed_logical_model_sha256": player_shadow.get(
+                "logical_model_sha256"
+            ),
+            "expected_config_sha256": player_config.get("config_sha256"),
+            "observed_config_sha256": player_shadow.get("config_sha256"),
+            "prediction_records": player_records,
+            "records_added": player_added,
+            "champion_replacement_authorized": player_shadow.get(
+                "champion_replacement_authorized"
+            ),
+        }
+        valid_player_statuses = {"written", "no_eligible_confirmed_lineups"}
+        if player_status not in valid_player_statuses:
+            _add_alert(
+                alerts,
+                code="confirmed_lineup_player_shadow_failed",
+                severity="critical",
+                component="confirmed_lineup_player_shadow",
+                summary=f"Confirmed-lineup player shadow status is {player_status}",
+            )
+        if player_status in valid_player_statuses:
+            if (
+                player_shadow.get("model_version")
+                != player_config.get("model_version")
+                or player_shadow.get("logical_model_sha256")
+                != player_config.get("logical_model_sha256")
+                or player_shadow.get("config_sha256")
+                != player_config.get("config_sha256")
+            ):
+                _add_alert(
+                    alerts,
+                    code="confirmed_lineup_player_model_identity_mismatch",
+                    severity="critical",
+                    component="confirmed_lineup_player_shadow",
+                    summary="Player shadow identity differs from frozen configuration",
+                )
+            if (
+                player_records is None
+                or player_added is None
+                or player_added > player_records
+            ):
+                _add_alert(
+                    alerts,
+                    code="confirmed_lineup_player_receipt_invalid",
+                    severity="critical",
+                    component="confirmed_lineup_player_shadow",
+                    summary="Player shadow returned inconsistent record counts",
+                )
+            if player_shadow.get("champion_replacement_authorized") is not False:
+                _add_alert(
+                    alerts,
+                    code="confirmed_lineup_player_unsafe_activation",
+                    severity="critical",
+                    component="confirmed_lineup_player_shadow",
+                    summary="Unvalidated player shadow attempted champion activation",
+                )
+
     shadow_config = publication_config.get("shadow_score_grid", {})
     if not isinstance(shadow_config, Mapping) or not shadow_config.get("enabled", False):
         checks["shadow_score_grid"] = {"status": "disabled"}

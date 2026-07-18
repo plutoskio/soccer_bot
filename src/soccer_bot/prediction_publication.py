@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import json
 import math
 import os
@@ -12,6 +13,10 @@ from typing import Callable, Mapping
 from soccer_bot.modeling.production import (
     champion_model_sha256,
     load_regulation_champion,
+)
+from soccer_bot.modeling.player_hierarchy import (
+    load_confirmed_lineup_player_model,
+    player_model_sha256,
 )
 from soccer_bot.modeling.score_grid_shadow import (
     load_score_grid_prospective_gate,
@@ -193,6 +198,16 @@ def _generate_validate_publish(
         environment=subprocess_environment,
         timeout=timeout,
     )
+    player_shadow_result = _try_generate_confirmed_lineup_player_shadow(
+        root=root,
+        warehouse_path=warehouse_path,
+        parent_snapshot_path=snapshot_path,
+        config=config.get("confirmed_lineup_player_shadow", {}),
+        command_runner=command_runner,
+        environment=subprocess_environment,
+        timeout=timeout,
+        as_of=datetime.now(timezone.utc),
+    )
     settlement_result = _try_update_prospective_settlement(
         root=root,
         warehouse_path=warehouse_path,
@@ -226,9 +241,105 @@ def _generate_validate_publish(
         "prediction_rows_sha256": snapshot["prediction_rows_sha256"],
         "polymarket_market_evidence": market_evidence_result,
         "shadow_score_grid": shadow_result,
+        "confirmed_lineup_player_shadow": player_shadow_result,
         "prospective_settlement_ledger": settlement_result,
         "prospective_evaluation_readiness": readiness_result,
     }
+
+
+def _try_generate_confirmed_lineup_player_shadow(
+    *,
+    root: Path,
+    warehouse_path: Path,
+    parent_snapshot_path: Path,
+    config: dict,
+    command_runner: CommandRunner,
+    environment: Mapping[str, str],
+    timeout: int,
+    as_of: datetime,
+) -> dict[str, object]:
+    if not config.get("enabled", False):
+        return {"status": "disabled"}
+    try:
+        model_path = _inside_root(root, config["model_path"])
+        config_path = _inside_root(root, config["config_path"])
+        output_directory = _inside_root(root, config["output_directory"])
+        model = load_confirmed_lineup_player_model(model_path)
+        expected_hash = str(config["logical_model_sha256"])
+        expected_config_hash = str(config["config_sha256"])
+        if model.model_version != str(config["model_version"]):
+            raise PredictionPublicationError("player_shadow_model_version_mismatch")
+        if player_model_sha256(model) != expected_hash:
+            raise PredictionPublicationError("player_shadow_model_hash_mismatch")
+        if _file_sha256(config_path) != expected_config_hash:
+            raise PredictionPublicationError("player_shadow_config_hash_mismatch")
+        execution = command_runner(
+            [
+                sys.executable,
+                str(root / "scripts" / "predict_confirmed_lineup_player_shadow.py"),
+                "--warehouse",
+                str(warehouse_path),
+                "--base-snapshot",
+                str(parent_snapshot_path),
+                "--model",
+                str(model_path),
+                "--config",
+                str(config_path),
+                "--as-of",
+                _utc(as_of).isoformat(),
+                "--output-dir",
+                str(output_directory),
+            ],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=int(config.get("timeout_seconds", timeout)),
+            check=False,
+        )
+        if execution.returncode:
+            raise PredictionPublicationError(
+                f"player_shadow_generation_exit_{execution.returncode}"
+            )
+        try:
+            receipt = json.loads(execution.stdout)
+        except json.JSONDecodeError as error:
+            raise PredictionPublicationError("invalid_player_shadow_receipt") from error
+        if receipt.get("status") not in {
+            "written",
+            "no_eligible_confirmed_lineups",
+        }:
+            raise PredictionPublicationError("player_shadow_write_not_confirmed")
+        if receipt.get("model_version") != model.model_version:
+            raise PredictionPublicationError("player_shadow_receipt_version_mismatch")
+        if receipt.get("logical_model_sha256") != expected_hash:
+            raise PredictionPublicationError("player_shadow_receipt_hash_mismatch")
+        if receipt.get("config_sha256") != expected_config_hash:
+            raise PredictionPublicationError("player_shadow_receipt_config_hash_mismatch")
+        for key in ("prediction_records", "records_added"):
+            if (
+                isinstance(receipt.get(key), bool)
+                or not isinstance(receipt.get(key), int)
+                or receipt[key] < 0
+            ):
+                raise PredictionPublicationError("invalid_player_shadow_counts")
+        if receipt["records_added"] > receipt["prediction_records"]:
+            raise PredictionPublicationError("invalid_player_shadow_counts")
+        return {
+            "status": receipt["status"],
+            "model_version": model.model_version,
+            "logical_model_sha256": expected_hash,
+            "config_sha256": expected_config_hash,
+            "prediction_records": receipt["prediction_records"],
+            "records_added": receipt["records_added"],
+            "champion_replacement_authorized": False,
+        }
+    except Exception as error:
+        return {
+            "status": "failed",
+            "error_type": type(error).__name__,
+            "error": _safe_error(error),
+        }
 
 
 def _try_capture_polymarket_market_evidence(
@@ -677,6 +788,14 @@ def _validate_readiness_receipt(
     serialized = json.dumps(value, sort_keys=True).lower()
     if any(term in serialized for term in forbidden):
         raise PredictionPublicationError("prospective_readiness_exposed_performance")
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def _is_lowercase_sha256(value: object) -> bool:

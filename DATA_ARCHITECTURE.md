@@ -960,6 +960,34 @@ Examples:
 
 This rule is more important than the choice of machine-learning algorithm.
 
+### 17.5 Implemented player and confirmed-lineup artifacts
+
+`confirmed_lineup_player_v1` materializes a positive-exposure player target at
+`(fixture_id, team_id, player_id)` grain. It begins at
+`eligible_player_models`, requires non-null positive minutes and goal/assist
+labels, excludes unsafe identities and ambiguous results, and applies a strict
+150-minute result-availability delay. Missing minutes are excluded and never
+converted to zero.
+
+The frozen artifact consists of `targets.parquet` plus `manifest.json`, including
+the warehouse identity, source/config hashes, logical row hash, schema, counts,
+and exclusions. Historical starter state is outcome-side evidence only because
+the local warehouse has zero two-team lineup artifacts retrieved before kickoff.
+
+Prospective confirmed-lineup evidence is separate. A record is eligible only
+when both complete lineups share a raw artifact and schedule observation, contain
+11 safe starters per team, match the current kickoff, and were retrieved
+strictly before kickoff and after the T−24 parent prediction. Immutable records
+are written under:
+
+```text
+data/predictions/confirmed_lineup_player_v1/evidence/
+```
+
+They retain the parent model/hash, player model/hash, raw lineup artifact,
+schedule observation, cutoff, reconciled player probabilities, and explicit
+shadow-only safety flags. See `CONFIRMED_LINEUP_PLAYER_MODEL.md`.
+
 ## 18. Models and predictions metadata
 
 ### 18.1 `model_version`

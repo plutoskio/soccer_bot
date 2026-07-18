@@ -1050,6 +1050,16 @@ Deliver:
 Exit gate: supported players receive coherent count distributions with explicit
 participation/minutes uncertainty and honest sparse-history behavior.
 
+Implementation status (2026-07-18): `confirmed_lineup_player_v1` now implements
+the starter-minutes distribution, hierarchical goal/assist rates, exact
+team/player reconciliation, strict pre-kickoff lineup selection, chronological
+component diagnostics, and immutable prospective shadow inference. It does not
+yet satisfy the phase exit gate: substitute appearance semantics are unresolved,
+there are zero historical two-team lineups captured before kickoff, calibration
+requires a new prospective cohort, defensive lineup contribution is absent, and
+the player explorer is not exposed in the application. See
+`CONFIRMED_LINEUP_PLAYER_MODEL.md`.
+
 ### Phase 8 — Build the corner engine
 
 Deliver:
@@ -1182,11 +1192,12 @@ rule. The calibrated output is currently regulation moneyline only because
 temperature scaling is not coherent with the raw score grid. Full decisions and
 parameters are in `REGULATION_CHAMPION_MODEL.md`.
 
-Next connect the immutable snapshot to the fixture-selection application and
-keep collecting complete timestamped Polymarket books. Confirmed-lineup/player
-features and distribution-level calibration are new challengers; their
-selection must use new forward data or nested evaluation, not the opened final
-test.
+The fixture-selection application and timestamped Polymarket evidence path are
+now connected. The confirmed-lineup/player component and immutable shadow path
+also exist, but remain disabled for public output. The next evidence is a new
+prospective cohort of lineups genuinely retrieved before kickoff; distribution-
+level calibration and any team-rate promotion must use that cohort rather than
+the opened result-model final test or backfilled post-kickoff lineups.
 
 ## 21. Sources and intellectual baseline
 

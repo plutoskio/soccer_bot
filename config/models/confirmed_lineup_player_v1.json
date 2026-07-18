@@ -1,0 +1,63 @@
+{
+  "model_version": "confirmed_lineup_player_v1",
+  "information_state": "confirmed_lineup_v1",
+  "research_status": "component_models_and_prospective_shadow_only",
+  "eligibility_flag": "eligible_player_models",
+  "source_code": "api_football",
+  "result_availability_delay_minutes": 150,
+  "production_fit_end_exclusive": "2026-07-15T00:00:00+00:00",
+  "supported_positions": ["G", "D", "M", "F"],
+  "hierarchical_priors": {
+    "goal_rate_prior_minutes": 900.0,
+    "assist_rate_prior_minutes": 900.0,
+    "starter_minutes_prior_appearances": 20.0,
+    "starter_minute_bins": [45, 59, 69, 79, 89, 130],
+    "unattributed_goal_share": 0.03,
+    "minimum_player_history_minutes_for_full_label": 900
+  },
+  "lineup_adjustment": {
+    "status": "shadow_candidate_not_authorized_for_champion_replacement",
+    "candidate_log_rate_coefficient": 0.25,
+    "maximum_absolute_log_rate_adjustment": 0.12,
+    "team_history_matches_for_full_weight": 20,
+    "apply_to_public_champion": false,
+    "defensive_player_adjustment_available": false
+  },
+  "evaluation": {
+    "method": "chronological_component_diagnostic_then_new_prospective_shadow",
+    "historical_confirmed_lineup_evaluation_allowed": false,
+    "historical_actual_starter_diagnostic_label": "oracle_lineup_component_diagnostic_only",
+    "component_diagnostic_start": "2022-07-01T00:00:00+00:00",
+    "paired_month_block_bootstrap_replicates": 2000,
+    "bootstrap_seed": 271828,
+    "forbidden_prospective_start": "2026-07-15T00:00:00+00:00",
+    "prospective_start": "2026-07-18T00:00:00+00:00",
+    "minimum_complete_calendar_months": 6,
+    "minimum_settled_fixtures": 2000,
+    "minimum_competitions": 5,
+    "primary_player_metrics": [
+      "anytime_goal_log_loss",
+      "anytime_assist_log_loss"
+    ],
+    "guardrail_metrics": [
+      "starter_minutes_log_score",
+      "starter_minutes_mean_absolute_error",
+      "team_goal_reconciliation_error",
+      "team_assist_reconciliation_error"
+    ],
+    "calibration_policy": "fit_only_after_timestamp_safe_confirmed_lineup_cohort_exists"
+  },
+  "inference": {
+    "require_same_raw_artifact_for_both_teams": true,
+    "require_exactly_eleven_safe_starters_per_team": true,
+    "require_schedule_observation_matching_current_kickoff": true,
+    "require_retrieved_strictly_before_kickoff": true,
+    "require_base_prediction_strictly_before_lineup": true,
+    "starter_props_enabled": true,
+    "substitute_unconditional_props_enabled": false,
+    "first_scorer_enabled": false,
+    "market_features_allowed": false,
+    "trading_actions_allowed": false
+  },
+  "parameter_status": "structural_recipe_frozen_before_timestamp_safe_prospective_scoring"
+}

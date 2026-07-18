@@ -143,7 +143,23 @@ only when at least one champion row has a complete semantic moneyline mapping
 but lacks complete timing-safe books. Zero listings or an unmapped market do
 not produce an operational incident.
 
-### 2.10 Prospective settlement failure
+### 2.10 Confirmed-lineup player shadow safety
+
+When enabled, the player shadow has two healthy statuses: `written` and
+`no_eligible_confirmed_lineups`. A genuine zero-lineup cycle is expected and is
+not an alert.
+
+`confirmed_lineup_player_shadow_failed` is critical for every other status.
+`confirmed_lineup_player_model_identity_mismatch` is critical when version or
+logical SHA-256 differs from frozen configuration.
+`confirmed_lineup_player_receipt_invalid` is critical for missing, negative, or
+internally inconsistent record counts.
+`confirmed_lineup_player_unsafe_activation` is critical unless the publisher
+explicitly reports `champion_replacement_authorized: false`. The player shadow
+may fail without undoing a valid champion upload, but the cron exits `3` so a
+loss of prospective lineup evidence or an unsafe activation cannot be silent.
+
+### 2.11 Prospective settlement failure
 
 `prospective_settlement_ledger_failed` is critical when the enabled outcome
 join does not report `updated` or `no_new_settlements`. This includes frozen
@@ -161,7 +177,7 @@ peeking before the frozen evidence minimum is not.
 output has negative/missing counts, adds more rows than exist, omits a required
 chain head, or reports a chain head for an empty ledger.
 
-### 2.11 Prospective evaluation readiness
+### 2.12 Prospective evaluation readiness
 
 The routine evaluator path is count-only and has three valid states:
 `locked_insufficient_evidence`, `ready_for_explicit_one_shot_evaluation`, and

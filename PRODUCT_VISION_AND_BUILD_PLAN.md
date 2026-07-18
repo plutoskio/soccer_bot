@@ -478,6 +478,20 @@ Refit finalized recipes on all eligible player history. Add player selection,
 conditional/unconditional proposition labels, player-specific coverage, and
 identity warnings to the UI.
 
+Implementation status (2026-07-18): the first leakage-safe player component
+track is implemented under `confirmed_lineup_player_v1`. It freezes 722,569
+positive-minute targets from 23,590 player-eligible fixtures, applies
+position-pooled goal/assist shrinkage, models starter minutes as a discrete
+distribution, reconciles player goal and assist mass exactly to the parent team
+rate, and writes immutable confirmed-lineup shadow records. The chronological
+oracle-lineup component diagnostic improves goal and assist log loss versus
+position-only baselines, with paired calendar-month intervals below zero, but
+this is not promotion evidence: the local warehouse contains zero historical
+fixtures with two lineups actually retrieved before kickoff. Unconditional
+substitute props, defensive lineup shocks, calibration, first scorer, public
+activation, and champion replacement remain gated. See
+`CONFIRMED_LINEUP_PLAYER_MODEL.md`.
+
 ### Phase 9 — Add corner models
 
 Build point-in-time team-stat features and compare count/boosted models for team
@@ -631,11 +645,13 @@ forward evaluation.
    final-test report. Define a new forward window, or nested walk-forward
    development folds, before choosing any new feature or model. The old final
    test remains a historical audit and must not influence challenger selection.
-3. **Build point-in-time lineup and player strength.** Model expected and then
-   confirmed starters, absences, recent minutes, substitutions, position,
-   goals, assists, shots, and player contributions to team attack and defence.
-   Every observation must respect the prediction cutoff, preserve missingness,
-   and use `eligible_player_models` independently from result-model eligibility.
+3. **Accumulate the timestamp-safe lineup cohort.** The first hierarchical
+   starter-minutes/goal/assist engine and strict confirmed-lineup inference path
+   now exist. Continue collecting two-team pre-kickoff lineups and immutable
+   shadow predictions without tuning against them. Validate substitute
+   appearance semantics and defensive contribution in separate development
+   work; never turn missing bench minutes into zero. Every observation continues
+   to use `eligible_player_models` independently from result eligibility.
 4. **Challenge the probability engine.** Test lineup/player features, improved
    goal-rate and score-distribution models, and distribution-level calibration
    against the frozen champion. Promotion requires better unseen-match proper
@@ -655,7 +671,8 @@ forward evaluation.
    Treat corners as a separate count-model research track with its own data,
    eligibility, calibration, and promotion gate.
 
-The immediate quantitative priority is step 2 followed by step 3: establish the
-new evaluation boundary, then research confirmed-lineup and player-strength
-features inside it. Operational alerts and the isolated restoration test can
-proceed in parallel because they do not use or influence model evaluation.
+The immediate quantitative priority is now prospective step 3: package the
+frozen player artifact from an isolated production snapshot, activate only the
+shadow path, and accumulate genuinely pre-kickoff lineups. Do not substitute a
+post-kickoff historical lineup backtest for this evidence. Operational alerts
+and the isolated restoration test remain independent of model evaluation.

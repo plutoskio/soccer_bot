@@ -177,6 +177,26 @@ class FakeRunner:
                 ),
                 stderr="market secret",
             )
+        if command[1].endswith("predict_confirmed_lineup_player_shadow.py"):
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=json.dumps(
+                    {
+                        "status": "no_eligible_confirmed_lineups",
+                        "model_version": "confirmed_lineup_player_v1",
+                        "logical_model_sha256": (
+                            "bca9a13af829032b43de9e7cbbd94e070f36fcfbda76675972565748b8e8963a"
+                        ),
+                        "config_sha256": (
+                            "1fa75dd3f847d5c863aabab9ffd59068d79ec3912380363368c00dc2d652e36f"
+                        ),
+                        "prediction_records": 0,
+                        "records_added": 0,
+                    }
+                ),
+                stderr="player secret",
+            )
         return subprocess.CompletedProcess(
             command,
             self.upload_exit,
@@ -224,6 +244,28 @@ class PredictionPublicationTests(unittest.TestCase):
             ).read_text(encoding="utf-8"),
             encoding="utf-8",
         )
+        player_model = (
+            self.root
+            / "artifacts"
+            / "production"
+            / "confirmed_lineup_player_v1"
+        )
+        player_model.mkdir(parents=True)
+        player_model.joinpath("model.json.gz").write_bytes(
+            (
+                ROOT
+                / "artifacts"
+                / "production"
+                / "confirmed_lineup_player_v1"
+                / "model.json.gz"
+            ).read_bytes()
+        )
+        gate.joinpath("confirmed_lineup_player_v1.json").write_text(
+            (
+                ROOT / "config" / "models" / "confirmed_lineup_player_v1.json"
+            ).read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
         self.as_of = datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)
         self.config = {
             "prediction_publication": {
@@ -235,6 +277,24 @@ class PredictionPublicationTests(unittest.TestCase):
                 "report_directory": "data/reports/predictions",
                 "minimum_prediction_rows": 1,
                 "timeout_seconds": 30,
+                "confirmed_lineup_player_shadow": {
+                    "enabled": True,
+                    "model_version": "confirmed_lineup_player_v1",
+                    "logical_model_sha256": (
+                        "bca9a13af829032b43de9e7cbbd94e070f36fcfbda76675972565748b8e8963a"
+                    ),
+                    "model_path": (
+                        "artifacts/production/confirmed_lineup_player_v1/model.json.gz"
+                    ),
+                    "config_path": "config/models/confirmed_lineup_player_v1.json",
+                    "config_sha256": (
+                        "1fa75dd3f847d5c863aabab9ffd59068d79ec3912380363368c00dc2d652e36f"
+                    ),
+                    "output_directory": (
+                        "data/predictions/confirmed_lineup_player_v1"
+                    ),
+                    "timeout_seconds": 30,
+                },
                 "shadow_score_grid": {
                     "enabled": True,
                     "model_version": "regulation_score_grid_v3_prospective_shadow",
@@ -323,8 +383,12 @@ class PredictionPublicationTests(unittest.TestCase):
         result = self.publish(runner)
 
         self.assertEqual(result["status"], "uploaded")
+        self.assertEqual(
+            result["confirmed_lineup_player_shadow"]["status"],
+            "no_eligible_confirmed_lineups",
+        )
         self.assertEqual(result["prediction_rows"], 1)
-        self.assertEqual(len(runner.commands), 5)
+        self.assertEqual(len(runner.commands), 6)
         self.assertEqual(
             result["shadow_score_grid"]["status"],
             "written_to_persistent_shadow_store",
@@ -393,7 +457,7 @@ class PredictionPublicationTests(unittest.TestCase):
         self.assertEqual(
             result["shadow_score_grid"]["error"], "shadow_generation_exit_29"
         )
-        self.assertEqual(len(runner.commands), 3)
+        self.assertEqual(len(runner.commands), 4)
         self.assertNotIn("shadow secret", json.dumps(result))
 
     def test_settlement_failure_is_isolated_after_parent_and_shadow(self) -> None:
@@ -410,7 +474,7 @@ class PredictionPublicationTests(unittest.TestCase):
             result["prospective_settlement_ledger"]["error"],
             "prospective_settlement_exit_31",
         )
-        self.assertEqual(len(runner.commands), 4)
+        self.assertEqual(len(runner.commands), 5)
         self.assertNotIn("settlement secret", json.dumps(result))
 
     def test_readiness_failure_is_isolated_and_sanitized(self) -> None:
@@ -425,7 +489,7 @@ class PredictionPublicationTests(unittest.TestCase):
             result["prospective_evaluation_readiness"]["error"],
             "prospective_readiness_exit_37",
         )
-        self.assertEqual(len(runner.commands), 5)
+        self.assertEqual(len(runner.commands), 6)
         self.assertNotIn("readiness secret", json.dumps(result))
 
     def test_report_write_failure_does_not_fail_collection_or_publication(self) -> None:
@@ -455,7 +519,7 @@ class PredictionPublicationTests(unittest.TestCase):
             "no_new_evidence", result["polymarket_market_evidence"]["status"]
         )
         self.assertEqual(0, result["polymarket_market_evidence"]["evidence_records"])
-        self.assertEqual(6, len(runner.commands))
+        self.assertEqual(7, len(runner.commands))
 
 
 if __name__ == "__main__":

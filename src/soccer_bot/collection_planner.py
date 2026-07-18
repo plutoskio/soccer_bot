@@ -578,6 +578,47 @@ def validate_collector_config(config: dict, catch_up_days: int | None = None) ->
             publication.get("timeout_seconds", 240),
             "prediction publication timeout_seconds",
         )
+        player_shadow = publication.get("confirmed_lineup_player_shadow", {})
+        if not isinstance(player_shadow, dict):
+            raise ValueError("confirmed_lineup_player_shadow must be an object")
+        if player_shadow.get("enabled", False):
+            for key in (
+                "model_version",
+                "logical_model_sha256",
+                "model_path",
+                "config_path",
+                "config_sha256",
+                "output_directory",
+            ):
+                value = player_shadow.get(key)
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError(
+                        f"confirmed_lineup_player_shadow {key} must be non-empty"
+                    )
+                if key not in {"logical_model_sha256", "config_sha256"}:
+                    path = Path(value)
+                    if path.is_absolute() or ".." in path.parts:
+                        raise ValueError(
+                            "confirmed_lineup_player_shadow paths must stay inside the repository"
+                        )
+            player_hash = player_shadow["logical_model_sha256"]
+            if len(player_hash) != 64 or any(
+                character not in "0123456789abcdef" for character in player_hash
+            ):
+                raise ValueError(
+                    "confirmed_lineup_player_shadow hash must be lowercase SHA-256"
+                )
+            config_hash = player_shadow["config_sha256"]
+            if len(config_hash) != 64 or any(
+                character not in "0123456789abcdef" for character in config_hash
+            ):
+                raise ValueError(
+                    "confirmed_lineup_player_shadow config hash must be lowercase SHA-256"
+                )
+            _positive_int(
+                player_shadow.get("timeout_seconds", 120),
+                "confirmed_lineup_player_shadow timeout_seconds",
+            )
         shadow = publication.get("shadow_score_grid", {})
         if not isinstance(shadow, dict):
             raise ValueError("prediction shadow_score_grid must be an object")

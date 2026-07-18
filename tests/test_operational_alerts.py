@@ -16,6 +16,7 @@ from soccer_bot.operational_alerts import (
 DiskUsage = namedtuple("DiskUsage", "total used free")
 CHAMPION_HASH = "8be7ffad15d12e7e603b2d9f3dd8dcd5e742e0f80846bcb6cd45c9ca40d7ef7a"
 SHADOW_HASH = "d17aa0334ad85914a396089430ad588ef8ca9381227de044106c1c777cbe00c7"
+PLAYER_HASH = "bca9a13af829032b43de9e7cbbd94e070f36fcfbda76675972565748b8e8963a"
 
 
 class OperationalAlertTests(unittest.TestCase):
@@ -315,6 +316,41 @@ class OperationalAlertTests(unittest.TestCase):
             "prospective_settlement_receipt_invalid",
             self.codes(self.watchdog(invalid)),
         )
+
+    def test_player_shadow_identity_counts_and_activation_fail_closed(self) -> None:
+        self.config["prediction_publication"]["confirmed_lineup_player_shadow"] = {
+            "enabled": True,
+            "model_version": "confirmed_lineup_player_v1",
+            "logical_model_sha256": PLAYER_HASH,
+            "config_sha256": "c" * 64,
+        }
+        valid = self.result()
+        valid["confirmed_lineup_player_shadow"] = {
+            "status": "no_eligible_confirmed_lineups",
+            "model_version": "confirmed_lineup_player_v1",
+            "logical_model_sha256": PLAYER_HASH,
+            "config_sha256": "c" * 64,
+            "prediction_records": 0,
+            "records_added": 0,
+            "champion_replacement_authorized": False,
+        }
+        self.assertNotIn(
+            "confirmed_lineup_player_shadow_failed",
+            self.codes(self.watchdog(valid)),
+        )
+
+        unsafe = self.result()
+        unsafe["confirmed_lineup_player_shadow"] = {
+            **valid["confirmed_lineup_player_shadow"],
+            "logical_model_sha256": "0" * 64,
+            "prediction_records": 1,
+            "records_added": 2,
+            "champion_replacement_authorized": True,
+        }
+        codes = self.codes(self.watchdog(unsafe))
+        self.assertIn("confirmed_lineup_player_model_identity_mismatch", codes)
+        self.assertIn("confirmed_lineup_player_receipt_invalid", codes)
+        self.assertIn("confirmed_lineup_player_unsafe_activation", codes)
 
     def test_evaluation_readiness_failure_or_unsafe_output_is_critical(self) -> None:
         failed = self.result()

@@ -105,6 +105,35 @@ issue if the Railway cron stops refreshing it. Full thresholds, alert codes,
 transition semantics, and incident procedures are in
 `OPERATIONAL_ALERTING.md`.
 
+### Confirmed-lineup player shadow activation
+
+`prediction_publication.confirmed_lineup_player_shadow` is packaged and enabled
+in the pending local implementation, but is not yet deployed. Its compressed
+artifact was built from the frozen local target snapshot with the exclusive
+2026-07-15 fit cutoff and carries a logical hash checked by the collector. Do
+not deploy this configuration without the normal stopped-cron/current-backup
+procedure and an exact comparison of target, manifest, config, warehouse,
+model-file, and logical-model provenance.
+
+Before enablement, verify:
+
+1. the readiness audit reports no leakage claim for historical lineups;
+2. the logical model hash equals collector configuration;
+3. `apply_to_public_champion` is false;
+4. unconditional substitute props and first scorer are false;
+5. the first enabled cycle with no eligible lineup returns
+   `no_eligible_confirmed_lineups`, not a failure;
+6. the first eligible cycle writes one immutable record strictly between the
+   T−24 parent timestamp and kickoff;
+7. repeated execution verifies rather than overwrites that record;
+8. champion publication remains byte-identical and independently successful.
+
+Player shadow output persists under
+`/app/data/predictions/confirmed_lineup_player_v1`. Never copy a locally fitted
+model into production without the stopped-cron backup procedure and exact
+provenance review. Full scientific and mathematical details are in
+`CONFIRMED_LINEUP_PLAYER_MODEL.md`.
+
 ## Read-only warehouse inspection
 
 Do not inspect the live DuckDB file while the collector is writing. Temporarily
@@ -172,6 +201,10 @@ provenance rows.
 - Polymarket evidence failure: preserve all raw books and existing immutable
   evidence, inspect the sanitized publication receipt and policy hash, and fix
   the mapping/pairing producer. Never edit an evidence JSON to clear an alert.
+- Confirmed-lineup player shadow failure: preserve the champion snapshot and all
+  immutable player evidence, inspect the model/config hashes and lineup timing
+  gates, and keep the shadow disabled if identity or provenance is uncertain.
+  Never set champion authorization true to clear an alert.
 - `polymarket_pre_cutoff_capture_gap`: warning only. A complete semantic
   moneyline mapping existed but one or more required timing-safe books were
   absent. Inspect the stage checkpoint, raw response, retry timing, kickoff
