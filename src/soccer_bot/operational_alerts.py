@@ -212,6 +212,146 @@ def _evaluate_publication(
                 summary="Champion candidate contains fewer rows than configured",
             )
 
+    evidence_config = publication_config.get("polymarket_market_evidence", {})
+    if not isinstance(evidence_config, Mapping) or not evidence_config.get(
+        "enabled", False
+    ):
+        checks["polymarket_market_evidence"] = {"status": "disabled"}
+    else:
+        evidence = result.get("polymarket_market_evidence")
+        if not isinstance(evidence, Mapping):
+            evidence = {}
+        evidence_status = str(evidence.get("status", "missing"))
+        evidence_counts = {
+            key: _nonnegative_int(evidence.get(key))
+            for key in (
+                "prediction_rows",
+                "new_evidence_records",
+                "existing_evidence_records",
+                "evidence_records",
+                "economically_executable_records",
+            )
+        }
+        checks["polymarket_market_evidence"] = {
+            "status": evidence_status,
+            "expected_policy_sha256": evidence_config.get("policy_sha256"),
+            "observed_policy_sha256": evidence.get("policy_sha256"),
+            **evidence_counts,
+            "horizons": evidence.get("horizons"),
+            "exclusion_counts": evidence.get("exclusion_counts"),
+            "outcome_or_performance_fields_written": evidence.get(
+                "outcome_or_performance_fields_written"
+            ),
+            "orders_or_trading_actions_performed": evidence.get(
+                "orders_or_trading_actions_performed"
+            ),
+        }
+        if evidence_status not in {"updated", "no_new_evidence"}:
+            _add_alert(
+                alerts,
+                code="polymarket_market_evidence_failed",
+                severity="critical",
+                component="polymarket_market_evidence",
+                summary=f"Polymarket evidence status is {evidence_status}",
+            )
+        else:
+            if evidence.get("policy_sha256") != evidence_config.get(
+                "policy_sha256"
+            ):
+                _add_alert(
+                    alerts,
+                    code="polymarket_evidence_policy_identity_mismatch",
+                    severity="critical",
+                    component="polymarket_market_evidence",
+                    summary="Polymarket evidence policy differs from frozen configuration",
+                )
+            count_values = list(evidence_counts.values())
+            invalid_counts = any(value is None for value in count_values)
+            if not invalid_counts:
+                invalid_counts = (
+                    evidence_counts["new_evidence_records"]
+                    + evidence_counts["existing_evidence_records"]
+                    != evidence_counts["evidence_records"]
+                    or evidence_counts["evidence_records"]
+                    > evidence_counts["prediction_rows"]
+                    or evidence_counts["economically_executable_records"]
+                    > evidence_counts["evidence_records"]
+                )
+            horizons = evidence.get("horizons")
+            if not isinstance(horizons, Mapping):
+                invalid_counts = True
+            elif not invalid_counts:
+                horizon_totals = [0, 0, 0]
+                for horizon in horizons.values():
+                    if not isinstance(horizon, Mapping):
+                        invalid_counts = True
+                        break
+                    funnel = [
+                        _nonnegative_int(horizon.get(key))
+                        for key in (
+                            "prediction_rows",
+                            "complete_moneyline_mappings",
+                            "pre_cutoff_complete_books",
+                            "valid_bid_ask_books",
+                            "evidence_records",
+                            "economically_executable_records",
+                        )
+                    ]
+                    if any(value is None for value in funnel) or any(
+                        left < right
+                        for left, right in zip(funnel, funnel[1:])
+                    ):
+                        invalid_counts = True
+                        break
+                    horizon_totals[0] += funnel[0]
+                    horizon_totals[1] += funnel[4]
+                    horizon_totals[2] += funnel[5]
+                if horizon_totals != [
+                    evidence_counts["prediction_rows"],
+                    evidence_counts["evidence_records"],
+                    evidence_counts["economically_executable_records"],
+                ]:
+                    invalid_counts = True
+            if invalid_counts:
+                _add_alert(
+                    alerts,
+                    code="polymarket_evidence_receipt_invalid",
+                    severity="critical",
+                    component="polymarket_market_evidence",
+                    summary="Polymarket evidence returned internally inconsistent counts",
+                )
+            if (
+                evidence.get("outcome_or_performance_fields_written") is not False
+                or evidence.get("orders_or_trading_actions_performed") is not False
+            ):
+                _add_alert(
+                    alerts,
+                    code="polymarket_evidence_safety_violation",
+                    severity="critical",
+                    component="polymarket_market_evidence",
+                    summary="Polymarket evidence violated outcome-blind or read-only guardrails",
+                )
+            if isinstance(horizons, Mapping):
+                mapped = 0
+                books = 0
+                for horizon in horizons.values():
+                    if not isinstance(horizon, Mapping):
+                        continue
+                    mapped += _nonnegative_int(
+                        horizon.get("complete_moneyline_mappings")
+                    ) or 0
+                    books += _nonnegative_int(
+                        horizon.get("pre_cutoff_complete_books")
+                    ) or 0
+                if mapped > books:
+                    _add_alert(
+                        alerts,
+                        code="polymarket_pre_cutoff_capture_gap",
+                        severity="warning",
+                        component="polymarket_market_evidence",
+                        summary="Mapped prediction rows are missing complete pre-cutoff books",
+                    )
+
     shadow_config = publication_config.get("shadow_score_grid", {})
     if not isinstance(shadow_config, Mapping) or not shadow_config.get("enabled", False):
         checks["shadow_score_grid"] = {"status": "disabled"}

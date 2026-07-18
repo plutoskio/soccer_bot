@@ -16,6 +16,9 @@ databases are not part of this deployment.
 - Prediction publication receipts: `/app/data/reports/predictions/publication.jsonl`
 - Current prediction-operations status: `/app/data/reports/operations/current.json`
 - Prediction alert transitions: `/app/data/reports/operations/events.jsonl`
+- Immutable Polymarket prediction/book evidence: `/app/data/predictions/polymarket_market_evidence_v1/evidence/`
+- Count-only Polymarket coverage: `/app/data/predictions/polymarket_market_evidence_v1/coverage.json`
+- Polymarket evidence receipts: `/app/data/predictions/polymarket_market_evidence_v1/receipts.jsonl`
 - Current private v3 view: `/app/data/predictions/regulation_score_grid_v3_shadow/latest.json`
 - Immutable v3 evidence: `/app/data/predictions/regulation_score_grid_v3_shadow/evidence/`
 - V3 evidence receipts: `/app/data/predictions/regulation_score_grid_v3_shadow/receipts/`
@@ -91,9 +94,10 @@ appears in the collector summary and append-only receipt.
 
 Prediction operations are monitored separately from general collection health.
 The in-process watchdog validates publication freshness, champion and shadow
-identity, row counts, champion-shadow row parity, settlement completion,
-count-only evaluation readiness, anti-peeking/config/ledger-count guards,
-receipt durability, and mounted-volume capacity. A critical condition exits
+identity, row counts, champion-shadow row parity, Polymarket evidence policy
+identity/count/safety invariants, settlement completion, count-only evaluation
+readiness, anti-peeking/config/ledger-count guards, receipt durability, and
+mounted-volume capacity. A critical condition exits
 with code `3` after
 collection has been safely committed. An independent GitHub Actions monitor
 runs every 15 minutes against the public snapshot and opens one deduplicated
@@ -165,6 +169,13 @@ provenance rows.
 - Prediction publication failure: keep the prior snapshot, inspect the
   sanitized `prediction_publication` result and persistent receipt, and fix the
   producer or bucket without republishing an unreviewed file manually.
+- Polymarket evidence failure: preserve all raw books and existing immutable
+  evidence, inspect the sanitized publication receipt and policy hash, and fix
+  the mapping/pairing producer. Never edit an evidence JSON to clear an alert.
+- `polymarket_pre_cutoff_capture_gap`: warning only. A complete semantic
+  moneyline mapping existed but one or more required timing-safe books were
+  absent. Inspect the stage checkpoint, raw response, retry timing, kickoff
+  version, and token coverage before the next cutoff.
 - Operational exit code `3`: inspect both `prediction_publication` and
   `operational_watchdog`; preserve valid parent output, and never overwrite an
   immutable shadow evidence file or settlement record to clear the alert.

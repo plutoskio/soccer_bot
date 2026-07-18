@@ -105,7 +105,7 @@ class CollectorMigrationTests(unittest.TestCase):
                     ).fetchone(),
                 )
                 self.assertEqual(
-                    "013_correction_refresh_chronology",
+                    "014_polymarket_market_evidence",
                     upgraded.connection.execute(
                         "SELECT max(version) FROM schema_migration"
                     ).fetchone()[0],

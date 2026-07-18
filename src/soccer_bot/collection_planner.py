@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
+import re
 from zoneinfo import ZoneInfo
 
 
@@ -44,6 +45,8 @@ class MarketStagePlan:
     stage_time: datetime
     job_key: str
     include_closed: bool = False
+    capture_target_at: datetime | None = None
+    capture_deadline_at: datetime | None = None
 
 
 def effective_recovery_days(
@@ -301,20 +304,37 @@ def market_stage_plans(
     plans: list[MarketStagePlan] = []
     for offset in offsets:
         stage = f"market_t_minus_{offset}"
-        stage_time = kickoff - timedelta(minutes=offset)
+        capture_target = kickoff - timedelta(minutes=offset)
+        stage_time = capture_target - timedelta(minutes=window)
         key = f"polymarket:{stage}:{fixture_source_id}:{schedule_version}"
         if (
-            stage_time <= now < stage_time + timedelta(minutes=window)
+            stage_time <= now < capture_target
             and key not in attempted_job_keys
         ):
-            plans.append(MarketStagePlan(stage, stage_time, key))
+            plans.append(
+                MarketStagePlan(
+                    stage,
+                    stage_time,
+                    key,
+                    capture_target_at=capture_target,
+                    capture_deadline_at=capture_target,
+                )
+            )
 
     lineup_stage = "market_after_lineup"
     lineup_key = f"polymarket:{lineup_stage}:{fixture_source_id}:{schedule_version}"
     if lineup_complete and now < kickoff and lineup_key not in attempted_job_keys:
         # Give the lineup-triggered capture its own artifact/stage. A following
         # five-minute scheduler run can still capture a coincident timed stage.
-        plans = [MarketStagePlan(lineup_stage, now, lineup_key)]
+        plans = [
+            MarketStagePlan(
+                lineup_stage,
+                now,
+                lineup_key,
+                capture_target_at=kickoff,
+                capture_deadline_at=kickoff,
+            )
+        ]
 
     closure_delay = _positive_int(closure_delay_minutes, "market closure delay")
     closure_time = kickoff + timedelta(minutes=closure_delay)
@@ -427,21 +447,31 @@ def validate_collector_config(config: dict, catch_up_days: int | None = None) ->
     if len(set(normalized_market_offsets)) != len(normalized_market_offsets):
         raise ValueError("snapshot_offsets_minutes must not contain duplicates")
     _positive_int(
-        polymarket.get("snapshot_stage_window_minutes", 10),
-        "snapshot_stage_window_minutes",
-    )
-    _positive_int(
         polymarket.get("closure_snapshot_delay_minutes", 180),
         "closure_snapshot_delay_minutes",
     )
-    _positive_int(
+    maximum_attempts = _positive_int(
         polymarket.get("snapshot_maximum_attempts", 3),
         "snapshot_maximum_attempts",
     )
-    _positive_int(
+    retry_minutes = _positive_int(
         polymarket.get("snapshot_retry_minutes", 15),
         "snapshot_retry_minutes",
     )
+    window_minutes = _positive_int(
+        polymarket.get("snapshot_stage_window_minutes", 10),
+        "snapshot_stage_window_minutes",
+    )
+    if window_minutes <= retry_minutes * (maximum_attempts - 1):
+        raise ValueError(
+            "snapshot_stage_window_minutes must permit every configured retry "
+            "strictly before the market cutoff"
+        )
+    mapping_path = polymarket.get("mapping_policy_path")
+    if not isinstance(mapping_path, str) or not mapping_path.strip():
+        raise ValueError("mapping_policy_path must be a non-empty path")
+    if Path(mapping_path).is_absolute() or ".." in Path(mapping_path).parts:
+        raise ValueError("mapping_policy_path must stay inside the repository")
     for key, default in (
         ("discovery_hourly_minutes", 60),
         ("discovery_matchday_minutes", 15),
@@ -513,6 +543,32 @@ def validate_collector_config(config: dict, catch_up_days: int | None = None) ->
             if path.is_absolute() or ".." in path.parts:
                 raise ValueError(
                     f"prediction_publication {key} must stay inside the repository"
+                )
+        market_evidence = publication.get("polymarket_market_evidence", {})
+        if not isinstance(market_evidence, dict):
+            raise ValueError("polymarket_market_evidence must be an object")
+        if market_evidence.get("enabled", False):
+            for key in ("policy_path", "output_directory"):
+                value = market_evidence.get(key)
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError(
+                        f"polymarket_market_evidence {key} must be non-empty"
+                    )
+                if Path(value).is_absolute() or ".." in Path(value).parts:
+                    raise ValueError(
+                        f"polymarket_market_evidence {key} must stay inside the repository"
+                    )
+            policy_hash = market_evidence.get("policy_sha256")
+            if not isinstance(policy_hash, str) or not re.fullmatch(
+                r"[0-9a-f]{64}", policy_hash
+            ):
+                raise ValueError(
+                    "polymarket_market_evidence policy_sha256 must be lowercase SHA-256"
+                )
+            required_offsets = {4320, 1440}
+            if not required_offsets.issubset(set(normalized_market_offsets)):
+                raise ValueError(
+                    "Polymarket evidence requires T-72h and T-24h capture offsets"
                 )
         _positive_int(
             publication.get("minimum_prediction_rows", 1),

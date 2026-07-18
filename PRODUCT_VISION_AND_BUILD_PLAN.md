@@ -569,8 +569,12 @@ calibrated rich model improves final-test log loss over calibrated independent
 Poisson by 0.00453 at T-24h and 0.00434 at clean T-72h, with both paired
 month-block 95% intervals below zero.
 
-The strict as-of Polymarket benchmark currently has zero complete eligible
-three-way fixtures. Football-Data closing consensus is a useful retrospective
+The historical strict as-of Polymarket benchmark has zero complete eligible
+three-way fixtures. Prospective T−72h/T−24h collection is now active under a
+frozen pre-cutoff policy. Regulation mappings, full-depth snapshots, immutable
+champion/book evidence, fee-aware ladder walks, and count-only coverage/alerts
+are implemented. This is accumulation infrastructure, not evidence that an
+edge exists. Football-Data closing consensus is a useful retrospective
 yardstick over 12,458 fixtures, but cannot be used as an earlier-time feature
 because `quoted_at` is missing. On its covered final-test subset it still beats
 the champion by about 0.042 log-loss points at both horizons, establishing the
@@ -637,11 +641,13 @@ forward evaluation.
    against the frozen champion. Promotion requires better unseen-match proper
    scoring rules and calibration, stable results across time/competitions, and
    no material degradation in important subgroups.
-5. **Collect executable market benchmarks.** Continue capturing complete,
-   timestamped Polymarket books. Match each quote to the exact T−72, T−24, and
-   confirmed-lineup information state so we can compare model probabilities
-   with prices that were genuinely available, including spread, liquidity,
-   fees, and realistic execution constraints.
+5. **Accumulate executable market benchmarks.** Continue capturing complete,
+   timestamped Polymarket books under
+   `polymarket_regulation_market_evidence_v1`. T−72 and T−24 are now paired
+   strictly before their exact model cutoffs with spread, depth, fee, and
+   immutable provenance. Add a separately ordered confirmed-lineup protocol
+   only when that prediction model exists; do not pretend a post-lineup book
+   preceded a prediction made from the lineup.
 6. **Unlock contracts in validated layers.** First add regulation spreads and
    totals derived from a validated score distribution. Then add exact score,
    both teams to score, and first-team-to-score contracts. Unlock player goals,

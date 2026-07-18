@@ -174,6 +174,16 @@ def _generate_validate_publish(
         raise PredictionPublicationError("publication_not_confirmed")
 
     predictions = snapshot["predictions"]
+    market_evidence_result = _try_capture_polymarket_market_evidence(
+        root=root,
+        warehouse_path=warehouse_path,
+        snapshot_path=snapshot_path,
+        config=config.get("polymarket_market_evidence", {}),
+        command_runner=command_runner,
+        environment=subprocess_environment,
+        default_timeout=timeout,
+        captured_at=datetime.now(timezone.utc),
+    )
     shadow_result = _try_generate_shadow_score_grid(
         root=root,
         parent_snapshot_path=snapshot_path,
@@ -214,10 +224,148 @@ def _generate_validate_publish(
         "prediction_rows": len(predictions),
         "fixture_count": len({row["fixture_id"] for row in predictions}),
         "prediction_rows_sha256": snapshot["prediction_rows_sha256"],
+        "polymarket_market_evidence": market_evidence_result,
         "shadow_score_grid": shadow_result,
         "prospective_settlement_ledger": settlement_result,
         "prospective_evaluation_readiness": readiness_result,
     }
+
+
+def _try_capture_polymarket_market_evidence(
+    *,
+    root: Path,
+    warehouse_path: Path,
+    snapshot_path: Path,
+    config: dict,
+    command_runner: CommandRunner,
+    environment: Mapping[str, str],
+    default_timeout: int,
+    captured_at: datetime,
+) -> dict[str, object]:
+    if not config.get("enabled", False):
+        return {"status": "disabled"}
+    try:
+        policy_path = _inside_root(root, config["policy_path"])
+        output_directory = _inside_root(root, config["output_directory"])
+        expected_policy_hash = str(config["policy_sha256"])
+        execution = command_runner(
+            [
+                sys.executable,
+                str(root / "scripts" / "capture_polymarket_market_evidence.py"),
+                "--warehouse",
+                str(warehouse_path),
+                "--snapshot",
+                str(snapshot_path),
+                "--policy",
+                str(policy_path),
+                "--expected-policy-sha256",
+                expected_policy_hash,
+                "--output-dir",
+                str(output_directory),
+                "--captured-at",
+                captured_at.isoformat(),
+            ],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=int(config.get("timeout_seconds", default_timeout)),
+            check=False,
+        )
+        if execution.returncode:
+            raise PredictionPublicationError(
+                f"polymarket_market_evidence_exit_{execution.returncode}"
+            )
+        try:
+            result = json.loads(execution.stdout)
+        except json.JSONDecodeError as error:
+            raise PredictionPublicationError(
+                "invalid_polymarket_market_evidence_receipt"
+            ) from error
+        if result.get("status") not in {"updated", "no_new_evidence"}:
+            raise PredictionPublicationError(
+                "polymarket_market_evidence_not_confirmed"
+            )
+        if result.get("policy_sha256") != expected_policy_hash:
+            raise PredictionPublicationError(
+                "polymarket_market_evidence_policy_mismatch"
+            )
+        counts = {
+            key: _validated_nonnegative_int(result.get(key), key)
+            for key in (
+                "prediction_rows",
+                "new_evidence_records",
+                "existing_evidence_records",
+                "evidence_records",
+                "economically_executable_records",
+            )
+        }
+        if (
+            counts["new_evidence_records"] + counts["existing_evidence_records"]
+            != counts["evidence_records"]
+            or counts["evidence_records"] > counts["prediction_rows"]
+            or counts["economically_executable_records"]
+            > counts["evidence_records"]
+        ):
+            raise PredictionPublicationError(
+                "invalid_polymarket_market_evidence_counts"
+            )
+        _validate_polymarket_evidence_horizons(result.get("horizons"), counts)
+        if (
+            result.get("outcome_or_performance_fields_written") is not False
+            or result.get("orders_or_trading_actions_performed") is not False
+        ):
+            raise PredictionPublicationError(
+                "unsafe_polymarket_market_evidence_receipt"
+            )
+        return {
+            "status": result["status"],
+            "policy_version": result.get("policy_version"),
+            "mapping_version": result.get("mapping_version"),
+            "policy_sha256": result.get("policy_sha256"),
+            **counts,
+            "horizons": result.get("horizons"),
+            "exclusion_counts": result.get("exclusion_counts"),
+            "outcome_or_performance_fields_written": False,
+            "orders_or_trading_actions_performed": False,
+        }
+    except Exception as error:
+        return {
+            "status": "failed",
+            "error_type": type(error).__name__,
+            "error": _safe_error(error),
+        }
+
+
+def _validate_polymarket_evidence_horizons(
+    value: object, counts: Mapping[str, int]
+) -> None:
+    if not isinstance(value, dict):
+        raise PredictionPublicationError("polymarket_evidence_horizons_not_object")
+    totals = [0, 0, 0]
+    keys = (
+        "prediction_rows",
+        "complete_moneyline_mappings",
+        "pre_cutoff_complete_books",
+        "valid_bid_ask_books",
+        "evidence_records",
+        "economically_executable_records",
+    )
+    for bucket in value.values():
+        if not isinstance(bucket, dict):
+            raise PredictionPublicationError("polymarket_evidence_horizon_not_object")
+        funnel = [_validated_nonnegative_int(bucket.get(key), key) for key in keys]
+        if any(left < right for left, right in zip(funnel, funnel[1:])):
+            raise PredictionPublicationError("polymarket_evidence_horizon_funnel_invalid")
+        totals[0] += funnel[0]
+        totals[1] += funnel[4]
+        totals[2] += funnel[5]
+    if totals != [
+        counts["prediction_rows"],
+        counts["evidence_records"],
+        counts["economically_executable_records"],
+    ]:
+        raise PredictionPublicationError("polymarket_evidence_horizon_totals_invalid")
 
 
 def _try_generate_shadow_score_grid(

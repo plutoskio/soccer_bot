@@ -21,19 +21,24 @@ class MarketStagePlannerTests(unittest.TestCase):
         self.kickoff = datetime(2026, 7, 12, 18, tzinfo=timezone.utc)
 
     def test_all_timed_stages_have_strict_local_windows(self):
-        offsets = [1440, 360, 90, 15, 5]
+        offsets = [4320, 1440, 360, 90, 15, 5]
         for offset in offsets:
             plans = market_stage_plans(
                 fixture_source_id="1",
                 schedule_version="kickoff-1",
                 kickoff=self.kickoff,
-                now=self.kickoff - timedelta(minutes=offset) + timedelta(minutes=4),
+                now=self.kickoff - timedelta(minutes=offset) - timedelta(minutes=4),
                 offsets_minutes=offsets,
                 stage_window_minutes=5,
                 lineup_complete=False,
                 attempted_job_keys=set(),
             )
             self.assertEqual([f"market_t_minus_{offset}"], [p.stage for p in plans])
+            self.assertEqual(
+                self.kickoff - timedelta(minutes=offset),
+                plans[0].capture_target_at,
+            )
+            self.assertLess(plans[0].stage_time, plans[0].capture_target_at)
         missed = market_stage_plans(
             fixture_source_id="1",
             schedule_version="kickoff-1",
@@ -45,6 +50,19 @@ class MarketStagePlannerTests(unittest.TestCase):
             attempted_job_keys=set(),
         )
         self.assertNotIn("market_t_minus_1440", [p.stage for p in missed])
+
+    def test_exact_prediction_cutoff_is_excluded(self):
+        plans = market_stage_plans(
+            fixture_source_id="1",
+            schedule_version="kickoff-1",
+            kickoff=self.kickoff,
+            now=self.kickoff - timedelta(minutes=1440),
+            offsets_minutes=[4320, 1440],
+            stage_window_minutes=16,
+            lineup_complete=False,
+            attempted_job_keys=set(),
+        )
+        self.assertNotIn("market_t_minus_1440", [plan.stage for plan in plans])
 
     def test_lineup_and_closed_stages_are_distinct(self):
         lineup = market_stage_plans(
@@ -120,13 +138,30 @@ class MarketObservationLoaderTests(unittest.TestCase):
                         "request_parameters": {},
                         "_cadence_stage_by_token": {"token-a": "market_t_minus_5"},
                         "_kickoff_by_token": {"token-a": "2026-07-12T18:00:00Z"},
+                        "_capture_by_token": {
+                            "token-a": {
+                                "target_at": "2026-07-12T17:55:00Z",
+                                "window_start_at": "2026-07-12T17:39:00Z",
+                                "deadline_at": "2026-07-12T17:55:00Z",
+                                "timing_valid": True,
+                            }
+                        },
                     },
                 )
                 self.assertEqual(
-                    ("market_t_minus_5", datetime(2026, 7, 12, 18, tzinfo=timezone.utc)),
+                    (
+                        "market_t_minus_5",
+                        datetime(2026, 7, 12, 18, tzinfo=timezone.utc),
+                        datetime(2026, 7, 12, 17, 55, tzinfo=timezone.utc),
+                        datetime(2026, 7, 12, 17, 39, tzinfo=timezone.utc),
+                        datetime(2026, 7, 12, 17, 55, tzinfo=timezone.utc),
+                        True,
+                    ),
                     warehouse.connection.execute(
                         """
-                        SELECT cadence_stage,kickoff_known_at_retrieval
+                        SELECT cadence_stage,kickoff_known_at_retrieval,
+                               capture_target_at,capture_window_start_at,
+                               capture_deadline_at,capture_timing_valid
                         FROM orderbook_snapshot
                         """
                     ).fetchone(),

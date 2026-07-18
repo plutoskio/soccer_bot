@@ -143,6 +143,40 @@ class FakeRunner:
                 ),
                 stderr="readiness secret",
             )
+        if command[1].endswith("capture_polymarket_market_evidence.py"):
+            policy_hash = command[command.index("--expected-policy-sha256") + 1]
+            rows = len(self.snapshot["predictions"])
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=json.dumps(
+                    {
+                        "status": "no_new_evidence",
+                        "policy_version": "polymarket_regulation_market_evidence_v1",
+                        "mapping_version": "polymarket_regulation_contract_mapping_v1",
+                        "policy_sha256": policy_hash,
+                        "prediction_rows": rows,
+                        "new_evidence_records": 0,
+                        "existing_evidence_records": 0,
+                        "evidence_records": 0,
+                        "economically_executable_records": 0,
+                        "horizons": {
+                            "pre_lineup_24h_v1": {
+                                "prediction_rows": rows,
+                                "complete_moneyline_mappings": 0,
+                                "pre_cutoff_complete_books": 0,
+                                "valid_bid_ask_books": 0,
+                                "evidence_records": 0,
+                                "economically_executable_records": 0,
+                            }
+                        },
+                        "exclusion_counts": {},
+                        "outcome_or_performance_fields_written": False,
+                        "orders_or_trading_actions_performed": False,
+                    }
+                ),
+                stderr="market secret",
+            )
         return subprocess.CompletedProcess(
             command,
             self.upload_exit,
@@ -404,6 +438,24 @@ class PredictionPublicationTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "uploaded")
         self.assertEqual(result["report_status"], "failed")
+
+    def test_polymarket_evidence_is_failure_isolated_and_receipt_validated(self) -> None:
+        self.config["prediction_publication"]["polymarket_market_evidence"] = {
+            "enabled": True,
+            "policy_path": "config/contracts/polymarket_regulation_v1.json",
+            "policy_sha256": "f" * 64,
+            "output_directory": "data/predictions/polymarket_market_evidence_v1",
+            "timeout_seconds": 30,
+        }
+        runner = FakeRunner(self.snapshot())
+        result = self.publish(runner)
+
+        self.assertEqual("uploaded", result["status"])
+        self.assertEqual(
+            "no_new_evidence", result["polymarket_market_evidence"]["status"]
+        )
+        self.assertEqual(0, result["polymarket_market_evidence"]["evidence_records"])
+        self.assertEqual(6, len(runner.commands))
 
 
 if __name__ == "__main__":

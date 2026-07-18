@@ -232,6 +232,62 @@ class OperationalAlertTests(unittest.TestCase):
         self.assertIn("publication_receipt_write_failed", self.codes(status))
         self.assertTrue(status["should_fail_run"])
 
+    def test_polymarket_evidence_identity_counts_and_safety_fail_closed(self) -> None:
+        self.config["prediction_publication"]["polymarket_market_evidence"] = {
+            "enabled": True,
+            "policy_sha256": "f" * 64,
+        }
+        result = self.result()
+        result["polymarket_market_evidence"] = {
+            "status": "updated",
+            "policy_sha256": "0" * 64,
+            "prediction_rows": 25,
+            "new_evidence_records": 2,
+            "existing_evidence_records": 1,
+            "evidence_records": 2,
+            "economically_executable_records": 3,
+            "outcome_or_performance_fields_written": True,
+            "orders_or_trading_actions_performed": False,
+            "horizons": {},
+            "exclusion_counts": {},
+        }
+        codes = self.codes(self.watchdog(result))
+        self.assertIn("polymarket_evidence_policy_identity_mismatch", codes)
+        self.assertIn("polymarket_evidence_receipt_invalid", codes)
+        self.assertIn("polymarket_evidence_safety_violation", codes)
+
+    def test_missing_books_after_complete_mapping_raise_warning_only(self) -> None:
+        self.config["prediction_publication"]["polymarket_market_evidence"] = {
+            "enabled": True,
+            "policy_sha256": "f" * 64,
+        }
+        result = self.result()
+        result["polymarket_market_evidence"] = {
+            "status": "no_new_evidence",
+            "policy_sha256": "f" * 64,
+            "prediction_rows": 25,
+            "new_evidence_records": 0,
+            "existing_evidence_records": 0,
+            "evidence_records": 0,
+            "economically_executable_records": 0,
+            "outcome_or_performance_fields_written": False,
+            "orders_or_trading_actions_performed": False,
+            "horizons": {
+                "pre_lineup_24h_v1": {
+                    "prediction_rows": 25,
+                    "complete_moneyline_mappings": 2,
+                    "pre_cutoff_complete_books": 1,
+                    "valid_bid_ask_books": 0,
+                    "evidence_records": 0,
+                    "economically_executable_records": 0,
+                }
+            },
+            "exclusion_counts": {"pre_cutoff_book_missing": 1},
+        }
+        status = self.watchdog(result)
+        self.assertIn("polymarket_pre_cutoff_capture_gap", self.codes(status))
+        self.assertFalse(status["should_fail_run"])
+
     def test_settlement_failure_or_premature_evaluation_is_critical(self) -> None:
         failed = self.result()
         failed["prospective_settlement_ledger"] = {"status": "failed"}

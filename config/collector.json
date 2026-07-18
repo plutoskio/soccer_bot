@@ -57,6 +57,13 @@
     "report_directory": "data/reports/predictions",
     "minimum_prediction_rows": 1,
     "timeout_seconds": 240,
+    "polymarket_market_evidence": {
+      "enabled": true,
+      "policy_path": "config/contracts/polymarket_regulation_v1.json",
+      "policy_sha256": "e11ebe375845ec8293249730b889478a907e102abf401f87cfbcc96b8f4f900b",
+      "output_directory": "data/predictions/polymarket_market_evidence_v1",
+      "timeout_seconds": 120
+    },
     "shadow_score_grid": {
       "enabled": true,
       "model_version": "regulation_score_grid_v3_prospective_shadow",
@@ -87,11 +94,12 @@
     "orderbook_batch_size": 500,
     "discovery_hourly_minutes": 60,
     "discovery_matchday_minutes": 15,
-    "snapshot_offsets_minutes": [1440, 360, 90, 15, 5],
-    "snapshot_stage_window_minutes": 10,
+    "snapshot_offsets_minutes": [4320, 1440, 360, 90, 15, 5],
+    "snapshot_stage_window_minutes": 16,
     "closure_snapshot_delay_minutes": 180,
     "snapshot_maximum_attempts": 3,
-    "snapshot_retry_minutes": 15
+    "snapshot_retry_minutes": 5,
+    "mapping_policy_path": "config/contracts/polymarket_regulation_v1.json"
   },
   "competitions": {
     "league_ids": [

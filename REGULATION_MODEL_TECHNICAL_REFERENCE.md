@@ -1,8 +1,8 @@
 # Soccer Bot Regulation Model — Quantitative Technical Reference
 
-Status: implementation-grounded reference for production `regulation_champion_v1` and prospective `regulation_score_grid_v3_prospective_shadow`
+Status: implementation-grounded reference for production `regulation_champion_v1`, prospective `regulation_score_grid_v3_prospective_shadow`, and outcome-blind `polymarket_regulation_market_evidence_v1`
 
-Repository state reviewed: 2026-07-17
+Repository state reviewed: 2026-07-18
 
 Production artifact described: local all-history refit created 2026-07-14/15
 
@@ -1742,10 +1742,69 @@ draw, and away `Yes` order books at or before the model cutoff; a known kickoff;
 both bid and ask; valid \(0<bid\le ask<1\); and spread no wider than 0.20.
 Prices are midpoints and then normalized across the three outcomes.
 
-The frozen audit has zero complete eligible fixtures. No claim of edge versus
-timestamped Polymarket is currently supported.
+The historical frozen audit has zero complete eligible fixtures. No claim of
+edge versus timestamped Polymarket is currently supported.
 
-### 19.2 Retrospective Football-Data benchmark
+### 19.2 Prospective Polymarket evidence protocol
+
+Prospective collection now fixes the chronology defect that prevented new
+books from matching the exact model anchors. For kickoff (K), horizon (h),
+cutoff (C_h=K-h), and window (W=16) minutes, retrieval must satisfy
+
+\[
+C_h-W\le t_{retrieve}<C_h.
+\]
+
+The system collects T−72h and T−24h, retries at five-minute intervals up to
+three times, requires the kickoff known at retrieval to equal the prediction
+kickoff, and permits at most 15 seconds of skew across the three binary Yes
+books. A response at the cutoff is too late. A later book remains preserved
+but is marked timing-invalid; it is never backdated.
+
+Semantic mapping is versioned and fail-closed. The supported provider types
+map to canonical regulation moneyline, total goals, goal handicap, team total,
+BTTS, and exact score only when fixture teams, line, outcome set, question
+grammar, and explicit regulation-plus-stoppage-time rules all agree. The first
+accepted or rejected decision under a mapping version is immutable.
+
+For complete moneyline books, midpoint consensus remains
+
+\[
+\tilde p_i=\frac{(b_i+a_i)/2}
+{\sum_{k\in\{H,D,A\}}(b_k+a_k)/2}.
+\]
+
+Execution is now modeled separately from consensus. For (Q) taker shares,
+asks are walked from lowest price upward. If (x_\ell) fills at
+(a_\ell),
+
+\[
+C_{gross}=\sum_\ell x_\ell a_\ell,
+\qquad
+VWAP=C_{gross}/\sum_\ell x_\ell.
+\]
+
+When point-in-time metadata says sports taker fees are enabled, the frozen fee
+curve is
+
+\[
+F=\sum_\ell x_\ell(0.03)a_\ell(1-a_\ell).
+\]
+
+Unknown fee state suppresses net economics rather than assuming zero. For a
+full fill, the outcome-blind model diagnostic is
+
+\[
+E[\Pi]=Qp_i^{model}-C_{gross}-F.
+\]
+
+This is not realized profit or an order instruction. First valid evidence is
+write-once and binds the prediction/model/snapshot/policy/mapping/rules/raw/book
+hashes, full depth, and all timestamps. Routine output exposes coverage counts
+only; it does not inspect outcomes or performance. The complete specification
+is `POLYMARKET_MARKET_EVIDENCE.md`.
+
+### 19.3 Retrospective Football-Data benchmark
 
 Football-Data closing consensus uses inverse decimal odds normalized to remove
 the three-way overround:
@@ -1893,9 +1952,11 @@ research process even if each individual fit remains chronological.
 ### 21.7 No guaranteed betting edge
 
 Good probabilistic scores are necessary, not sufficient, for a tradable edge.
-The system lacks complete timestamped Polymarket comparison history, execution
-cost modeling, liquidity/depth constraints, and forward paper-trading evidence.
-The project is a research system, not a guarantee of profit.
+The system now preserves strict prospective books and computes frozen
+depth/fee-aware taker diagnostics, but it still lacks complete timestamped
+Polymarket history, sufficient eligible coverage, latency/fill evidence,
+selection-bias correction, and forward paper-trading evidence. The project is
+a research system, not a guarantee of profit.
 
 ## 22. Leakage, invariance, and reproducibility guardrails
 
@@ -2010,6 +2071,8 @@ from production.
 | Production artifact | `artifacts/production/regulation_champion_v1/model.json` |
 | Frozen evaluation evidence | `data/features/regulation_team_state_v1/regulation_walk_forward_v1/rich_rate_v1/promoted_evaluation/report.json` |
 | Market audit | `config/models/regulation_market_benchmark_v1.json`, `src/soccer_bot/modeling/markets.py` |
+| Prospective Polymarket policy and semantic mapping | `config/contracts/polymarket_regulation_v1.json`, `src/soccer_bot/polymarket_contracts.py` |
+| Immutable market evidence and depth pricing | `src/soccer_bot/polymarket_evidence.py`, `scripts/capture_polymarket_market_evidence.py`, `POLYMARKET_MARKET_EVIDENCE.md` |
 | Snapshot validation | `apps/api/snapshot_store.py`, `src/soccer_bot/prediction_publication.py` |
 | V2 score-grid research | `config/models/regulation_score_grid_v2.json`, `src/soccer_bot/modeling/score_grid.py`, `scripts/research_score_grid_v2.py` |
 | V3 conditional score model | `config/models/regulation_score_grid_v3_shadow.json`, `src/soccer_bot/modeling/score_grid_shadow.py` |
@@ -2053,6 +2116,10 @@ Before interpreting or changing this model, answer these questions explicitly:
     prediction, and are all scored rows provably pre-kickoff and post-freeze?
 16. Is a shadow artifact being mistaken for a public production output or a
     retrospective training fit being mistaken for held-out evidence?
+17. Does a market book satisfy the frozen pre-cutoff window, kickoff identity,
+    semantic mapping, full-depth, fee-status, and write-once evidence rules?
+18. Is a theoretical depth-walk expected value being mislabeled as a fill,
+    realized P&L, or betting recommendation?
 
 ## 26. Bottom line
 
@@ -2092,7 +2159,8 @@ or v3 already knows.
 
 Operational continuity now has a separate two-plane watchdog. Each collector
 run validates champion/shadow status, frozen identities, row counts, freshness,
-receipt durability, and volume pressure; an independent scheduled public
-heartbeat detects a Railway cron that no longer starts. These controls monitor
-artifact production only. They do not inspect prospective outcomes and cannot
-become a tuning channel around the frozen v3 decision gate.
+Polymarket evidence identity/count/safety invariants, receipt durability, and
+volume pressure; an independent scheduled public heartbeat detects a Railway
+cron that no longer starts. These controls monitor artifact production only.
+They do not inspect prospective outcomes and cannot become a tuning channel
+around the frozen v3 decision gate.

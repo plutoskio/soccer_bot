@@ -5,8 +5,8 @@ Status: implemented and fail-closed
 Primary configuration: `config/collector.json` → `operations`
 
 This document defines the operational alert boundary for the production
-champion publisher, prospective v3 score-grid shadow, and prospective
-settlement ledger. The objective is to
+champion publisher, outcome-blind Polymarket evidence, prospective v3
+score-grid shadow, and prospective settlement ledger. The objective is to
 make each failure observable in the correct control plane, preserve an audit
 trail, prevent alert spam, and ensure that a dead scheduler is monitored by a
 process other than itself.
@@ -23,7 +23,8 @@ After collection has closed DuckDB and prediction publication has finished,
 opens the warehouse. It evaluates only:
 
 - the sanitized publication result from the current run;
-- frozen champion and shadow identities in `config/collector.json`;
+- frozen champion, Polymarket-policy, and shadow identities in
+  `config/collector.json`;
 - prior append-only publication receipts when the current publication fails;
 - the mounted `data` filesystem's total, used, and free bytes.
 
@@ -124,7 +125,25 @@ logical SHA-256 differs from frozen configuration. Generation errors containing
 configured minimum and contain one row for every champion
 fixture/information-state row. Zero rows cannot be silently successful.
 
-### 2.9 Prospective settlement failure
+### 2.9 Polymarket evidence failure and capture gaps
+
+`polymarket_market_evidence_failed` is critical when the enabled read-only
+pairing process does not report `updated` or `no_new_evidence`. It does not undo
+the already-published champion, but it prevents silent loss of market evidence.
+
+`polymarket_evidence_policy_identity_mismatch` is critical when the receipt's
+policy SHA-256 differs from frozen collector configuration.
+`polymarket_evidence_receipt_invalid` is critical for missing, negative, or
+internally impossible counts. `polymarket_evidence_safety_violation` is
+critical if the receipt claims that outcome/performance data was written or a
+trading action was performed.
+
+`polymarket_pre_cutoff_capture_gap` is a warning, not a run failure. It opens
+only when at least one champion row has a complete semantic moneyline mapping
+but lacks complete timing-safe books. Zero listings or an unmapped market do
+not produce an operational incident.
+
+### 2.10 Prospective settlement failure
 
 `prospective_settlement_ledger_failed` is critical when the enabled outcome
 join does not report `updated` or `no_new_settlements`. This includes frozen
@@ -142,7 +161,7 @@ peeking before the frozen evidence minimum is not.
 output has negative/missing counts, adds more rows than exist, omits a required
 chain head, or reports a chain head for an empty ledger.
 
-### 2.10 Prospective evaluation readiness
+### 2.11 Prospective evaluation readiness
 
 The routine evaluator path is count-only and has three valid states:
 `locked_insufficient_evidence`, `ready_for_explicit_one_shot_evaluation`, and
@@ -162,13 +181,13 @@ cutoff has reached every frozen evidence minimum and the human-only one-shot
 command may be run. It does not fail the cron and never runs the decision
 automatically.
 
-### 2.11 Persistent volume pressure
+### 2.12 Persistent volume pressure
 
 `persistent_volume_warning` opens at 80% and does not fail a run.
 `persistent_volume_critical` opens at 95% and exits `3`. Railway's additional
 100% native alert remains enabled.
 
-### 2.12 Watchdog failure
+### 2.13 Watchdog failure
 
 `operational_watchdog_failed` is critical. If the watchdog cannot evaluate or
 durably write state, the collector prints only the exception type, never its
@@ -226,6 +245,18 @@ provider body, command stderr, or credential path enters either artifact.
 3. Never manually replace public output or mutate a per-pair evidence file or
    settled ledger row.
 4. Correct code, identity, configuration, or storage access and deploy normally.
+
+### Polymarket evidence failure or capture gap
+
+1. Preserve raw artifacts, normalized books, and all existing immutable
+   evidence; never hand-edit or delete an evidence record.
+2. Compare configured and observed policy hashes in the sanitized receipt.
+3. For a capture gap, inspect the fixture's schedule version, mapping decision,
+   stage checkpoint, attempt timing, token count, and raw CLOB batch.
+4. Confirm the request was inside \([C_h-16\text{m},C_h)\); do not relabel a
+   late book to make coverage pass.
+5. Correct the collector or mapper through a new deployment. A semantic-policy
+   change requires a new version and hash, not an in-place historical rewrite.
 
 ### Volume pressure
 

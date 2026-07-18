@@ -40,6 +40,10 @@ from .http import HttpClient, HttpResponse
 from .health import generate_health_report
 from .loaders import RawCatalog, WarehouseLoader, metadata_artifact_id, parse_datetime
 from .raw_store import RawArtifactStore
+from .polymarket_contracts import (
+    load_polymarket_contract_policy,
+    refresh_polymarket_contract_mappings,
+)
 from .request_executor import (
     ProviderResponseError,
     RequestExecutionError,
@@ -119,6 +123,8 @@ class DetailJob:
     scheduled_for: datetime
     schedule_version: str | None = None
     schedule_observation_id: str | None = None
+    capture_target_at: datetime | None = None
+    capture_deadline_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -252,6 +258,21 @@ class Collector:
                 self._reconcile_fixture_components(fixtures, now)
                 self._mark_expired_pregame_components(fixtures, now)
                 self.summary["linked_polymarket_events"] = self._link_polymarket_events(fixtures)
+                policy_path = (
+                    Path(__file__).resolve().parents[2]
+                    / self.polymarket_config["mapping_policy_path"]
+                )
+                mapping_policy, mapping_hash = load_polymarket_contract_policy(
+                    policy_path
+                )
+                self.summary["polymarket_contract_mappings"] = (
+                    refresh_polymarket_contract_mappings(
+                        self.connection,
+                        policy=mapping_policy,
+                        policy_sha256=mapping_hash,
+                        mapped_at=now,
+                    )
+                )
             self._refresh_closed_polymarket_events(fixtures, now, dry_run=dry_run)
             market_jobs = self._plan_market_jobs(fixtures, now)
             self.summary["planned_jobs"].extend(job.job_key for job in market_jobs)
@@ -1714,7 +1735,14 @@ class Collector:
             )
             schedule_fixture = replace(fixture, kickoff=kickoff)
             jobs.extend(
-                DetailJob(plan.job_key, plan.stage, schedule_fixture, plan.stage_time)
+                DetailJob(
+                    plan.job_key,
+                    plan.stage,
+                    schedule_fixture,
+                    plan.stage_time,
+                    capture_target_at=plan.capture_target_at,
+                    capture_deadline_at=plan.capture_deadline_at,
+                )
                 for plan in plans
             )
         return jobs
@@ -1784,14 +1812,33 @@ class Collector:
             }
             stage_by_token: dict[str, str] = {}
             kickoff_by_token: dict[str, str] = {}
+            capture_by_token: dict[str, dict[str, str | bool | None]] = {}
             for job in jobs:
-                if not valid_jobs[job.job_key]:
-                    continue
                 for token in tokens_by_fixture[job.fixture.internal_id]:
                     stage_by_token[token] = job.job_type
                     kickoff_by_token[token] = job.fixture.kickoff.isoformat()
+                    capture_by_token[token] = {
+                        "target_at": (
+                            job.capture_target_at.isoformat()
+                            if job.capture_target_at
+                            else None
+                        ),
+                        "window_start_at": job.scheduled_for.isoformat(),
+                        "deadline_at": (
+                            job.capture_deadline_at.isoformat()
+                            if job.capture_deadline_at
+                            else None
+                        ),
+                        "timing_valid": valid_jobs[job.job_key],
+                        "timing_failure_reason": (
+                            None
+                            if valid_jobs[job.job_key]
+                            else "retrieval_outside_frozen_capture_window"
+                        ),
+                    }
             item["_cadence_stage_by_token"] = stage_by_token
             item["_kickoff_by_token"] = kickoff_by_token
+            item["_capture_by_token"] = capture_by_token
             self.loader.load_polymarket_payload("order_books_batch", payload, item)
             if isinstance(payload, list):
                 received.update(
@@ -1864,11 +1911,16 @@ class Collector:
     ) -> bool:
         retrieved_at = retrieved_at.astimezone(timezone.utc)
         if job.job_type.startswith("market_t_minus_"):
-            window = timedelta(
-                minutes=int(self.polymarket_config["snapshot_stage_window_minutes"])
+            deadline = job.capture_deadline_at or (
+                job.scheduled_for
+                + timedelta(
+                    minutes=int(
+                        self.polymarket_config["snapshot_stage_window_minutes"]
+                    )
+                )
             )
             return (
-                job.scheduled_for <= retrieved_at < job.scheduled_for + window
+                job.scheduled_for <= retrieved_at < deadline
                 and retrieved_at < job.fixture.kickoff
             )
         if job.job_type == "market_after_lineup":

@@ -1916,29 +1916,61 @@ class WarehouseLoader:
             [token_id],
         ).fetchone()
         observed_at = self._unix_timestamp(payload.get("timestamp")) or parse_datetime(item["retrieved_at"])
-        bids = payload.get("bids") or []
-        asks = payload.get("asks") or []
-        bid_prices = [optional_float(level.get("price")) for level in bids]
-        ask_prices = [optional_float(level.get("price")) for level in asks]
+        raw_bids = payload.get("bids")
+        raw_asks = payload.get("asks")
+        bids = raw_bids if isinstance(raw_bids, list) else []
+        asks = raw_asks if isinstance(raw_asks, list) else []
+        bid_prices = [
+            optional_float(level.get("price"))
+            for level in bids
+            if isinstance(level, dict)
+        ]
+        ask_prices = [
+            optional_float(level.get("price"))
+            for level in asks
+            if isinstance(level, dict)
+        ]
         best_bid = max((price for price in bid_prices if price is not None), default=None)
         best_ask = min((price for price in ask_prices if price is not None), default=None)
-        snapshot_id = stable_id("orderbook", token_id, observed_at, item["content_sha256"])
+        # One snapshot is one immutable provider retrieval. Content hashes may
+        # legitimately repeat when the visible book is unchanged, so they must
+        # not collapse distinct capture attempts or their timing provenance.
+        snapshot_id = stable_id(
+            "orderbook", token_id, item["_raw_artifact_id"]
+        )
         cadence_by_token = item.get("_cadence_stage_by_token", {})
         kickoff_by_token = item.get("_kickoff_by_token", {})
+        capture_by_token = item.get("_capture_by_token", {})
+        capture = capture_by_token.get(token_id, {})
+        levels_are_lists = isinstance(raw_bids, list) and isinstance(raw_asks, list)
+        levels_valid = levels_are_lists and all(
+            isinstance(level, dict)
+            and optional_float(level.get("price")) is not None
+            and optional_float(level.get("size")) is not None
+            for level in [*bids, *asks]
+        )
         self.connection.execute(
             """
             INSERT OR REPLACE INTO orderbook_snapshot (
                 orderbook_snapshot_id,outcome_id,source_token_id,
                 market_condition_id,observed_at,retrieved_at,best_bid,best_ask,
                 tick_size,minimum_order_size,raw_artifact_id,cadence_stage,
-                kickoff_known_at_retrieval
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                kickoff_known_at_retrieval,book_hash,last_trade_price,
+                negative_risk,book_complete,capture_target_at,
+                capture_window_start_at,capture_deadline_at,
+                capture_timing_valid,capture_timing_failure_reason
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [snapshot_id, outcome[0] if outcome else None, token_id, payload.get("market"),
              observed_at, parse_datetime(item["retrieved_at"]), best_bid, best_ask,
              optional_float(payload.get("tick_size")), optional_float(payload.get("min_order_size")),
              item["_raw_artifact_id"], cadence_by_token.get(token_id),
-             parse_datetime(kickoff_by_token.get(token_id))],
+             parse_datetime(kickoff_by_token.get(token_id)), payload.get("hash"),
+             optional_float(payload.get("last_trade_price")), payload.get("neg_risk"),
+             levels_valid, parse_datetime(capture.get("target_at")),
+             parse_datetime(capture.get("window_start_at")),
+             parse_datetime(capture.get("deadline_at")),
+             capture.get("timing_valid"), capture.get("timing_failure_reason")],
         )
         for side, levels in (("bid", bids), ("ask", asks)):
             for index, level in enumerate(levels):
@@ -2003,11 +2035,13 @@ class WarehouseLoader:
                 INSERT INTO prediction_market (
                     prediction_market_id,prediction_market_event_id,
                     source_market_id,question,slug,market_type,line_value,
-                    rules_text,active,closed,volume,liquidity,retrieved_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    rules_text,active,closed,volume,liquidity,retrieved_at,
+                    fees_enabled
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (prediction_market_id) DO UPDATE SET
                     active = excluded.active, closed = excluded.closed, volume = excluded.volume,
-                    liquidity = excluded.liquidity, retrieved_at = excluded.retrieved_at
+                    liquidity = excluded.liquidity, retrieved_at = excluded.retrieved_at,
+                    fees_enabled = excluded.fees_enabled
                 """,
                 [
                     market_id, event_id, source_market_id, market.get("question"), market.get("slug"),
@@ -2015,6 +2049,7 @@ class WarehouseLoader:
                     market.get("description"), market.get("active"), market.get("closed"),
                     optional_float(market.get("volumeNum") or market.get("volume")),
                     optional_float(market.get("liquidityNum") or market.get("liquidity")), retrieved_at,
+                    market.get("feesEnabled"),
                 ],
             )
             self.connection.execute(
@@ -2022,8 +2057,8 @@ class WarehouseLoader:
                 INSERT INTO prediction_market_observation (
                     market_observation_id,prediction_market_id,raw_artifact_id,
                     active,closed,question,rules_text,volume,liquidity,
-                    observed_at,retrieved_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    observed_at,retrieved_at,fees_enabled
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (prediction_market_id,raw_artifact_id) DO NOTHING
                 """,
                 [
@@ -2034,6 +2069,7 @@ class WarehouseLoader:
                     optional_float(market.get("volumeNum") or market.get("volume")),
                     optional_float(market.get("liquidityNum") or market.get("liquidity")),
                     parse_datetime(market.get("updatedAt")), retrieved_at,
+                    market.get("feesEnabled"),
                 ],
             )
             outcomes = parse_json_list(market.get("outcomes"))

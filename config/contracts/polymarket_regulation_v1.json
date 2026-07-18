@@ -1,0 +1,56 @@
+{
+  "policy_version": "polymarket_regulation_market_evidence_v1",
+  "mapping_version": "polymarket_regulation_contract_mapping_v1",
+  "provider": "polymarket",
+  "access_mode": "public_read_only_market_data",
+  "period": "regulation_plus_stoppage_time",
+  "supported_market_types": {
+    "moneyline": "regulation_moneyline",
+    "totals": "regulation_total_goals",
+    "spreads": "regulation_goal_handicap",
+    "soccer_team_totals": "regulation_team_total_goals",
+    "both_teams_to_score": "regulation_both_teams_to_score",
+    "soccer_exact_score": "regulation_exact_score"
+  },
+  "accepted_period_phrases": {
+    "default": [
+      "first 90 minutes of regular play plus stoppage time"
+    ],
+    "soccer_exact_score": [
+      "end of 90 minutes of regulation plus stoppage time; extra time and penalty shoot-outs are excluded"
+    ]
+  },
+  "required_binary_outcomes": ["Yes", "No"],
+  "horizon_stage": {
+    "pre_lineup_72h_clean_v1": "market_t_minus_4320",
+    "pre_lineup_24h_v1": "market_t_minus_1440"
+  },
+  "capture": {
+    "strictly_before_prediction_at": true,
+    "require_capture_target_equals_prediction_at": true,
+    "require_kickoff_identity": true,
+    "maximum_snapshot_skew_seconds": 15,
+    "require_bid_and_ask": true,
+    "maximum_bid_ask_spread": 0.20
+  },
+  "execution": {
+    "direction": "buy_selected_yes_token_as_taker",
+    "share_quantities": [10.0, 50.0, 100.0, 250.0],
+    "require_full_fill": true,
+    "fee_policy": {
+      "fees_enabled_field_required": true,
+      "sports_taker_fee_rate": 0.03,
+      "fee_formula": "shares_times_rate_times_price_times_one_minus_price",
+      "maker_rebates_assumed": false,
+      "external_funding_withdrawal_and_network_costs_included": false
+    }
+  },
+  "guardrails": {
+    "market_data_is_never_a_champion_model_feature": true,
+    "first_valid_evidence_is_immutable": true,
+    "no_result_or_settlement_fields": true,
+    "no_orders_wallets_signatures_positions_or_credentials": true,
+    "coverage_reporting_is_count_only": true,
+    "ambiguous_contracts_fail_closed": true
+  }
+}

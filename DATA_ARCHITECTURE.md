@@ -1146,3 +1146,30 @@ The filesystem collector lock is acquired before writable DuckDB access.
 Raw artifacts remain immutable evidence for every HTTP response, including
 error responses. Network failures without a response create attempt rows but
 never fake raw artifacts.
+
+## 27. Frozen Polymarket contract and evidence layer
+
+Migration `014_polymarket_market_evidence.sql` adds a semantic and temporal
+boundary between stored provider markets and model comparisons.
+
+`polymarket_contract_mapping` stores one immutable accepted or rejected
+decision per provider market and mapping version. Accepted rows carry the
+canonical regulation contract, canonical parameters, preserved-rules hash,
+fixture, and policy hash. Rejected rows carry a typed reason. Outcome polarity
+and canonical selection live in
+`polymarket_contract_outcome_mapping`; this represents Polymarket's binary
+Yes/No construction without pretending every No token is a separate soccer
+contract.
+
+`orderbook_snapshot` now also stores provider book identity, last trade,
+negative-risk flag, structural completeness, exact capture target/window/
+deadline, and timing validity. One retrieval is keyed by token plus raw
+artifact, so repeated unchanged content cannot erase timing history.
+
+The independent champion remains market-free. After a champion snapshot is
+published, a read-only pairing process can write the first complete, strictly
+pre-cutoff regulation-moneyline comparison under
+`data/predictions/polymarket_market_evidence_v1/`. Immutable evidence and
+append-only receipts are separate from the mutable count-only coverage view.
+No realized outcome or performance aggregate is written by this process. The
+full frozen specification is `POLYMARKET_MARKET_EVIDENCE.md`.
