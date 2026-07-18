@@ -1,0 +1,105 @@
+{
+  "evaluation_version": "polymarket_regulation_market_evaluation_v1",
+  "status": "frozen_before_first_eligible_market_settlement",
+  "frozen_at": "2026-07-18T16:00:00+00:00",
+  "ledger_version": "polymarket_regulation_market_settlement_v1",
+  "settlement_config_sha256": "093226ac2f0b3d36eab59b7aa1aea1617579752d154916379cf22fb1179d3543",
+  "prospective_start_inclusive": "2026-07-17T00:00:00+00:00",
+  "horizons": [
+    "pre_lineup_24h_v1",
+    "pre_lineup_72h_clean_v1"
+  ],
+  "evaluation_window": {
+    "timezone": "UTC",
+    "first_month_policy": "first_full_calendar_month_starting_at_or_after_prospective_start",
+    "cutoff_policy": "first_matured_month_where_all_horizons_meet_every_minimum",
+    "result_maturity_days_after_month_end": 7
+  },
+  "minimum_evidence": {
+    "complete_calendar_month_blocks": 6,
+    "settled_forecast_universe_per_horizon": 2000,
+    "covered_market_records_per_horizon": 500,
+    "economically_executable_records_per_horizon": 400,
+    "minimum_competitions_per_horizon": 5,
+    "paper_bets_per_horizon_per_quantity": 200
+  },
+  "readiness_policy": {
+    "automatic_mode": "counts_only",
+    "performance_statistics_before_ready": false,
+    "automatic_evaluation_execution": false,
+    "explicit_one_shot_command_required": true
+  },
+  "bootstrap": {
+    "method": "calendar_month_cluster_percentile",
+    "resampling": "sample_calendar_month_labels_with_replacement_and_retain_all_rows_in_each_sampled_month",
+    "replicates": 5000,
+    "seed": 20260718,
+    "lower_quantile": 0.025,
+    "upper_quantile": 0.975,
+    "quantile_interpolation": "linear_type_7"
+  },
+  "calibration": {
+    "method": "one_vs_rest_fixed_probability_bins_pooled_across_three_outcomes",
+    "bin_edges": [
+      0.0,
+      0.1,
+      0.2,
+      0.3,
+      0.4,
+      0.5,
+      0.6,
+      0.7,
+      0.8,
+      0.9,
+      1.0
+    ],
+    "reported_summaries": [
+      "expected_calibration_error",
+      "maximum_calibration_error",
+      "bin_count_mean_forecast_and_observed_frequency"
+    ]
+  },
+  "disagreement": {
+    "sign": "model_minus_market_no_vig",
+    "absolute_thresholds": [
+      0.02,
+      0.05,
+      0.1
+    ]
+  },
+  "execution_estimand": {
+    "strategy": "one_selected_yes_taker_buy_per_fixture_horizon_quantity_when_recomputed_model_expected_profit_is_strictly_positive",
+    "share_quantities": [
+      10.0,
+      50.0,
+      100.0,
+      250.0
+    ],
+    "capital_basis": "stored_full_ladder_vwap_plus_point_in_time_taker_fee",
+    "outcome_payout": "one_currency_unit_per_winning_share",
+    "live_fill_claimed": false,
+    "actual_trading": false
+  },
+  "selection_bias": {
+    "fixed_strata": [
+      "information_state",
+      "competition_id",
+      "calendar_month"
+    ],
+    "minimum_covered_per_stratum": 5,
+    "maximum_inverse_coverage_weight": 20.0,
+    "uncovered_market_probabilities_or_pnl_imputed": false,
+    "full_universe_pnl_claim_allowed": false
+  },
+  "report_policy": {
+    "write_once": true,
+    "immutable_filename": "report.json",
+    "five_questions_must_remain_separate": true,
+    "automatic_model_promotion": false,
+    "automatic_betting": false
+  },
+  "frozen_artifact_sha256": {
+    "settlement_config": "093226ac2f0b3d36eab59b7aa1aea1617579752d154916379cf22fb1179d3543",
+    "evaluation_module": "ede56786c7a8935ec2d2db5852ee7fa3b14b813435b5e5d1472a3183904f814f"
+  }
+}

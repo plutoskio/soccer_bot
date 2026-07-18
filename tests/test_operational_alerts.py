@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import namedtuple
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
@@ -271,6 +272,9 @@ class OperationalAlertTests(unittest.TestCase):
             "existing_evidence_records": 0,
             "evidence_records": 0,
             "economically_executable_records": 0,
+            "new_coverage_universe_records": 25,
+            "existing_coverage_universe_records": 0,
+            "coverage_universe_records": 25,
             "outcome_or_performance_fields_written": False,
             "orders_or_trading_actions_performed": False,
             "horizons": {
@@ -316,6 +320,86 @@ class OperationalAlertTests(unittest.TestCase):
             "prospective_settlement_receipt_invalid",
             self.codes(self.watchdog(invalid)),
         )
+
+    def test_polymarket_market_settlement_and_readiness_fail_closed(self) -> None:
+        settlement_hash = "a" * 64
+        evaluation_hash = "b" * 64
+        self.config["prediction_publication"]["polymarket_market_evidence"] = {
+            "enabled": True,
+            "policy_sha256": "f" * 64,
+            "market_research": {
+                "enabled": True,
+                "settlement_config_sha256": settlement_hash,
+                "evaluation_program": {
+                    "enabled": True,
+                    "evaluation_config_sha256": evaluation_hash,
+                },
+            },
+        }
+        result = self.result()
+        result["polymarket_market_evidence"] = {
+            "status": "no_new_evidence",
+            "policy_sha256": "f" * 64,
+            "prediction_rows": 25,
+            "new_evidence_records": 0,
+            "existing_evidence_records": 0,
+            "evidence_records": 0,
+            "economically_executable_records": 0,
+            "new_coverage_universe_records": 25,
+            "existing_coverage_universe_records": 0,
+            "coverage_universe_records": 25,
+            "horizons": {
+                "pre_lineup_24h_v1": {
+                    "prediction_rows": 25,
+                    "complete_moneyline_mappings": 0,
+                    "pre_cutoff_complete_books": 0,
+                    "valid_bid_ask_books": 0,
+                    "evidence_records": 0,
+                    "economically_executable_records": 0,
+                }
+            },
+            "exclusion_counts": {"moneyline_mapping_incomplete": 25},
+            "outcome_or_performance_fields_written": False,
+            "orders_or_trading_actions_performed": False,
+        }
+        result["polymarket_market_settlement_ledger"] = {
+            "status": "no_new_settlements",
+            "settlement_config_sha256": settlement_hash,
+            "records_added": 0,
+            "ledger_records": 0,
+            "covered_market_records": 0,
+            "economically_executable_records": 0,
+            "pending_coverage_records": 0,
+            "skipped_ineligible_records": 0,
+            "ledger_head_sha256": None,
+            "aggregate_performance_written": False,
+            "evaluation_report_written": False,
+            "orders_or_trading_actions_performed": False,
+        }
+        result["polymarket_market_evaluation_readiness"] = {
+            "status": "locked_insufficient_evidence",
+            "evaluation_config_sha256": evaluation_hash,
+            "ledger_records": 0,
+            "horizons": {},
+            "performance_statistics_exposed": False,
+            "automatic_evaluation_execution": False,
+            "explicit_one_shot_command_required": True,
+            "report_written": False,
+        }
+        healthy_codes = self.codes(self.watchdog(result))
+        self.assertNotIn("polymarket_market_settlement_failed", healthy_codes)
+        self.assertNotIn("polymarket_market_evaluation_readiness_failed", healthy_codes)
+
+        unsafe = deepcopy(result)
+        unsafe["polymarket_market_settlement_ledger"][
+            "orders_or_trading_actions_performed"
+        ] = True
+        unsafe["polymarket_market_evaluation_readiness"][
+            "performance_statistics_exposed"
+        ] = True
+        codes = self.codes(self.watchdog(unsafe))
+        self.assertIn("premature_or_unsafe_polymarket_market_output", codes)
+        self.assertIn("polymarket_market_evaluation_readiness_unsafe", codes)
 
     def test_player_shadow_identity_counts_and_activation_fail_closed(self) -> None:
         self.config["prediction_publication"]["confirmed_lineup_player_shadow"] = {

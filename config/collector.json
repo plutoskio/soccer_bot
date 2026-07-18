@@ -62,7 +62,21 @@
       "policy_path": "config/contracts/polymarket_regulation_v1.json",
       "policy_sha256": "e11ebe375845ec8293249730b889478a907e102abf401f87cfbcc96b8f4f900b",
       "output_directory": "data/predictions/polymarket_market_evidence_v1",
-      "timeout_seconds": 120
+      "timeout_seconds": 120,
+      "market_research": {
+        "enabled": true,
+        "settlement_config_path": "config/models/polymarket_regulation_market_settlement_v1.json",
+        "settlement_config_sha256": "093226ac2f0b3d36eab59b7aa1aea1617579752d154916379cf22fb1179d3543",
+        "output_directory": "data/predictions/polymarket_regulation_market_settlement_v1",
+        "timeout_seconds": 120,
+        "evaluation_program": {
+          "enabled": true,
+          "config_path": "config/models/polymarket_regulation_market_evaluation_v1.json",
+          "evaluation_config_sha256": "46e2df784aba1bc4245942fecc5c1a0ea1944b53afeac5ecad2ee4bc9e9bc3a2",
+          "output_directory": "data/predictions/polymarket_regulation_market_evaluation_v1",
+          "timeout_seconds": 120
+        }
+      }
     },
     "confirmed_lineup_player_shadow": {
       "enabled": true,

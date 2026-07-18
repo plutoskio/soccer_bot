@@ -349,6 +349,7 @@ Persistent paths are:
 
 ```text
 data/predictions/polymarket_market_evidence_v1/
+├── coverage_universe/<fixture_id>/<coverage_id>.json  # immutable denominator
 ├── evidence/<fixture_id>/<evidence_id>.json   # immutable
 ├── coverage.json                              # atomic current count view
 └── receipts.jsonl                             # append-only cycle receipts
@@ -438,10 +439,12 @@ The standalone pairing command is read-only with respect to DuckDB:
   lineup model needs a precisely ordered protocol: lineup becomes known, model
   prediction is frozen, and a separately timestamped comparison book is
   captured without pretending it preceded the prediction.
-- No current evidence artifact proves profitability. A later prospective
-  settlement/evaluation program must be frozen before inspecting its metrics
-  and must address missing-market selection, spread, depth, fees, slippage,
-  latency, and liquidity jointly.
+- No current evidence artifact proves profitability. The prospective
+  settlement/evaluation program described in Sections 14–19 is now frozen
+  before inspecting its metrics. It explicitly addresses the observed-book
+  spread, depth, fee, slippage, and missing-market selection mechanisms, while
+  retaining latency, live-fill uncertainty, and unobserved-market behavior as
+  controlled limitations.
 
 The immediate operational task is therefore accumulation, not tuning: keep the
 collector healthy through real T−72h and T−24h windows, audit capture-gap
@@ -494,3 +497,323 @@ This is the expected cold-start boundary. T−5 books collected on activation da
 cannot be relabeled as T−24h or T−72h evidence for forecasts that were already
 frozen. Coverage must accumulate prospectively as new fixtures traverse their
 real cutoffs.
+
+## 14. Frozen prospective market-evaluation program — 2026-07-18
+
+The outcome-side research program is now implemented and frozen. It does not
+open the performance sample. It creates the machinery that will eventually
+answer five different questions without allowing any one to substitute for
+another:
+
+1. Which distribution predicts regulation outcomes more accurately: the
+   independent model or the contemporaneous no-vig market?
+2. Is each distribution calibrated?
+3. How large and how structured are model-market disagreements?
+4. Would one frozen, depth- and fee-aware paper execution rule have produced
+   positive realized return on committed cost?
+5. How much do listing and usable-book coverage select the evaluated sample?
+
+The implemented flow is:
+
+```text
+outcome-blind forecast coverage universe
+              │
+              ├── unavailable market ───────────────┐
+              │                                     │
+              └── immutable pre-cutoff book ──┐     │
+                                               │     │
+verified regulation-result ledger ─────────────┴─────┤
+                                                     v
+                              append-only market settlement ledger
+                                                     │
+                                                     v
+                                    count-only readiness gate
+                                                     │
+                                   explicit command after gate only
+                                                     v
+                               immutable five-part research report
+```
+
+The frozen artifacts are
+`config/models/polymarket_regulation_market_settlement_v1.json` and
+`config/models/polymarket_regulation_market_evaluation_v1.json`. The collector
+automatically appends settlements and updates readiness counts. It never
+automatically runs the report.
+
+## 15. The immutable coverage universe
+
+### 15.1 Why covered evidence alone is insufficient
+
+An evidence directory containing only usable markets cannot measure its own
+selection process. If difficult leagues, rescheduled matches, low-liquidity
+teams, or unusually uncertain matches are less likely to have a complete book,
+evaluating retained evidence estimates
+
+\[
+E[L\mid C=1],
+\]
+
+not the full forecast-population quantity \(E[L]\), where \(C=1\) denotes
+complete market evidence. More covered observations do not remove this bias if
+availability remains systematic.
+
+Every champion forecast row therefore receives a write-once coverage record,
+including rows with no accepted mapping, no pre-cutoff book, an invalid book,
+or unknown economics:
+
+```text
+data/predictions/polymarket_market_evidence_v1/
+├── coverage_universe/<fixture_id>/<coverage_id>.json  # immutable denominator
+├── evidence/<fixture_id>/<evidence_id>.json           # immutable covered subset
+├── coverage.json                                      # atomic count view
+└── receipts.jsonl                                     # append-only receipts
+```
+
+For prediction row \(r\), the identity is
+
+\[
+\operatorname{SHA256}(v,f,h,t_p,H(r),H(M),H(P)),
+\]
+
+where \(f\) is fixture, \(h\) information state, \(t_p\) prediction time,
+\(H(M)\) champion identity, and \(H(P)\) policy identity. The first observed
+classification is immutable. Later ingestion cannot retroactively make an
+originally unavailable historical market available.
+
+Coverage records include the original three-way model vector so covered and
+uncovered model accuracy can later be compared. They contain no result, loss,
+calibration statistic, profit, or trade. The receipt enforces
+
+\[
+N_{new\ coverage}+N_{existing\ coverage}=N_{predictions}
+\]
+
+and
+
+\[
+N_{executable}\le N_{evidence}\le N_{coverage}=N_{predictions}.
+\]
+
+## 16. Separate append-only market settlement
+
+### 16.1 Pairing and provenance
+
+The market program consumes the already verified score-grid prospective
+settlement ledger as its result authority. It does not query an ad hoc result
+source. The join key is
+
+\[
+(\text{fixture_id},\text{information_state}),
+\]
+
+with exact prediction-time and kickoff equality. A covered row must also match
+coverage/evidence IDs, champion hash, prediction-row hash, and market-policy
+hash. Multiple matches fail closed. A score settlement with no future-format
+coverage record stays pending; it is not silently labeled uncovered.
+
+The output never modifies a prediction, book, coverage record, or score
+settlement. Each row stores source hashes, the prior ledger hash, and its own
+logical SHA-256. A changed prior result or broken chain stops settlement.
+
+### 16.2 Proper scoring rules
+
+Let realized class \(Y\in\{H,D,A\}\), model probabilities \(p^m_k\), no-vig
+market probabilities \(p^q_k\), and \(\epsilon=10^{-15}\). For side
+\(s\in\{m,q\}\),
+
+\[
+L_{\log}^{s}=-\log\max(p^s_Y,\epsilon),
+\]
+
+\[
+L_B^{s}=\sum_{k\in\{H,D,A\}}
+  (p^s_k-\mathbf 1\{Y=k\})^2.
+\]
+
+The paired delta is always model minus market,
+
+\[
+\Delta L=L^m-L^q,
+\]
+
+so negative is favorable to the model. Uncovered rows still receive model log
+loss and Brier from their immutable probability vector. Market scores remain
+`NULL`; no missing price is invented.
+
+### 16.3 Quote recomputation and paper settlement
+
+Settlement does not trust stored quote summaries. It walks every immutable ask
+ladder again and requires the recomputed fill/fee/economics object to hash
+identically to the stored quote. For quantity \(Q\), ask levels \((a_j,d_j)\),
+fills \(q_j\), and fee rate \(r\),
+
+\[
+C_{gross}(Q)=\sum_jq_ja_j,
+\qquad
+F(Q)=\sum_jq_jra_j(1-a_j),
+\]
+
+\[
+C_{net}(Q)=C_{gross}(Q)+F(Q).
+\]
+
+Selection \(k\)'s model expected profit is
+
+\[
+\widehat\Pi_k(Q)=Qp^m_k-C_{net,k}(Q).
+\]
+
+At most one Yes token is selected per fixture, horizon, and quantity:
+
+\[
+k^*(Q)=\arg\max_k\widehat\Pi_k(Q)
+\quad\text{only when}\quad
+\max_k\widehat\Pi_k(Q)>0.
+\]
+
+The tie order is home, draw, away. Partial fills, minimum-order failures,
+unknown fees, and nonpositive expected profit produce `no_bet`. Realized paper
+profit and return are
+
+\[
+\Pi(Q)=Q\mathbf1\{Y=k^*\}-C_{net,k^*}(Q),
+\qquad
+R(Q)=\frac{\Pi(Q)}{C_{net,k^*}(Q)}.
+\]
+
+This is a paper estimand against a stored visible ladder, not a live-fill claim.
+No wallet, order, signature, or position path exists.
+
+## 17. Frozen evidence gate and anti-peeking
+
+The prospective start is `2026-07-17T00:00:00Z`. Because July is a partial
+launch month, the first complete evaluation block is August 2026. A month
+matures seven days after month end. The deterministic cutoff is the first
+mature month where both T−24h and clean T−72h meet every minimum:
+
+| Requirement per horizon | Minimum |
+|---|---:|
+| Nonempty complete calendar months | 6 |
+| Settled forecast-universe rows | 2,000 |
+| Complete market-evidence rows | 500 |
+| Economically executable rows | 400 |
+| Competitions | 5 |
+| Paper selections at each of 10, 50, 100, 250 shares | 200 |
+
+The universe, covered, executable, and selected thresholds are separate so a
+large nominal denominator cannot conceal an uninformative retained subset.
+These are pre-result design choices, not mathematical guarantees of power.
+Changing them after observing performance requires a new version and untouched
+forward window.
+
+Automatic readiness may expose counts and whether minimums are met. It may not
+expose log loss, Brier, calibration, disagreement, profit, return, win rate, or
+bootstrap bounds. A recursive assertion rejects those fields. Even when ready,
+the collector raises a warning and waits for an explicit one-shot command.
+
+## 18. The five report estimands
+
+### 18.1 Predictive accuracy
+
+Each horizon reports model mean, market mean, and paired model-minus-market
+mean for log loss and Brier. Uncertainty uses 5,000 deterministic calendar-month
+cluster bootstrap replicates with seed `20260718`. Each replicate samples month
+labels with replacement and retains every paired fixture in a selected month.
+The 95% percentile interval uses linear type-7 interpolation.
+
+This measures probability quality on covered fixtures. ROI never replaces a
+proper scoring rule, and better probability loss does not prove monetizability.
+
+### 18.2 Calibration
+
+Model and market are separately evaluated one-versus-rest using fixed bins
+
+\[
+[0,.1),[.1,.2),\ldots,[.8,.9),[.9,1].
+\]
+
+For bin \(b\), count \(n_b\), mean forecast \(\bar p_b\), observed frequency
+\(\bar y_b\), and total selection forecasts \(N\),
+
+\[
+\operatorname{ECE}=\sum_b\frac{n_b}{N}|\bar p_b-\bar y_b|,
+\qquad
+\operatorname{MCE}=\max_b|\bar p_b-\bar y_b|.
+\]
+
+The complete bin counts remain visible because ECE/MCE are bin-dependent and
+sparse bins are unstable.
+
+### 18.3 Market disagreement
+
+Signed disagreement is \(d_k=p^m_k-p^q_k\). The report gives signed and
+absolute means by selection, the distribution of \(\max_k|d_k|\), and
+frequencies exceeding fixed 2-, 5-, and 10-percentage-point thresholds.
+Disagreement alone is not expected value; executable economics use the ask,
+depth, fee, and full selection rule.
+
+### 18.4 Executable edge
+
+For each horizon and share quantity, the report aggregates only frozen-rule
+paper actions: count, selection rate, committed cost, realized profit, wins,
+and capital-weighted return
+
+\[
+\frac{\sum_i\Pi_i}{\sum_iC_i}.
+\]
+
+The bootstrap resamples numerator and denominator together by month. Averaging
+per-bet percentage returns would overweight small bets and is not used.
+
+### 18.5 Selection bias
+
+Coverage is stratified within horizon by competition and calendar month. For
+stratum \(s\),
+
+\[
+\hat e_s=\frac{n_{covered,s}}{n_{universe,s}},
+\qquad
+w_s=\frac1{\hat e_s}.
+\]
+
+A stratum is supported only with at least five covered rows and \(w_s\le20\).
+Covered market comparisons are standardized toward supported forecast-universe
+strata, and the report includes maximum weight and effective sample size
+
+\[
+n_{eff}=\frac{(\sum_iw_i)^2}{\sum_iw_i^2}.
+\]
+
+Model log loss is also compared directly between covered and uncovered rows.
+No market probability or P&L is imputed for an uncovered row. Any positivity
+gap makes full-universe market edge explicitly unidentified. Even without such
+a gap, standardization relies on conditional exchangeability within the frozen
+strata; it is not a causal guarantee.
+
+## 19. Report immutability and operations
+
+The one-shot report records configuration, evaluator, settlement, ledger-head,
+ledger-file, selected-row, window, and cutoff hashes/identities, then hashes its
+own logical contents and uses a no-replace write. Later calls validate that its
+input remains an exact prefix of the append-only ledger and return identity
+only, not repeated performance.
+
+New critical alerts cover settlement failure, impossible counts, missing or
+changed hashes, premature aggregate/report output, any trading-action claim,
+readiness failure, readiness/ledger mismatch, and performance exposure or
+automatic evaluation in readiness mode. Readiness is warning-only and never
+promotes a model or authorizes betting.
+
+The commands are:
+
+```bash
+.venv/bin/python scripts/settle_polymarket_regulation_research.py
+.venv/bin/python scripts/check_polymarket_regulation_evaluation_readiness.py
+.venv/bin/python scripts/evaluate_polymarket_regulation_research.py
+```
+
+At implementation time the program is intentionally locked: six complete
+mature months cannot yet exist, and the production baseline had zero complete
+T−24h/T−72h evidence. No accuracy, calibration, disagreement, P&L, or selection
+conclusion is claimed. The correct action is prospective accumulation and
+operational monitoring, not tuning against an immature sample.

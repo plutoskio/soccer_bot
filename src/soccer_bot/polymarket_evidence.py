@@ -14,6 +14,7 @@ from .polymarket_contracts import canonical_json_sha256
 
 EVIDENCE_VERSION = "polymarket_prediction_market_evidence_v1"
 COVERAGE_VERSION = "polymarket_market_coverage_v1"
+COVERAGE_UNIVERSE_VERSION = "polymarket_prediction_coverage_universe_v1"
 REQUIRED_MONEYLINE = ("home_win", "draw", "away_win")
 
 
@@ -141,12 +142,16 @@ def capture_polymarket_market_evidence(
     output_directory.mkdir(parents=True, exist_ok=True)
     evidence_directory = output_directory / "evidence"
     evidence_directory.mkdir(parents=True, exist_ok=True)
+    coverage_universe_directory = output_directory / "coverage_universe"
+    coverage_universe_directory.mkdir(parents=True, exist_ok=True)
 
     by_horizon: dict[str, dict[str, object]] = {}
     exclusions: dict[str, int] = {}
     written = 0
     existing = 0
     execution_eligible = 0
+    coverage_universe_written = 0
+    coverage_universe_existing = 0
     for raw_prediction in predictions:
         if not isinstance(raw_prediction, Mapping):
             raise PolymarketEvidenceError("prediction_row_not_object")
@@ -164,30 +169,76 @@ def capture_polymarket_market_evidence(
         )
         bucket["prediction_rows"] = int(bucket["prediction_rows"]) + 1
         stage = horizons.get(horizon)
+        evidence = None
+        progress: dict[str, int] = {}
+        exclusion_reason = None
         if not isinstance(stage, str) or not stage:
-            _increment(exclusions, "unsupported_prediction_horizon")
-            continue
+            exclusion_reason = "unsupported_prediction_horizon"
+            stage = None
         try:
-            evidence, progress = _build_prediction_evidence(
-                connection,
-                prediction=raw_prediction,
-                snapshot=snapshot,
-                snapshot_sha256=snapshot_hash,
-                prediction_rows_sha256=prediction_rows_hash,
-                model_sha256=model_hash,
-                policy=policy,
-                policy_sha256=policy_sha256,
-                stage=stage,
-                captured_at=captured_at,
-            )
+            if stage is not None:
+                evidence, progress = _build_prediction_evidence(
+                    connection,
+                    prediction=raw_prediction,
+                    snapshot=snapshot,
+                    snapshot_sha256=snapshot_hash,
+                    prediction_rows_sha256=prediction_rows_hash,
+                    model_sha256=model_hash,
+                    policy=policy,
+                    policy_sha256=policy_sha256,
+                    stage=stage,
+                    captured_at=captured_at,
+                )
         except _CoverageExclusion as error:
-            for key, value in error.progress.items():
-                bucket[key] = int(bucket[key]) + int(value)
-            _increment(exclusions, error.reason)
+            progress = error.progress
+            exclusion_reason = error.reason
+        coverage_record = _build_coverage_universe_record(
+            prediction=raw_prediction,
+            snapshot=snapshot,
+            snapshot_sha256=snapshot_hash,
+            prediction_rows_sha256=prediction_rows_hash,
+            model_sha256=model_hash,
+            policy=policy,
+            policy_sha256=policy_sha256,
+            stage=stage,
+            captured_at=captured_at,
+            progress=progress,
+            evidence=evidence,
+            exclusion_reason=exclusion_reason,
+        )
+        coverage_path = (
+            coverage_universe_directory
+            / str(raw_prediction["fixture_id"])
+            / f"{coverage_record['coverage_id']}.json"
+        )
+        coverage_created, canonical_coverage = _write_once_coverage_json(
+            coverage_path, coverage_record
+        )
+        coverage_universe_written += int(coverage_created)
+        coverage_universe_existing += int(not coverage_created)
+        canonical_reason = canonical_coverage["exclusion_reason"]
+        canonical_covered = canonical_coverage["market_evidence_available"]
+        canonical_progress = canonical_coverage["coverage_funnel"]
+        if not isinstance(canonical_progress, Mapping):
+            raise PolymarketEvidenceError("coverage_universe_funnel_invalid")
+        for key in (
+            "complete_moneyline_mappings",
+            "pre_cutoff_complete_books",
+            "valid_bid_ask_books",
+        ):
+            bucket[key] = int(bucket[key]) + int(bool(canonical_progress.get(key)))
+        if not canonical_covered:
+            if not isinstance(canonical_reason, str) or not canonical_reason:
+                raise PolymarketEvidenceError("coverage_universe_exclusion_missing")
+            _increment(exclusions, canonical_reason)
             continue
-        for key, value in progress.items():
-            bucket[key] = int(bucket[key]) + int(value)
+        if evidence is None:
+            raise PolymarketEvidenceError(
+                "immutable_covered_prediction_cannot_rebuild_market_evidence"
+            )
         evidence_id = str(evidence["evidence_id"])
+        if canonical_coverage.get("evidence_id") != evidence_id:
+            raise PolymarketEvidenceError("coverage_evidence_identity_mismatch")
         path = evidence_directory / str(raw_prediction["fixture_id"]) / f"{evidence_id}.json"
         created = _write_once_json(path, evidence)
         written += int(created)
@@ -221,6 +272,8 @@ def capture_polymarket_market_evidence(
     if (
         evidence_records > total_predictions
         or execution_eligible > evidence_records
+        or coverage_universe_written + coverage_universe_existing
+        != total_predictions
         or horizon_prediction_rows != total_predictions
         or horizon_evidence_records != evidence_records
         or horizon_execution_records != execution_eligible
@@ -240,6 +293,11 @@ def capture_polymarket_market_evidence(
         "existing_evidence_records": existing,
         "evidence_records": evidence_records,
         "economically_executable_records": execution_eligible,
+        "new_coverage_universe_records": coverage_universe_written,
+        "existing_coverage_universe_records": coverage_universe_existing,
+        "coverage_universe_records": (
+            coverage_universe_written + coverage_universe_existing
+        ),
         "horizons": by_horizon,
         "exclusion_counts": dict(sorted(exclusions.items())),
         "outcome_or_performance_fields_written": False,
@@ -252,6 +310,92 @@ def capture_polymarket_market_evidence(
     }
     _append_jsonl(output_directory / "receipts.jsonl", receipt)
     return receipt
+
+
+def _build_coverage_universe_record(
+    *,
+    prediction: Mapping[str, object],
+    snapshot: Mapping[str, object],
+    snapshot_sha256: str,
+    prediction_rows_sha256: str,
+    model_sha256: str,
+    policy: Mapping[str, object],
+    policy_sha256: str,
+    stage: str | None,
+    captured_at: datetime,
+    progress: Mapping[str, int],
+    evidence: Mapping[str, object] | None,
+    exclusion_reason: str | None,
+) -> dict[str, object]:
+    fixture_id = str(prediction.get("fixture_id", ""))
+    if not fixture_id:
+        raise PolymarketEvidenceError("prediction_fixture_id_missing")
+    horizon = str(prediction.get("information_state", ""))
+    prediction_at = _timestamp(prediction.get("prediction_at"), "prediction_at")
+    kickoff = _timestamp(prediction.get("kickoff"), "kickoff")
+    prediction_row_sha256 = canonical_json_sha256(prediction)
+    model_probabilities = {
+        "home_win": _probability(prediction.get("home_win_probability"), "home_win"),
+        "draw": _probability(prediction.get("draw_probability"), "draw"),
+        "away_win": _probability(prediction.get("away_win_probability"), "away_win"),
+    }
+    if not math.isclose(sum(model_probabilities.values()), 1.0, abs_tol=1e-8):
+        raise PolymarketEvidenceError("prediction_probabilities_do_not_sum_to_one")
+    covered = evidence is not None
+    if covered is (exclusion_reason is not None):
+        raise PolymarketEvidenceError("coverage_status_is_ambiguous")
+    coverage_id = hashlib.sha256(
+        "|".join(
+            (
+                COVERAGE_UNIVERSE_VERSION,
+                fixture_id,
+                horizon,
+                prediction_at.isoformat(),
+                prediction_row_sha256,
+                model_sha256,
+                policy_sha256,
+            )
+        ).encode("utf-8")
+    ).hexdigest()
+    return {
+        "coverage_universe_version": COVERAGE_UNIVERSE_VERSION,
+        "coverage_id": coverage_id,
+        "first_observed_at": captured_at.isoformat(),
+        "fixture_id": fixture_id,
+        "information_state": horizon,
+        "prediction_at": prediction_at.isoformat(),
+        "kickoff": kickoff.isoformat(),
+        "model_version": snapshot.get("model_version"),
+        "logical_model_sha256": model_sha256,
+        "prediction_rows_sha256": prediction_rows_sha256,
+        "prediction_row_sha256": prediction_row_sha256,
+        "prediction_snapshot_sha256": snapshot_sha256,
+        "model_probabilities": model_probabilities,
+        "policy_version": policy["policy_version"],
+        "mapping_version": policy["mapping_version"],
+        "policy_sha256": policy_sha256,
+        "cadence_stage": stage,
+        "market_evidence_available": covered,
+        "evidence_id": evidence.get("evidence_id") if evidence is not None else None,
+        "economically_executable": (
+            bool(evidence["economically_executable"])
+            if evidence is not None
+            else False
+        ),
+        "exclusion_reason": exclusion_reason,
+        "coverage_funnel": {
+            "complete_moneyline_mappings": bool(
+                progress.get("complete_moneyline_mappings", 0)
+            ),
+            "pre_cutoff_complete_books": bool(
+                progress.get("pre_cutoff_complete_books", 0)
+            ),
+            "valid_bid_ask_books": bool(progress.get("valid_bid_ask_books", 0)),
+        },
+        "canonical_policy": "first_observed_coverage_state_per_prediction_row",
+        "contains_realized_result_or_performance": False,
+        "trading_action_performed": False,
+    }
 
 
 class _CoverageExclusion(Exception):
@@ -607,6 +751,56 @@ def _write_once_json(path: Path, value: Mapping[str, object]) -> bool:
         except FileExistsError:
             return _write_once_json(path, value)
         return True
+    finally:
+        try:
+            os.unlink(temp_name)
+        except FileNotFoundError:
+            pass
+
+
+def _write_once_coverage_json(
+    path: Path, value: Mapping[str, object]
+) -> tuple[bool, dict[str, object]]:
+    """Persist the first coverage classification and return its canonical value."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        existing = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(existing, dict):
+            raise PolymarketEvidenceError("existing_coverage_record_not_object")
+        for key in (
+            "coverage_universe_version",
+            "coverage_id",
+            "fixture_id",
+            "information_state",
+            "prediction_at",
+            "kickoff",
+            "logical_model_sha256",
+            "prediction_row_sha256",
+            "policy_sha256",
+        ):
+            if existing.get(key) != value.get(key):
+                raise PolymarketEvidenceError(
+                    "existing_coverage_universe_identity_mismatch"
+                )
+        if (
+            existing.get("contains_realized_result_or_performance") is not False
+            or existing.get("trading_action_performed") is not False
+        ):
+            raise PolymarketEvidenceError("existing_coverage_universe_is_unsafe")
+        return False, existing
+    raw = (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    descriptor, temp_name = tempfile.mkstemp(prefix=".coverage-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temp_name, path)
+        except FileExistsError:
+            return _write_once_coverage_json(path, value)
+        return True, dict(value)
     finally:
         try:
             os.unlink(temp_name)

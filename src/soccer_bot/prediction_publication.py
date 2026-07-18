@@ -230,6 +230,28 @@ def _generate_validate_publish(
         default_timeout=timeout,
         as_of=datetime.now(timezone.utc),
     )
+    market_settlement_result = _try_update_polymarket_market_settlement(
+        root=root,
+        evidence_config=config.get("polymarket_market_evidence", {}),
+        score_settlement_config=config.get("shadow_score_grid", {}).get(
+            "settlement_ledger", {}
+        ),
+        market_evidence_result=market_evidence_result,
+        score_settlement_result=settlement_result,
+        command_runner=command_runner,
+        environment=subprocess_environment,
+        default_timeout=timeout,
+        settled_at=datetime.now(timezone.utc),
+    )
+    market_readiness_result = _try_update_polymarket_market_readiness(
+        root=root,
+        evidence_config=config.get("polymarket_market_evidence", {}),
+        market_settlement_result=market_settlement_result,
+        command_runner=command_runner,
+        environment=subprocess_environment,
+        default_timeout=timeout,
+        as_of=datetime.now(timezone.utc),
+    )
     return {
         "status": "uploaded",
         "as_of": snapshot["as_of"],
@@ -244,6 +266,8 @@ def _generate_validate_publish(
         "confirmed_lineup_player_shadow": player_shadow_result,
         "prospective_settlement_ledger": settlement_result,
         "prospective_evaluation_readiness": readiness_result,
+        "polymarket_market_settlement_ledger": market_settlement_result,
+        "polymarket_market_evaluation_readiness": market_readiness_result,
     }
 
 
@@ -409,6 +433,9 @@ def _try_capture_polymarket_market_evidence(
                 "existing_evidence_records",
                 "evidence_records",
                 "economically_executable_records",
+                "new_coverage_universe_records",
+                "existing_coverage_universe_records",
+                "coverage_universe_records",
             )
         }
         if (
@@ -417,6 +444,10 @@ def _try_capture_polymarket_market_evidence(
             or counts["evidence_records"] > counts["prediction_rows"]
             or counts["economically_executable_records"]
             > counts["evidence_records"]
+            or counts["new_coverage_universe_records"]
+            + counts["existing_coverage_universe_records"]
+            != counts["coverage_universe_records"]
+            or counts["coverage_universe_records"] != counts["prediction_rows"]
         ):
             raise PredictionPublicationError(
                 "invalid_polymarket_market_evidence_counts"
@@ -656,6 +687,226 @@ def _validated_nonnegative_int(value: object, label: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise PredictionPublicationError(f"invalid_prospective_{label}")
     return value
+
+
+def _try_update_polymarket_market_settlement(
+    *,
+    root: Path,
+    evidence_config: dict,
+    score_settlement_config: dict,
+    market_evidence_result: Mapping[str, object],
+    score_settlement_result: Mapping[str, object],
+    command_runner: CommandRunner,
+    environment: Mapping[str, str],
+    default_timeout: int,
+    settled_at: datetime,
+) -> dict[str, object]:
+    config = evidence_config.get("market_research", {})
+    if not config.get("enabled", False):
+        return {"status": "disabled"}
+    if market_evidence_result.get("status") not in {"updated", "no_new_evidence"}:
+        return {"status": "skipped", "reason": "market_evidence_not_verified"}
+    if score_settlement_result.get("status") not in {"updated", "no_new_settlements"}:
+        return {"status": "skipped", "reason": "score_settlement_not_verified"}
+    try:
+        evidence_output = _inside_root(root, evidence_config["output_directory"])
+        score_output = _inside_root(root, score_settlement_config["output_directory"])
+        score_config_path = _inside_root(root, score_settlement_config["config_path"])
+        policy_path = _inside_root(root, evidence_config["policy_path"])
+        settlement_config_path = _inside_root(root, config["settlement_config_path"])
+        expected_config_hash = str(config["settlement_config_sha256"])
+        if _file_sha256(settlement_config_path) != expected_config_hash:
+            raise PredictionPublicationError(
+                "polymarket_market_settlement_config_hash_mismatch"
+            )
+        output_directory = _inside_root(root, config["output_directory"])
+        execution = command_runner(
+            [
+                sys.executable,
+                str(root / "scripts" / "settle_polymarket_regulation_research.py"),
+                "--coverage-universe-dir",
+                str(evidence_output / "coverage_universe"),
+                "--evidence-dir",
+                str(evidence_output / "evidence"),
+                "--score-settlement-ledger",
+                str(score_output / "ledger.jsonl"),
+                "--score-settlement-config",
+                str(score_config_path),
+                "--market-policy",
+                str(policy_path),
+                "--settlement-config",
+                str(settlement_config_path),
+                "--output-dir",
+                str(output_directory),
+                "--settled-at",
+                settled_at.isoformat(),
+            ],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=int(config.get("timeout_seconds", default_timeout)),
+            check=False,
+        )
+        if execution.returncode:
+            raise PredictionPublicationError(
+                f"polymarket_market_settlement_exit_{execution.returncode}"
+            )
+        try:
+            result = json.loads(execution.stdout)
+        except json.JSONDecodeError as error:
+            raise PredictionPublicationError(
+                "invalid_polymarket_market_settlement_receipt"
+            ) from error
+        if result.get("status") not in {"updated", "no_new_settlements"}:
+            raise PredictionPublicationError(
+                "polymarket_market_settlement_not_confirmed"
+            )
+        counts = {
+            key: _validated_nonnegative_int(result.get(key), key)
+            for key in (
+                "records_added",
+                "ledger_records",
+                "covered_market_records",
+                "economically_executable_records",
+                "pending_coverage_records",
+                "skipped_ineligible_records",
+            )
+        }
+        if (
+            counts["records_added"] > counts["ledger_records"]
+            or counts["covered_market_records"] > counts["ledger_records"]
+            or counts["economically_executable_records"]
+            > counts["covered_market_records"]
+        ):
+            raise PredictionPublicationError(
+                "invalid_polymarket_market_settlement_counts"
+            )
+        head = result.get("ledger_head_sha256")
+        if (counts["ledger_records"] and not _is_lowercase_sha256(head)) or (
+            not counts["ledger_records"] and head is not None
+        ):
+            raise PredictionPublicationError(
+                "invalid_polymarket_market_settlement_head"
+            )
+        if (
+            result.get("aggregate_performance_written") is not False
+            or result.get("evaluation_report_written") is not False
+            or result.get("orders_or_trading_actions_performed") is not False
+        ):
+            raise PredictionPublicationError(
+                "unsafe_polymarket_market_settlement_receipt"
+            )
+        return {
+            "status": result["status"],
+            "settlement_config_sha256": expected_config_hash,
+            **counts,
+            "ledger_head_sha256": head,
+            "aggregate_performance_written": False,
+            "evaluation_report_written": False,
+            "orders_or_trading_actions_performed": False,
+        }
+    except Exception as error:
+        return {
+            "status": "failed",
+            "error_type": type(error).__name__,
+            "error": _safe_error(error),
+        }
+
+
+def _try_update_polymarket_market_readiness(
+    *,
+    root: Path,
+    evidence_config: dict,
+    market_settlement_result: Mapping[str, object],
+    command_runner: CommandRunner,
+    environment: Mapping[str, str],
+    default_timeout: int,
+    as_of: datetime,
+) -> dict[str, object]:
+    settlement = evidence_config.get("market_research", {})
+    config = settlement.get("evaluation_program", {})
+    if not config.get("enabled", False):
+        return {"status": "disabled"}
+    if market_settlement_result.get("status") not in {
+        "updated",
+        "no_new_settlements",
+    }:
+        return {"status": "skipped", "reason": "market_settlement_not_verified"}
+    try:
+        settlement_output = _inside_root(root, settlement["output_directory"])
+        settlement_config_path = _inside_root(
+            root, settlement["settlement_config_path"]
+        )
+        evaluation_config_path = _inside_root(root, config["config_path"])
+        expected_hash = str(config["evaluation_config_sha256"])
+        if _file_sha256(evaluation_config_path) != expected_hash:
+            raise PredictionPublicationError(
+                "polymarket_market_evaluation_config_hash_mismatch"
+            )
+        output_directory = _inside_root(root, config["output_directory"])
+        execution = command_runner(
+            [
+                sys.executable,
+                str(
+                    root
+                    / "scripts"
+                    / "check_polymarket_regulation_evaluation_readiness.py"
+                ),
+                "--ledger",
+                str(settlement_output / "ledger.jsonl"),
+                "--settlement-config",
+                str(settlement_config_path),
+                "--evaluation-config",
+                str(evaluation_config_path),
+                "--output-dir",
+                str(output_directory),
+                "--as-of",
+                as_of.isoformat(),
+            ],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=int(config.get("timeout_seconds", default_timeout)),
+            check=False,
+        )
+        if execution.returncode:
+            raise PredictionPublicationError(
+                f"polymarket_market_readiness_exit_{execution.returncode}"
+            )
+        try:
+            result = json.loads(execution.stdout)
+        except json.JSONDecodeError as error:
+            raise PredictionPublicationError(
+                "invalid_polymarket_market_readiness_receipt"
+            ) from error
+        if result.get("status") not in {
+            "locked_insufficient_evidence",
+            "ready_for_explicit_one_shot_evaluation",
+            "report_already_exists",
+        }:
+            raise PredictionPublicationError(
+                "polymarket_market_readiness_status_invalid"
+            )
+        if (
+            result.get("performance_statistics_exposed") is not False
+            or result.get("automatic_evaluation_execution") is not False
+            or result.get("explicit_one_shot_command_required") is not True
+            or result.get("evaluation_config_sha256") != expected_hash
+            or _validated_nonnegative_int(result.get("ledger_records"), "ledger_records")
+            != int(market_settlement_result["ledger_records"])
+        ):
+            raise PredictionPublicationError(
+                "polymarket_market_readiness_anti_peeking_or_identity_failed"
+            )
+        return result
+    except Exception as error:
+        return {
+            "status": "failed",
+            "error_type": type(error).__name__,
+            "error": _safe_error(error),
+        }
 
 
 def _try_update_prospective_evaluation_readiness(

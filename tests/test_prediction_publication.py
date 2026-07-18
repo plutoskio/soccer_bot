@@ -143,6 +143,58 @@ class FakeRunner:
                 ),
                 stderr="readiness secret",
             )
+        if command[1].endswith("settle_polymarket_regulation_research.py"):
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=json.dumps(
+                    {
+                        "status": "no_new_settlements",
+                        "records_added": 0,
+                        "ledger_records": 0,
+                        "covered_market_records": 0,
+                        "economically_executable_records": 0,
+                        "pending_coverage_records": 0,
+                        "skipped_ineligible_records": 0,
+                        "ledger_head_sha256": None,
+                        "aggregate_performance_written": False,
+                        "evaluation_report_written": False,
+                        "orders_or_trading_actions_performed": False,
+                    }
+                ),
+                stderr="market settlement secret",
+            )
+        if command[1].endswith(
+            "check_polymarket_regulation_evaluation_readiness.py"
+        ):
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=json.dumps(
+                    {
+                        "status": "locked_insufficient_evidence",
+                        "evaluation_config_sha256": (
+                            "46e2df784aba1bc4245942fecc5c1a0ea1944b53afeac5ecad2ee4bc9e9bc3a2"
+                        ),
+                        "ledger_records": 0,
+                        "horizons": {
+                            horizon: {
+                                "eligible_settled_forecast_universe": 0,
+                                "covered_market_records": 0,
+                                "economically_executable_records": 0,
+                            }
+                            for horizon in (
+                                "pre_lineup_24h_v1",
+                                "pre_lineup_72h_clean_v1",
+                            )
+                        },
+                        "performance_statistics_exposed": False,
+                        "automatic_evaluation_execution": False,
+                        "explicit_one_shot_command_required": True,
+                    }
+                ),
+                stderr="market readiness secret",
+            )
         if command[1].endswith("capture_polymarket_market_evidence.py"):
             policy_hash = command[command.index("--expected-policy-sha256") + 1]
             rows = len(self.snapshot["predictions"])
@@ -160,6 +212,9 @@ class FakeRunner:
                         "existing_evidence_records": 0,
                         "evidence_records": 0,
                         "economically_executable_records": 0,
+                        "new_coverage_universe_records": rows,
+                        "existing_coverage_universe_records": 0,
+                        "coverage_universe_records": rows,
                         "horizons": {
                             "pre_lineup_24h_v1": {
                                 "prediction_rows": rows,
@@ -266,6 +321,23 @@ class PredictionPublicationTests(unittest.TestCase):
             ).read_text(encoding="utf-8"),
             encoding="utf-8",
         )
+        contracts = self.root / "config" / "contracts"
+        contracts.mkdir(parents=True)
+        contracts.joinpath("polymarket_regulation_v1.json").write_text(
+            (ROOT / "config/contracts/polymarket_regulation_v1.json").read_text(
+                encoding="utf-8"
+            ),
+            encoding="utf-8",
+        )
+        for name in (
+            "regulation_score_grid_v3_settlement.json",
+            "polymarket_regulation_market_settlement_v1.json",
+            "polymarket_regulation_market_evaluation_v1.json",
+        ):
+            gate.joinpath(name).write_text(
+                (ROOT / "config" / "models" / name).read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
         self.as_of = datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)
         self.config = {
             "prediction_publication": {
@@ -520,6 +592,54 @@ class PredictionPublicationTests(unittest.TestCase):
         )
         self.assertEqual(0, result["polymarket_market_evidence"]["evidence_records"])
         self.assertEqual(7, len(runner.commands))
+
+    def test_polymarket_research_settlement_and_readiness_are_integrated_safely(self) -> None:
+        self.config["prediction_publication"]["polymarket_market_evidence"] = {
+            "enabled": True,
+            "policy_path": "config/contracts/polymarket_regulation_v1.json",
+            "policy_sha256": "f" * 64,
+            "output_directory": "data/predictions/polymarket_market_evidence_v1",
+            "timeout_seconds": 30,
+            "market_research": {
+                "enabled": True,
+                "settlement_config_path": (
+                    "config/models/polymarket_regulation_market_settlement_v1.json"
+                ),
+                "settlement_config_sha256": (
+                    "093226ac2f0b3d36eab59b7aa1aea1617579752d154916379cf22fb1179d3543"
+                ),
+                "output_directory": (
+                    "data/predictions/polymarket_regulation_market_settlement_v1"
+                ),
+                "evaluation_program": {
+                    "enabled": True,
+                    "config_path": (
+                        "config/models/polymarket_regulation_market_evaluation_v1.json"
+                    ),
+                    "evaluation_config_sha256": (
+                        "46e2df784aba1bc4245942fecc5c1a0ea1944b53afeac5ecad2ee4bc9e9bc3a2"
+                    ),
+                    "output_directory": (
+                        "data/predictions/polymarket_regulation_market_evaluation_v1"
+                    ),
+                },
+            },
+        }
+        runner = FakeRunner(self.snapshot())
+        result = self.publish(runner)
+        self.assertEqual(
+            "no_new_settlements",
+            result["polymarket_market_settlement_ledger"]["status"],
+        )
+        self.assertEqual(
+            "locked_insufficient_evidence",
+            result["polymarket_market_evaluation_readiness"]["status"],
+        )
+        self.assertEqual(9, len(runner.commands))
+        self.assertFalse(
+            result["polymarket_market_settlement_ledger"]
+            ["orders_or_trading_actions_performed"]
+        )
 
 
 if __name__ == "__main__":

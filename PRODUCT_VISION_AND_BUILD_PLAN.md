@@ -661,9 +661,14 @@ forward evaluation.
    timestamped Polymarket books under
    `polymarket_regulation_market_evidence_v1`. T−72 and T−24 are now paired
    strictly before their exact model cutoffs with spread, depth, fee, and
-   immutable provenance. Add a separately ordered confirmed-lineup protocol
-   only when that prediction model exists; do not pretend a post-lineup book
-   preceded a prediction made from the lineup.
+   immutable provenance. The outcome-blind coverage denominator, append-only
+   result-linked market settlement ledger, and frozen five-part one-shot
+   evaluation are implemented. Automatic operation remains count-only; the
+   report stays locked until both horizons satisfy six mature months, 2,000
+   settled forecasts, market coverage/execution minimums, five competitions,
+   and minimum paper-selection counts. Add a separately ordered
+   confirmed-lineup protocol only when that prediction model exists; do not
+   pretend a post-lineup book preceded a prediction made from the lineup.
 6. **Unlock contracts in validated layers.** First add regulation spreads and
    totals derived from a validated score distribution. Then add exact score,
    both teams to score, and first-team-to-score contracts. Unlock player goals,

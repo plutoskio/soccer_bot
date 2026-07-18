@@ -337,6 +337,15 @@ class ImmutableEvidenceTests(unittest.TestCase):
         self.assertEqual("updated", first["status"])
         self.assertEqual(1, first["evidence_records"])
         self.assertEqual(1, first["economically_executable_records"])
+        self.assertEqual(1, first["coverage_universe_records"])
+        coverage_path = next((output / "coverage_universe").rglob("*.json"))
+        coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
+        self.assertTrue(coverage["market_evidence_available"])
+        self.assertEqual(
+            {"home_win": 0.5, "draw": 0.3, "away_win": 0.2},
+            coverage["model_probabilities"],
+        )
+        self.assertFalse(coverage["contains_realized_result_or_performance"])
         evidence_path = next((output / "evidence").rglob("*.json"))
         original = evidence_path.read_bytes()
 
@@ -374,6 +383,14 @@ class ImmutableEvidenceTests(unittest.TestCase):
         )
         self.assertEqual(0, receipt["evidence_records"])
         self.assertEqual(1, receipt["exclusion_counts"]["pre_cutoff_book_missing"])
+        self.assertEqual(1, receipt["coverage_universe_records"])
+        coverage = json.loads(
+            next((self.root / "late" / "coverage_universe").rglob("*.json")).read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertFalse(coverage["market_evidence_available"])
+        self.assertEqual("pre_cutoff_book_missing", coverage["exclusion_reason"])
 
 
 if __name__ == "__main__":

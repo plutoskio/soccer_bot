@@ -230,6 +230,9 @@ def _evaluate_publication(
                 "existing_evidence_records",
                 "evidence_records",
                 "economically_executable_records",
+                "new_coverage_universe_records",
+                "existing_coverage_universe_records",
+                "coverage_universe_records",
             )
         }
         checks["polymarket_market_evidence"] = {
@@ -276,6 +279,11 @@ def _evaluate_publication(
                     > evidence_counts["prediction_rows"]
                     or evidence_counts["economically_executable_records"]
                     > evidence_counts["evidence_records"]
+                    or evidence_counts["new_coverage_universe_records"]
+                    + evidence_counts["existing_coverage_universe_records"]
+                    != evidence_counts["coverage_universe_records"]
+                    or evidence_counts["coverage_universe_records"]
+                    != evidence_counts["prediction_rows"]
                 )
             horizons = evidence.get("horizons")
             if not isinstance(horizons, Mapping):
@@ -350,6 +358,193 @@ def _evaluate_publication(
                         severity="warning",
                         component="polymarket_market_evidence",
                         summary="Mapped prediction rows are missing complete pre-cutoff books",
+                    )
+
+    research_config = (
+        evidence_config.get("market_research", {})
+        if isinstance(evidence_config, Mapping)
+        else {}
+    )
+    if not isinstance(research_config, Mapping) or not research_config.get(
+        "enabled", False
+    ):
+        checks["polymarket_market_settlement_ledger"] = {"status": "disabled"}
+        checks["polymarket_market_evaluation_readiness"] = {"status": "disabled"}
+    else:
+        settlement = result.get("polymarket_market_settlement_ledger")
+        if not isinstance(settlement, Mapping):
+            settlement = {}
+        settlement_status = str(settlement.get("status", "missing"))
+        settlement_counts = {
+            key: _nonnegative_int(settlement.get(key))
+            for key in (
+                "records_added",
+                "ledger_records",
+                "covered_market_records",
+                "economically_executable_records",
+                "pending_coverage_records",
+                "skipped_ineligible_records",
+            )
+        }
+        settlement_head = settlement.get("ledger_head_sha256")
+        checks["polymarket_market_settlement_ledger"] = {
+            "status": settlement_status,
+            "expected_settlement_config_sha256": research_config.get(
+                "settlement_config_sha256"
+            ),
+            "observed_settlement_config_sha256": settlement.get(
+                "settlement_config_sha256"
+            ),
+            **settlement_counts,
+            "ledger_head_sha256": settlement_head,
+            "aggregate_performance_written": settlement.get(
+                "aggregate_performance_written"
+            ),
+            "evaluation_report_written": settlement.get(
+                "evaluation_report_written"
+            ),
+            "orders_or_trading_actions_performed": settlement.get(
+                "orders_or_trading_actions_performed"
+            ),
+        }
+        valid_settlement = {"updated", "no_new_settlements"}
+        if settlement_status not in valid_settlement:
+            _add_alert(
+                alerts,
+                code="polymarket_market_settlement_failed",
+                severity="critical",
+                component="polymarket_market_settlement_ledger",
+                summary=f"Polymarket market settlement status is {settlement_status}",
+            )
+        else:
+            invalid = (
+                any(value is None for value in settlement_counts.values())
+                or settlement_counts["records_added"]
+                > settlement_counts["ledger_records"]
+                or settlement_counts["covered_market_records"]
+                > settlement_counts["ledger_records"]
+                or settlement_counts["economically_executable_records"]
+                > settlement_counts["covered_market_records"]
+                or (
+                    settlement_counts["ledger_records"] > 0
+                    and not _is_lowercase_sha256(settlement_head)
+                )
+                or (
+                    settlement_counts["ledger_records"] == 0
+                    and settlement_head is not None
+                )
+            )
+            if invalid:
+                _add_alert(
+                    alerts,
+                    code="polymarket_market_settlement_receipt_invalid",
+                    severity="critical",
+                    component="polymarket_market_settlement_ledger",
+                    summary="Polymarket market settlement returned inconsistent counts",
+                )
+            if settlement.get("settlement_config_sha256") != research_config.get(
+                "settlement_config_sha256"
+            ):
+                _add_alert(
+                    alerts,
+                    code="polymarket_market_settlement_identity_mismatch",
+                    severity="critical",
+                    component="polymarket_market_settlement_ledger",
+                    summary="Polymarket market settlement configuration changed",
+                )
+            if (
+                settlement.get("aggregate_performance_written") is not False
+                or settlement.get("evaluation_report_written") is not False
+                or settlement.get("orders_or_trading_actions_performed") is not False
+            ):
+                _add_alert(
+                    alerts,
+                    code="premature_or_unsafe_polymarket_market_output",
+                    severity="critical",
+                    component="polymarket_market_settlement_ledger",
+                    summary="Market settlement violated anti-peeking or no-trading guardrails",
+                )
+
+        evaluation_config = research_config.get("evaluation_program", {})
+        readiness = result.get("polymarket_market_evaluation_readiness")
+        if not isinstance(evaluation_config, Mapping) or not evaluation_config.get(
+            "enabled", False
+        ):
+            checks["polymarket_market_evaluation_readiness"] = {"status": "disabled"}
+        else:
+            if not isinstance(readiness, Mapping):
+                readiness = {}
+            readiness_status = str(readiness.get("status", "missing"))
+            checks["polymarket_market_evaluation_readiness"] = {
+                "status": readiness_status,
+                "expected_evaluation_config_sha256": evaluation_config.get(
+                    "evaluation_config_sha256"
+                ),
+                "observed_evaluation_config_sha256": readiness.get(
+                    "evaluation_config_sha256"
+                ),
+                "ledger_records": readiness.get("ledger_records"),
+                "horizons": readiness.get("horizons"),
+                "performance_statistics_exposed": readiness.get(
+                    "performance_statistics_exposed"
+                ),
+                "automatic_evaluation_execution": readiness.get(
+                    "automatic_evaluation_execution"
+                ),
+                "report_written": readiness.get("report_written"),
+            }
+            valid_readiness = {
+                "locked_insufficient_evidence",
+                "ready_for_explicit_one_shot_evaluation",
+                "report_already_exists",
+            }
+            if readiness_status not in valid_readiness:
+                _add_alert(
+                    alerts,
+                    code="polymarket_market_evaluation_readiness_failed",
+                    severity="critical",
+                    component="polymarket_market_evaluation_readiness",
+                    summary=f"Polymarket evaluation readiness is {readiness_status}",
+                )
+            else:
+                if (
+                    readiness.get("performance_statistics_exposed") is not False
+                    or readiness.get("automatic_evaluation_execution") is not False
+                    or readiness.get("explicit_one_shot_command_required") is not True
+                ):
+                    _add_alert(
+                        alerts,
+                        code="polymarket_market_evaluation_readiness_unsafe",
+                        severity="critical",
+                        component="polymarket_market_evaluation_readiness",
+                        summary="Polymarket readiness exposed performance or auto-ran evaluation",
+                    )
+                if readiness.get(
+                    "evaluation_config_sha256"
+                ) != evaluation_config.get("evaluation_config_sha256"):
+                    _add_alert(
+                        alerts,
+                        code="polymarket_market_evaluation_identity_mismatch",
+                        severity="critical",
+                        component="polymarket_market_evaluation_readiness",
+                        summary="Polymarket evaluation configuration changed",
+                    )
+                readiness_records = _nonnegative_int(readiness.get("ledger_records"))
+                if readiness_records != settlement_counts["ledger_records"]:
+                    _add_alert(
+                        alerts,
+                        code="polymarket_market_evaluation_ledger_count_mismatch",
+                        severity="critical",
+                        component="polymarket_market_evaluation_readiness",
+                        summary="Polymarket readiness and settlement ledger counts differ",
+                    )
+                if readiness_status == "ready_for_explicit_one_shot_evaluation":
+                    _add_alert(
+                        alerts,
+                        code="polymarket_market_evaluation_ready",
+                        severity="warning",
+                        component="polymarket_market_evaluation_readiness",
+                        summary="Frozen Polymarket report minimums are met; explicit evaluation is ready",
                     )
 
     player_config = publication_config.get("confirmed_lineup_player_shadow", {})

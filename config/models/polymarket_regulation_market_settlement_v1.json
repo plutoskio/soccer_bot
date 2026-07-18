@@ -1,0 +1,43 @@
+{
+  "ledger_version": "polymarket_regulation_market_settlement_v1",
+  "status": "frozen_before_first_market_settlement",
+  "frozen_at": "2026-07-18T16:00:00+00:00",
+  "market_policy_version": "polymarket_regulation_market_evidence_v1",
+  "market_policy_file_sha256": "03168d2882d5ea4428a271e1274a569245a4ec0c54ba7b27e0be45144aa8ecf7",
+  "market_policy_canonical_sha256": "e11ebe375845ec8293249730b889478a907e102abf401f87cfbcc96b8f4f900b",
+  "score_settlement_config_sha256": "30cebf661eda441c83bdf5306230828cddfadd535366fd5aaac4ffc245366efe",
+  "pairing_key": [
+    "fixture_id",
+    "information_state"
+  ],
+  "canonical_coverage_policy": "first_observed_coverage_state_per_prediction_row",
+  "probability_floor": 1e-15,
+  "execution_strategy": {
+    "one_selection_per_fixture_horizon_quantity": true,
+    "selection_rule": "maximum_strictly_positive_model_expected_profit",
+    "tie_break_order": [
+      "home_win",
+      "draw",
+      "away_win"
+    ],
+    "partial_fills_allowed": false,
+    "unknown_fee_allowed": false,
+    "actual_trading": false
+  },
+  "integrity": {
+    "require_verified_score_settlement_hash_chain": true,
+    "require_immutable_coverage_record": true,
+    "require_exact_pair_prediction_time_and_kickoff_match": true,
+    "require_strictly_pre_prediction_market_retrieval": true,
+    "require_market_capture_target_and_deadline_equal_prediction_time": true,
+    "recompute_every_execution_quote": true,
+    "append_only_hash_chain": true,
+    "never_rewrite_settled_records": true,
+    "never_execute_orders": true
+  },
+  "reporting_policy": {
+    "per_fixture_metrics": true,
+    "aggregate_performance_before_evaluation_gate": false,
+    "evaluation_report_before_minimum_evidence": false
+  }
+}
