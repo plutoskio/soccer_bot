@@ -1,0 +1,59 @@
+{
+  "task_version": "first_score_timing_v1",
+  "model_version": "first_score_timing_v1",
+  "research_status": "target_completeness_audit_and_baseline_implementation",
+  "recipe_frozen_at": "2026-07-19T00:00:00Z",
+  "training_kickoff_end_exclusive": "2026-07-11T00:00:00Z",
+  "prospective_holdout_kickoff_start_inclusive": "2026-07-21T00:00:00Z",
+  "information_states": [
+    "pre_lineup_72h_clean_v1",
+    "pre_lineup_24h_v1",
+    "confirmed_lineup_v1"
+  ],
+  "target": {
+    "eligibility_flag": "eligible_result_models",
+    "source_code": "api_football",
+    "scored_goal_details": ["Normal Goal", "Penalty", "Own Goal"],
+    "ignored_goal_details": ["Missed Penalty"],
+    "regulation_elapsed_minute_maximum": 90,
+    "complete_artifact_policy": "event_goal_counts_must_match_canonical_regulation_score_by_team",
+    "no_goal_policy": "requires_a_complete_event_artifact_and_zero_zero_result",
+    "extra_time_and_shootout_policy": "exclude_events_after_regulation",
+    "first_player_own_goal_policy": "blocked_pending_market_rule_review"
+  },
+  "baseline": {
+    "team_outcomes": ["home_first", "away_first", "no_goal"],
+    "model_family": "competing_risk_piecewise_hazard",
+    "score_grid_approximation_required": true
+  },
+  "candidate": {
+    "model_family": "competing_risk_vector_calibration",
+    "probability_floor": 1e-12,
+    "temperature_minimum": 0.5,
+    "temperature_maximum": 2.0,
+    "class_bias_minimum": -2.0,
+    "class_bias_maximum": 2.0,
+    "class_bias_ridge_penalty": 0.01,
+    "optimizer_tolerance": 1e-7,
+    "maximum_coordinate_cycles": 50,
+    "minimum_fit_fixtures_per_horizon": 500
+  },
+  "evaluation": {
+    "primary_metric": "first_team_multiclass_log_loss",
+    "required_diagnostics": [
+      "integrated_brier_score",
+      "no_goal_calibration",
+      "first_goal_interval_calibration",
+      "competition_and_history_depth_stability"
+    ],
+    "paired_block_unit": "calendar_month",
+    "bootstrap_replicates": 2000,
+    "bootstrap_seed": 7192026,
+    "promotion_window": "new_untouched_window_to_be_frozen_before_scoring"
+  },
+  "player_first_score": {
+    "status": "blocked_until_player_on_pitch_and_own_goal_semantics_are_validated",
+    "normalize_anytime_probabilities": false
+  },
+  "parameter_status": "team_target_recipe_and_gate_frozen_player_target_not_authorized"
+}

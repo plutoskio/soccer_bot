@@ -13,6 +13,13 @@ from apps.api.snapshot_store import (
     SnapshotValidationError,
     snapshot_age_seconds,
 )
+from apps.api.platform_store import (
+    DEFAULT_PLATFORM_SNAPSHOT_PATH,
+    PlatformSnapshotStore,
+    PlatformSnapshotUnavailableError,
+    PlatformSnapshotValidationError,
+    S3PlatformSnapshotStore,
+)
 
 
 InformationState = Literal["pre_lineup_72h_clean_v1", "pre_lineup_24h_v1"]
@@ -40,18 +47,32 @@ class PriceResponse(BaseModel):
     snapshot_as_of: str
 
 
-def create_app(store: SnapshotStore | None = None) -> FastAPI:
+class PlatformPriceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    fixture_id: str
+    information_state: InformationState
+    family_key: str
+    market_id: str
+
+
+def create_app(
+    store: SnapshotStore | None = None,
+    platform_store: PlatformSnapshotStore | S3PlatformSnapshotStore | None = None,
+) -> FastAPI:
     snapshot_store = store or _store_from_environment()
+    specialized_store = platform_store or _platform_store_from_environment()
 
     app = FastAPI(
         title="Soccer Bot Prediction API",
         version="1.0.0",
         description=(
             "Read-only access to immutable, leakage-safe Soccer Bot prediction "
-            "snapshots. Only calibrated regulation moneyline is currently priced."
+            "snapshots. Validated and forward-testing families are labeled separately."
         ),
     )
     app.state.snapshot_store = snapshot_store
+    app.state.platform_store = specialized_store
 
     @app.exception_handler(SnapshotUnavailableError)
     async def unavailable_handler(
@@ -65,18 +86,42 @@ def create_app(store: SnapshotStore | None = None) -> FastAPI:
     ) -> Any:
         return _error_response(503, "snapshot_invalid", str(exc))
 
+    @app.exception_handler(PlatformSnapshotUnavailableError)
+    async def platform_unavailable_handler(
+        _request: Request, exc: PlatformSnapshotUnavailableError
+    ) -> Any:
+        return _error_response(503, "platform_snapshot_unavailable", str(exc))
+
+    @app.exception_handler(PlatformSnapshotValidationError)
+    async def platform_invalid_handler(
+        _request: Request, exc: PlatformSnapshotValidationError
+    ) -> Any:
+        return _error_response(503, "platform_snapshot_invalid", str(exc))
+
     def get_store(request: Request) -> SnapshotStore:
         return request.app.state.snapshot_store
 
     StoreDependency = Annotated[SnapshotStore, Depends(get_store)]
+
+    def get_platform_store(request: Request):
+        return request.app.state.platform_store
+
+    PlatformStoreDependency = Annotated[
+        PlatformSnapshotStore | S3PlatformSnapshotStore,
+        Depends(get_platform_store),
+    ]
 
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok", "service": "soccer-bot-api"}
 
     @app.get("/ready")
-    def readiness(store: StoreDependency) -> dict[str, Any]:
+    def readiness(
+        store: StoreDependency,
+        platform_store: PlatformStoreDependency,
+    ) -> dict[str, Any]:
         snapshot = store.load()
+        platform = platform_store.load()
         age_seconds = snapshot_age_seconds(snapshot)
         stale_after = int(os.environ.get("SOCCER_SNAPSHOT_STALE_SECONDS", "21600"))
         return {
@@ -85,6 +130,8 @@ def create_app(store: SnapshotStore | None = None) -> FastAPI:
             "snapshot_age_seconds": round(age_seconds),
             "model_version": snapshot["model_version"],
             "fixture_count": snapshot["fixture_count"],
+            "platform_snapshot_version": platform["snapshot_version"],
+            "platform_state_count": platform["state_count"],
         }
 
     @app.get("/v1/snapshot")
@@ -163,6 +210,59 @@ def create_app(store: SnapshotStore | None = None) -> FastAPI:
             snapshot_as_of=snapshot["as_of"],
         )
 
+    @app.get("/v2/platform-snapshot")
+    def get_platform_snapshot(store: PlatformStoreDependency) -> dict[str, Any]:
+        return store.load()
+
+    @app.get("/v2/fixtures/{fixture_id}")
+    def get_platform_fixture(
+        fixture_id: str, store: PlatformStoreDependency
+    ) -> dict[str, Any]:
+        snapshot = store.load()
+        states = [row for row in snapshot["states"] if row["fixture_id"] == fixture_id]
+        if not states:
+            raise HTTPException(status_code=404, detail="fixture_not_found")
+        return {"as_of": snapshot["as_of"], "states": states}
+
+    @app.post("/v2/price")
+    def price_platform_market(
+        request: PlatformPriceRequest, store: PlatformStoreDependency
+    ) -> dict[str, Any]:
+        snapshot = store.load()
+        state = next(
+            (
+                row
+                for row in snapshot["states"]
+                if row["fixture_id"] == request.fixture_id
+                and row["information_state"] == request.information_state
+            ),
+            None,
+        )
+        if state is None:
+            raise HTTPException(status_code=404, detail="prediction_not_found")
+        family = next(
+            (row for row in state["families"] if row["family_key"] == request.family_key),
+            None,
+        )
+        if family is None:
+            raise HTTPException(status_code=404, detail="family_not_found")
+        market = next(
+            (row for row in family["markets"] if row["market_id"] == request.market_id),
+            None,
+        )
+        if market is None:
+            raise HTTPException(status_code=404, detail="market_not_found")
+        return {
+            "fixture_id": request.fixture_id,
+            "information_state": request.information_state,
+            "family_key": request.family_key,
+            "family_status": family["status"],
+            "eligible_for_ranking": family["eligible_for_ranking"],
+            "model_version": family["model_version"],
+            "market": market,
+            "snapshot_as_of": snapshot["as_of"],
+        }
+
     return app
 
 
@@ -194,6 +294,35 @@ def _store_from_environment():
         key=os.environ.get(
             "SOCCER_SNAPSHOT_S3_KEY",
             "regulation_champion_v1/latest.json",
+        ),
+        cache_seconds=float(os.environ.get("SOCCER_SNAPSHOT_CACHE_SECONDS", "30")),
+    )
+
+
+def _platform_store_from_environment():
+    bucket = os.environ.get("SOCCER_SNAPSHOT_S3_BUCKET")
+    if not bucket:
+        return PlatformSnapshotStore(
+            Path(
+                os.environ.get(
+                    "SOCCER_PLATFORM_SNAPSHOT_PATH",
+                    DEFAULT_PLATFORM_SNAPSHOT_PATH,
+                )
+            )
+        )
+    import boto3
+
+    client = boto3.client(
+        "s3",
+        endpoint_url=os.environ.get("SOCCER_SNAPSHOT_S3_ENDPOINT"),
+        region_name=os.environ.get("AWS_DEFAULT_REGION", "auto"),
+    )
+    return S3PlatformSnapshotStore(
+        client=client,
+        bucket=bucket,
+        key=os.environ.get(
+            "SOCCER_PLATFORM_SNAPSHOT_S3_KEY",
+            "specialized_platform_v1/latest.json",
         ),
         cache_seconds=float(os.environ.get("SOCCER_SNAPSHOT_CACHE_SECONDS", "30")),
     )

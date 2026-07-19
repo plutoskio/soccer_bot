@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
+import hashlib
 from pathlib import Path
 import tempfile
 import unittest
@@ -9,6 +10,10 @@ import unittest
 from fastapi.testclient import TestClient
 
 from apps.api.main import create_app
+from apps.api.platform_store import (
+    PlatformSnapshotStore,
+    PlatformSnapshotValidationError,
+)
 from apps.api.snapshot_store import (
     S3SnapshotStore,
     SnapshotStore,
@@ -109,12 +114,108 @@ def sample_v3_snapshot() -> dict:
     return snapshot
 
 
+def sample_platform_snapshot() -> dict:
+    now = datetime.now(timezone.utc)
+    state = {
+        "fixture_id": "fixture-1",
+        "fixture": {
+            "fixture_id": "fixture-1",
+            "home_team_name": "Home",
+            "away_team_name": "Away",
+            "competition_name": "Competition",
+        },
+        "kickoff": (now + timedelta(days=1)).isoformat(),
+        "prediction_at": now.isoformat(),
+        "issued_at": now.isoformat(),
+        "information_state": "pre_lineup_24h_v1",
+        "families": [
+            {
+                "family_key": "regulation_moneyline",
+                "display_name": "Match result",
+                "status": "validated",
+                "model_version": "regulation_champion_v1",
+                "logical_model_sha256": "f" * 64,
+                "eligible_for_ranking": True,
+                "unavailable_reason": None,
+                "evidence": {"warnings": []},
+                "markets": [
+                    {
+                        "market_id": "regulation_moneyline:home_win",
+                        "contract_key": "regulation_moneyline",
+                        "group": "Match result",
+                        "label": "Home",
+                        "selection": {"outcome": "home_win"},
+                        "line": None,
+                        "probability": 0.5,
+                        "fair_decimal_multiplier": 2.0,
+                        "settlement_probabilities": None,
+                        "market_comparison": None,
+                    }
+                ],
+            },
+            {
+                "family_key": "corners",
+                "display_name": "Corners",
+                "status": "experimental",
+                "model_version": "joint_corners_v1",
+                "logical_model_sha256": "e" * 64,
+                "eligible_for_ranking": False,
+                "unavailable_reason": None,
+                "evidence": {"warnings": ["experimental"]},
+                "markets": [
+                    {
+                        "market_id": "match_corner_total:over:9.5",
+                        "contract_key": "match_corner_total",
+                        "group": "Match corners",
+                        "label": "Over 9.5",
+                        "selection": {"side": "over", "line": 9.5},
+                        "line": 9.5,
+                        "probability": 0.4,
+                        "fair_decimal_multiplier": 2.5,
+                        "settlement_probabilities": {
+                            "win": 0.4,
+                            "half_win": 0.0,
+                            "push": 0.0,
+                            "half_loss": 0.0,
+                            "loss": 0.6,
+                        },
+                        "market_comparison": None,
+                    }
+                ],
+            },
+        ],
+    }
+    encoded = json.dumps(
+        [state], sort_keys=True, separators=(",", ":"), allow_nan=False
+    )
+    return {
+        "snapshot_version": "specialized_bet_platform_snapshot_v1",
+        "created_at": now.isoformat(),
+        "as_of": now.isoformat(),
+        "family_registry_version": "specialized_family_registry_v1",
+        "market_comparison_status": "unavailable",
+        "ranking_policy": "validated_families_only",
+        "states": [state],
+        "models": {},
+        "state_rows_sha256": hashlib.sha256(encoded.encode()).hexdigest(),
+    }
+
+
 class PredictionApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.path = Path(self.tempdir.name) / "latest.json"
         self.path.write_text(json.dumps(sample_snapshot()), encoding="utf-8")
-        self.client = TestClient(create_app(SnapshotStore(self.path)))
+        self.platform_path = Path(self.tempdir.name) / "platform.json"
+        self.platform_path.write_text(
+            json.dumps(sample_platform_snapshot()), encoding="utf-8"
+        )
+        self.client = TestClient(
+            create_app(
+                SnapshotStore(self.path),
+                PlatformSnapshotStore(self.platform_path),
+            )
+        )
 
     def tearDown(self) -> None:
         self.client.close()
@@ -186,6 +287,34 @@ class PredictionApiTests(unittest.TestCase):
     def test_fixture_not_found(self) -> None:
         response = self.client.get("/v1/fixtures/missing")
         self.assertEqual(response.status_code, 404)
+
+    def test_platform_snapshot_and_generic_price(self) -> None:
+        snapshot = self.client.get("/v2/platform-snapshot")
+        self.assertEqual(snapshot.status_code, 200)
+        self.assertEqual(snapshot.json()["fixture_count"], 1)
+        response = self.client.post(
+            "/v2/price",
+            json={
+                "fixture_id": "fixture-1",
+                "information_state": "pre_lineup_24h_v1",
+                "family_key": "corners",
+                "market_id": "match_corner_total:over:9.5",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["market"]["fair_decimal_multiplier"], 2.5)
+        self.assertFalse(response.json()["eligible_for_ranking"])
+
+    def test_platform_rejects_experimental_ranking(self) -> None:
+        value = sample_platform_snapshot()
+        value["states"][0]["families"][1]["eligible_for_ranking"] = True
+        encoded = json.dumps(
+            value["states"], sort_keys=True, separators=(",", ":"), allow_nan=False
+        )
+        value["state_rows_sha256"] = hashlib.sha256(encoded.encode()).hexdigest()
+        self.platform_path.write_text(json.dumps(value), encoding="utf-8")
+        with self.assertRaises(PlatformSnapshotValidationError):
+            PlatformSnapshotStore(self.platform_path).load()
 
     def test_invalid_probability_sum_fails_closed(self) -> None:
         value = sample_snapshot()

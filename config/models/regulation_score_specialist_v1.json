@@ -1,0 +1,72 @@
+{
+  "model_version": "regulation_score_specialist_v1",
+  "status": "frozen_prospective_specialist_candidate",
+  "parent_rate_model_version": "regulation_champion_v1",
+  "model_family": "unconditional_regularized_exponential_tilt",
+  "recipe_frozen_at": "2026-07-19T00:00:00+00:00",
+  "training_kickoff_end_exclusive": "2026-07-11T00:00:00+00:00",
+  "prospective_holdout_kickoff_start_inclusive": "2026-07-21T00:00:00+00:00",
+  "information_states": [
+    "pre_lineup_72h_clean_v1",
+    "pre_lineup_24h_v1"
+  ],
+  "support": {
+    "poisson_tail_tolerance": 1e-12,
+    "minimum_max_goals_per_team": 12,
+    "maximum_max_goals_per_team": 60,
+    "probability_floor": 1e-15
+  },
+  "candidate": {
+    "model_key": "specialized_score_exponential_tilt_v1",
+    "family": "exponential_tilt",
+    "features": [
+      "home_goals",
+      "away_goals",
+      "log_factorial_sum",
+      "draw",
+      "zero_zero",
+      "both_teams_to_score"
+    ],
+    "feature_scales": {
+      "home_goals": 3.0,
+      "away_goals": 3.0,
+      "log_factorial_sum": 5.0,
+      "draw": 1.0,
+      "zero_zero": 1.0,
+      "both_teams_to_score": 1.0
+    },
+    "ridge_penalty": 25.0,
+    "maximum_newton_iterations": 30,
+    "optimizer_tolerance": 1e-8,
+    "minimum_fit_fixtures_per_horizon": 5000
+  },
+  "invariants": {
+    "one_grid_for_all_score_family_contracts": true,
+    "moneyline_must_match_specialized_1x2": false,
+    "moneyline_disagreement_is_reported": true,
+    "extra_time_and_penalty_shootout_excluded": true
+  },
+  "prospective_gate": {
+    "complete_calendar_month_blocks": 6,
+    "fixtures_per_horizon": 2000,
+    "minimum_competitions_per_horizon": 5,
+    "primary_metric": "exact_score_log_loss",
+    "require_negative_mean_delta_each_horizon": true,
+    "require_paired_month_block_bootstrap_95_upper_below_zero_each_horizon": true,
+    "require_nonpositive_mean_delta_each_horizon": [
+      "total_goals_log_loss",
+      "goal_difference_log_loss"
+    ],
+    "maximum_mean_delta_each_horizon": {
+      "home_goals_log_loss": 0.001,
+      "away_goals_log_loss": 0.001,
+      "both_teams_to_score_log_loss": 0.001,
+      "total_goals_rps": 0.001,
+      "goal_difference_rps": 0.001
+    },
+    "moneyline_difference_policy": "diagnostic_only_not_a_rejection_gate",
+    "bootstrap_replicates": 2000,
+    "bootstrap_seed": 20260719
+  },
+  "parameter_status": "recipe_and_gate_frozen_before_first_eligible_prediction"
+}

@@ -939,7 +939,18 @@ def _fit_exponential_tilt(
                 for j in range(size):
                     information[i][j] += covariance[i][j]
         step = _solve(information, score)
-        if max(abs(value) for value in step) < candidate.optimizer_tolerance:
+        # The objective is a sum over fixtures, so a raw parameter-step test
+        # becomes unnecessarily strict as the training set grows. The
+        # per-fixture Newton decrement is scale-stable; retain the direct
+        # parameter-step check as a second convergence safeguard.
+        newton_decrement_per_fixture = math.fsum(
+            gradient * change
+            for gradient, change in zip(score, step, strict=True)
+        ) / len(rows)
+        if (
+            newton_decrement_per_fixture <= candidate.optimizer_tolerance
+            or max(abs(value) for value in step) < candidate.optimizer_tolerance
+        ):
             objective = _tilt_objective(rows, theta, candidate, feature_cache)
             return (
                 dict(zip(candidate.feature_names, theta, strict=True)),

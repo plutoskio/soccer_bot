@@ -559,6 +559,27 @@ def validate_collector_config(config: dict, catch_up_days: int | None = None) ->
                 raise ValueError(
                     f"prediction_publication {key} must stay inside the repository"
                 )
+        platform = publication.get("specialized_platform", {})
+        if not isinstance(platform, dict):
+            raise ValueError("specialized_platform must be an object")
+        if platform.get("enabled", False):
+            for key in ("output_directory", "object_key"):
+                value = platform.get(key)
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError(f"specialized_platform {key} must be non-empty")
+                path = Path(value)
+                if path.is_absolute() or ".." in path.parts:
+                    raise ValueError(
+                        f"specialized_platform {key} must stay inside the repository"
+                    )
+            _positive_int(
+                platform.get("minimum_state_rows", 1),
+                "specialized_platform minimum_state_rows",
+            )
+            _positive_int(
+                platform.get("timeout_seconds", 240),
+                "specialized_platform timeout_seconds",
+            )
         market_evidence = publication.get("polymarket_market_evidence", {})
         if not isinstance(market_evidence, dict):
             raise ValueError("polymarket_market_evidence must be an object")

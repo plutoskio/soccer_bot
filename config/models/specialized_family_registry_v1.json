@@ -1,0 +1,157 @@
+{
+  "registry_version": "specialized_family_registry_v1",
+  "sport": "soccer",
+  "information_states": [
+    "pre_lineup_72h_clean_v1",
+    "pre_lineup_24h_v1",
+    "confirmed_lineup_v1"
+  ],
+  "families": [
+    {
+      "family_key": "regulation_moneyline",
+      "display_name": "Match result",
+      "engine_key": "specialized_three_way",
+      "eligibility_flag": "eligible_result_models",
+      "contract_keys": ["regulation_moneyline"],
+      "designated_model_version": "regulation_champion_v1",
+      "models": [
+        {
+          "model_version": "regulation_champion_v1",
+          "role": "designated",
+          "status": "validated",
+          "information_states": [
+            "pre_lineup_72h_clean_v1",
+            "pre_lineup_24h_v1"
+          ],
+          "config_path": "config/models/regulation_champion_v1.json",
+          "artifact_path": "artifacts/production/regulation_champion_v1/model.json",
+          "logical_sha256": "8be7ffad15d12e7e603b2d9f3dd8dcd5e742e0f80846bcb6cd45c9ca40d7ef7a",
+          "evaluation_record": "REGULATION_CHAMPION_MODEL.md"
+        }
+      ]
+    },
+    {
+      "family_key": "regulation_score",
+      "display_name": "Score and goals",
+      "engine_key": "joint_regulation_score",
+      "eligibility_flag": "eligible_result_models",
+      "contract_keys": [
+        "regulation_exact_score",
+        "regulation_goal_handicap",
+        "regulation_total_goals",
+        "regulation_team_total_goals",
+        "regulation_both_teams_to_score"
+      ],
+      "designated_model_version": null,
+      "models": [
+        {
+          "model_version": "regulation_score_grid_v3_prospective_shadow",
+          "role": "alternative",
+          "status": "experimental",
+          "information_states": [
+            "pre_lineup_72h_clean_v1",
+            "pre_lineup_24h_v1"
+          ],
+          "config_path": "config/models/regulation_score_grid_v3_shadow.json",
+          "artifact_path": "artifacts/production/regulation_score_grid_v3_shadow/model.json",
+          "logical_sha256": "d17aa0334ad85914a396089430ad588ef8ca9381227de044106c1c777cbe00c7",
+          "evaluation_record": "REGULATION_SCORE_GRID_V3_SHADOW.md"
+        },
+        {
+          "model_version": "regulation_score_specialist_v1",
+          "role": "candidate",
+          "status": "trained",
+          "information_states": [
+            "pre_lineup_72h_clean_v1",
+            "pre_lineup_24h_v1"
+          ],
+          "config_path": "config/models/regulation_score_specialist_v1.json",
+          "artifact_path": "artifacts/research/regulation_score_specialist_v1/model.json",
+          "logical_sha256": "a8579d765fe0afca789403ceb1b22a82c7779ff0aef57ee76feca609ffee0d4e",
+          "evaluation_record": "REGULATION_SCORE_SPECIALIST_V1.md"
+        }
+      ]
+    },
+    {
+      "family_key": "player_events",
+      "display_name": "Player goals and assists",
+      "engine_key": "participation_minutes_player_events",
+      "eligibility_flag": "eligible_player_models",
+      "contract_keys": [
+        "player_anytime_goal",
+        "player_anytime_assist",
+        "player_score_or_assist"
+      ],
+      "designated_model_version": null,
+      "models": [
+        {
+          "model_version": "confirmed_lineup_player_v1",
+          "role": "alternative",
+          "status": "experimental",
+          "information_states": ["confirmed_lineup_v1"],
+          "config_path": "config/models/confirmed_lineup_player_v1.json",
+          "artifact_path": "artifacts/production/confirmed_lineup_player_v1/model.json.gz",
+          "logical_sha256": "bca9a13af829032b43de9e7cbbd94e070f36fcfbda76675972565748b8e8963a",
+          "evaluation_record": "CONFIRMED_LINEUP_PLAYER_MODEL.md"
+        }
+      ]
+    },
+    {
+      "family_key": "corners",
+      "display_name": "Corners",
+      "engine_key": "joint_corner_count",
+      "eligibility_flag": "eligible_team_models",
+      "contract_keys": [
+        "team_corner_total",
+        "match_corner_total",
+        "corner_handicap"
+      ],
+      "designated_model_version": null,
+      "models": [
+        {
+          "model_version": "joint_corners_v1",
+          "role": "candidate",
+          "status": "trained",
+          "information_states": [
+            "pre_lineup_72h_clean_v1",
+            "pre_lineup_24h_v1"
+          ],
+          "config_path": "config/models/joint_corners_v1.json",
+          "artifact_path": "artifacts/research/joint_corners_v1/model.json",
+          "logical_sha256": "313501f07aea937f573544b648f5d3381dcb3fbd50a0a31f8c14d1edda7606d9",
+          "evaluation_record": "JOINT_CORNERS_V1.md"
+        }
+      ]
+    },
+    {
+      "family_key": "first_score_timing",
+      "display_name": "First scorer",
+      "engine_key": "competing_risk_first_score",
+      "eligibility_flag": "eligible_result_models",
+      "contract_keys": ["first_team_to_score", "first_player_to_score"],
+      "designated_model_version": null,
+      "models": [
+        {
+          "model_version": "first_score_timing_v1",
+          "role": "candidate",
+          "status": "trained",
+          "information_states": [
+            "pre_lineup_72h_clean_v1",
+            "pre_lineup_24h_v1",
+            "confirmed_lineup_v1"
+          ],
+          "config_path": "config/models/first_score_timing_v1.json",
+          "artifact_path": "artifacts/research/first_score_timing_v1/model.json",
+          "logical_sha256": "63e5e96732ba84b96ffb0a3827b9f181260dfdf1d7044ae1540094f59c07b457",
+          "evaluation_record": "FIRST_SCORE_TIMING_V1.md"
+        }
+      ]
+    }
+  ],
+  "market_evidence": {
+    "classification": "separate_comparison_layer",
+    "independent_model_feature": false,
+    "require_timestamp_safe_mapping": true,
+    "missing_market_policy": "show_model_forecast_without_market_comparison"
+  }
+}

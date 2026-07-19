@@ -52,6 +52,7 @@ reference variables. The API expects:
 ```dotenv
 SOCCER_SNAPSHOT_S3_BUCKET=...
 SOCCER_SNAPSHOT_S3_KEY=regulation_champion_v1/latest.json
+SOCCER_PLATFORM_SNAPSHOT_S3_KEY=specialized_platform_v1/latest.json
 SOCCER_SNAPSHOT_S3_ENDPOINT=...
 AWS_ACCESS_KEY_ID=...
 AWS_SECRET_ACCESS_KEY=...
@@ -72,6 +73,7 @@ Map the same private bucket into `soccer_bot` using Railway reference variables:
 ```dotenv
 SOCCER_SNAPSHOT_S3_BUCKET=${{soccer-bot-predictions.BUCKET}}
 SOCCER_SNAPSHOT_S3_KEY=regulation_champion_v1/latest.json
+SOCCER_PLATFORM_SNAPSHOT_S3_KEY=specialized_platform_v1/latest.json
 SOCCER_SNAPSHOT_S3_ENDPOINT=${{soccer-bot-predictions.ENDPOINT}}
 AWS_ACCESS_KEY_ID=${{soccer-bot-predictions.ACCESS_KEY_ID}}
 AWS_SECRET_ACCESS_KEY=${{soccer-bot-predictions.SECRET_ACCESS_KEY}}

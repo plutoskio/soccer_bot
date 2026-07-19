@@ -4,6 +4,7 @@ import json
 import unittest
 
 from scripts.publish_prediction_snapshot import upload_and_verify
+from scripts.publish_platform_snapshot import upload_and_verify as upload_platform
 from soccer_bot.prediction_integrity import champion_prediction_rows_sha256
 
 
@@ -82,6 +83,36 @@ class SnapshotPublicationScriptTests(unittest.TestCase):
                 raw=raw,
                 snapshot=snapshot,
             )
+
+    def test_platform_upload_is_read_back_and_revalidated(self) -> None:
+        now = "2026-07-15T12:00:00+00:00"
+        states: list[dict] = []
+        encoded = json.dumps(
+            states, sort_keys=True, separators=(",", ":"), allow_nan=False
+        )
+        snapshot = {
+            "snapshot_version": "specialized_bet_platform_snapshot_v1",
+            "created_at": now,
+            "as_of": now,
+            "family_registry_version": "specialized_family_registry_v1",
+            "ranking_policy": "validated_families_only",
+            "states": states,
+            "models": {},
+            "state_rows_sha256": __import__("hashlib").sha256(
+                encoded.encode()
+            ).hexdigest(),
+        }
+        raw = json.dumps(snapshot).encode("utf-8")
+        client = _Client()
+
+        upload_platform(
+            client,
+            bucket="bucket",
+            key="specialized/latest.json",
+            raw=raw,
+            snapshot=snapshot,
+        )
+        self.assertEqual(client.object, raw)
 
 
 if __name__ == "__main__":

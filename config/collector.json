@@ -54,11 +54,18 @@
     "logical_model_sha256": "8be7ffad15d12e7e603b2d9f3dd8dcd5e742e0f80846bcb6cd45c9ca40d7ef7a",
     "model_path": "artifacts/production/regulation_champion_v1/model.json",
     "model_config_path": "config/models/regulation_champion_v1.json",
-    "reproducibility_sha256": "75a72ce4fd8ebe464c2d10d8fdff6873467cdcd7ee73902cc56548564e2f1303",
+    "reproducibility_sha256": "c6dba892fef6cc7749f14404a2b8dc1aa5ea65f1f6d2c42e7731842fd3f876b1",
     "output_directory": "data/predictions/regulation_champion_v1",
     "report_directory": "data/reports/predictions",
     "minimum_prediction_rows": 1,
     "timeout_seconds": 240,
+    "specialized_platform": {
+      "enabled": true,
+      "output_directory": "data/predictions/specialized_platform_v1",
+      "object_key": "specialized_platform_v1/latest.json",
+      "minimum_state_rows": 1,
+      "timeout_seconds": 240
+    },
     "polymarket_market_evidence": {
       "enabled": true,
       "policy_path": "config/contracts/polymarket_regulation_v1.json",

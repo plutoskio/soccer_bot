@@ -223,6 +223,47 @@ def _evaluate_publication(
                 summary="Champion candidate contains fewer rows than configured",
             )
 
+    platform_config = publication_config.get("specialized_platform", {})
+    if not isinstance(platform_config, Mapping) or not platform_config.get(
+        "enabled", False
+    ):
+        checks["specialized_platform"] = {"status": "disabled"}
+    else:
+        platform = result.get("specialized_platform")
+        if not isinstance(platform, Mapping):
+            platform = {}
+        platform_status = str(platform.get("status", "missing"))
+        state_rows = _nonnegative_int(platform.get("state_rows"))
+        checks["specialized_platform"] = {
+            "status": platform_status,
+            "snapshot_version": platform.get("snapshot_version"),
+            "family_registry_version": platform.get("family_registry_version"),
+            "state_rows": state_rows,
+            "fixture_count": _nonnegative_int(platform.get("fixture_count")),
+            "ranking_policy": platform.get("ranking_policy"),
+            "forward_evidence": platform.get("forward_evidence"),
+        }
+        if platform_status != "uploaded":
+            _add_alert(
+                alerts,
+                code="specialized_platform_publication_failed",
+                severity="critical",
+                component="specialized_platform",
+                summary=f"Specialized platform status is {platform_status}",
+            )
+        elif (
+            state_rows is None
+            or state_rows < int(platform_config.get("minimum_state_rows", 1))
+            or platform.get("ranking_policy") != "validated_families_only"
+        ):
+            _add_alert(
+                alerts,
+                code="specialized_platform_safety_check_failed",
+                severity="critical",
+                component="specialized_platform",
+                summary="Specialized platform rows or ranking policy are unsafe",
+            )
+
     evidence_config = publication_config.get("polymarket_market_evidence", {})
     if not isinstance(evidence_config, Mapping) or not evidence_config.get(
         "enabled", False

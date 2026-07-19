@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-07-18T22:57:23.655920+00:00",
+  "created_at": "2026-07-19T12:17:27.437239+00:00",
   "logical_model_sha256": "8be7ffad15d12e7e603b2d9f3dd8dcd5e742e0f80846bcb6cd45c9ca40d7ef7a",
-  "manifest_payload_sha256": "e93f16b74c3dc2b507143731d138c52bfead0543a838b63babefd341d245ed6f",
+  "manifest_payload_sha256": "fc43ff40343afdb8bd04d7f5ffa5d21cd6058f14a9f5afceb2258fc01b66a600",
   "model_artifact": {
     "filename": "model.json",
     "sha256": "3ce2ea4d66e129a22ca7b67e62998c5b4153f9fb2c4ff8a806c5dcfe2519fd98"
@@ -25,12 +25,12 @@
       "src/soccer_bot/modeling/reproducibility.py": "bec94d9fe6dde8d53db2593483ab512e01ab12d44c5ed58c90dc806d4c5ce0b0",
       "src/soccer_bot/modeling/rich_rates.py": "d8fd2fae44a24aa2424e427c2eacdc420f16064053cd5bc2dbe79860c482bea4",
       "src/soccer_bot/prediction_integrity.py": "b07834e9d5ebf861778c978f9fdbb8cb4dc731760537d3f912ee0a4e9a5b769a",
-      "src/soccer_bot/prediction_publication.py": "9a98327d7682aee1a1e8c6ef03b496f25b7d6d41bd169fea61eb633040c6a1d2"
+      "src/soccer_bot/prediction_publication.py": "d66180f120740e5e3e7ba22011bd1a5d636d94fb0540a4c80be6cad6fbca1f04"
     },
-    "logical_sha256": "9d4ca98865723de66bab33d812dc858cd194792c196e7fd793194d0cfe971c6a"
+    "logical_sha256": "5e84188a410a3c809130078c830534b3d11632097ff315b36e9552c65d1c4450"
   },
   "source_revision": {
-    "git_commit": "0135f84929936c976a5d7c931e3ff632fb3c1ab3",
+    "git_commit": "848c9912a88d4fde43787047a993e8b78b006663",
     "serving_bundle_dirty": true
   },
   "training_identity": {

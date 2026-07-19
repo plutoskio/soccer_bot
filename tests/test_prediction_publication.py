@@ -27,6 +27,8 @@ class FakeRunner:
         shadow_exit: int = 0,
         settlement_exit: int = 0,
         readiness_exit: int = 0,
+        platform_generation_exit: int = 0,
+        platform_upload_exit: int = 0,
     ):
         self.snapshot = snapshot
         self.generation_exit = generation_exit
@@ -34,6 +36,8 @@ class FakeRunner:
         self.shadow_exit = shadow_exit
         self.settlement_exit = settlement_exit
         self.readiness_exit = readiness_exit
+        self.platform_generation_exit = platform_generation_exit
+        self.platform_upload_exit = platform_upload_exit
         self.commands: list[list[str]] = []
 
     def __call__(self, command, **_kwargs):
@@ -47,6 +51,98 @@ class FakeRunner:
                 )
             return subprocess.CompletedProcess(
                 command, self.generation_exit, stdout="{}", stderr="provider secret"
+            )
+        if command[1].endswith("build_specialized_platform_snapshot.py"):
+            if not self.platform_generation_exit:
+                output = Path(command[command.index("--output-dir") + 1])
+                output.mkdir(parents=True, exist_ok=True)
+                created_at = (
+                    datetime.fromisoformat(self.snapshot["as_of"])
+                    + timedelta(minutes=1)
+                ).isoformat()
+                states = []
+                for row in self.snapshot["predictions"]:
+                    states.append(
+                        {
+                            "fixture_id": row["fixture_id"],
+                            "fixture": {
+                                "fixture_id": row["fixture_id"],
+                                "home_team_name": "Home",
+                                "away_team_name": "Away",
+                                "competition_name": "Competition",
+                            },
+                            "kickoff": row["kickoff"],
+                            "prediction_at": row["prediction_at"],
+                            "issued_at": created_at,
+                            "information_state": row["information_state"],
+                            "families": [
+                                {
+                                    "family_key": "regulation_moneyline",
+                                    "display_name": "Match result",
+                                    "status": "validated",
+                                    "model_version": "regulation_champion_v1",
+                                    "logical_model_sha256": LOGICAL_HASH,
+                                    "eligible_for_ranking": True,
+                                    "unavailable_reason": None,
+                                    "evidence": {"warnings": []},
+                                    "markets": [
+                                        {
+                                            "market_id": "regulation_moneyline:home_win",
+                                            "contract_key": "regulation_moneyline",
+                                            "group": "Match result",
+                                            "label": "Home",
+                                            "selection": {"outcome": "home_win"},
+                                            "line": None,
+                                            "probability": row["home_win_probability"],
+                                            "fair_decimal_multiplier": round(
+                                                1 / row["home_win_probability"], 8
+                                            ),
+                                            "settlement_probabilities": None,
+                                            "market_comparison": None,
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    )
+                encoded = json.dumps(
+                    states, sort_keys=True, separators=(",", ":"), allow_nan=False
+                )
+                import hashlib
+
+                platform = {
+                    "snapshot_version": "specialized_bet_platform_snapshot_v1",
+                    "created_at": created_at,
+                    "as_of": self.snapshot["as_of"],
+                    "family_registry_version": "specialized_family_registry_v1",
+                    "market_comparison_status": "unavailable",
+                    "ranking_policy": "validated_families_only",
+                    "states": states,
+                    "models": {},
+                    "state_rows_sha256": hashlib.sha256(encoded.encode()).hexdigest(),
+                }
+                (output / "latest.json").write_text(
+                    json.dumps(platform), encoding="utf-8"
+                )
+            return subprocess.CompletedProcess(
+                command,
+                self.platform_generation_exit,
+                stdout="{}",
+                stderr="platform generation secret",
+            )
+        if command[1].endswith("publish_platform_snapshot.py"):
+            snapshot_path = Path(command[command.index("--snapshot") + 1])
+            platform = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            return subprocess.CompletedProcess(
+                command,
+                self.platform_upload_exit,
+                stdout=json.dumps(
+                    {
+                        "status": "uploaded",
+                        "state_rows_sha256": platform["state_rows_sha256"],
+                    }
+                ),
+                stderr="platform storage secret",
             )
         if command[1].endswith("predict_score_grid_v3_shadow.py"):
             if not self.shadow_exit:
@@ -594,6 +690,34 @@ class PredictionPublicationTests(unittest.TestCase):
         self.assertEqual(result["error"], "snapshot_publication_exit_23")
         self.assertEqual(len(runner.commands), 2)
         self.assertNotIn("storage secret", json.dumps(result))
+
+    def test_specialized_platform_is_published_and_failure_isolated(self) -> None:
+        self.config["prediction_publication"]["specialized_platform"] = {
+            "enabled": True,
+            "output_directory": "data/predictions/specialized_platform_v1",
+            "object_key": "specialized_platform_v1/latest.json",
+            "minimum_state_rows": 1,
+            "timeout_seconds": 30,
+        }
+        result = self.publish(FakeRunner(self.snapshot()))
+
+        self.assertEqual(result["status"], "uploaded")
+        self.assertEqual(result["specialized_platform"]["status"], "uploaded")
+        self.assertEqual(result["specialized_platform"]["state_rows"], 1)
+        self.assertEqual(
+            result["specialized_platform"]["forward_evidence"]["new_evidence"],
+            0,
+        )
+
+        failed = self.publish(
+            FakeRunner(self.snapshot(), platform_generation_exit=41)
+        )
+        self.assertEqual(failed["status"], "uploaded")
+        self.assertEqual(failed["specialized_platform"]["status"], "failed")
+        self.assertEqual(
+            failed["specialized_platform"]["error"],
+            "platform_generation_exit_41",
+        )
 
     def test_shadow_failure_is_isolated_after_parent_upload(self) -> None:
         runner = FakeRunner(self.snapshot(), shadow_exit=29)

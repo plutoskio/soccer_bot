@@ -234,6 +234,35 @@ class OperationalAlertTests(unittest.TestCase):
         self.assertIn("publication_receipt_write_failed", self.codes(status))
         self.assertTrue(status["should_fail_run"])
 
+    def test_specialized_platform_failure_and_unsafe_ranking_are_critical(self) -> None:
+        self.config["prediction_publication"]["specialized_platform"] = {
+            "enabled": True,
+            "minimum_state_rows": 1,
+        }
+        failed = self.result(
+            specialized_platform={
+                "status": "failed",
+                "error": "platform_publication_exit_41",
+            }
+        )
+        self.assertIn(
+            "specialized_platform_publication_failed",
+            self.codes(self.watchdog(failed)),
+        )
+
+        unsafe = self.result(
+            specialized_platform={
+                "status": "uploaded",
+                "state_rows": 25,
+                "fixture_count": 13,
+                "ranking_policy": "all_families",
+            }
+        )
+        self.assertIn(
+            "specialized_platform_safety_check_failed",
+            self.codes(self.watchdog(unsafe)),
+        )
+
     def test_polymarket_evidence_identity_counts_and_safety_fail_closed(self) -> None:
         self.config["prediction_publication"]["polymarket_market_evidence"] = {
             "enabled": True,

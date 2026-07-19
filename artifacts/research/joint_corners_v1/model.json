@@ -1,0 +1,37 @@
+{
+  "artifact_version": "joint_corner_model_v1",
+  "created_at": "2026-07-19T11:28:10.353695+00:00",
+  "logical_model_sha256": "313501f07aea937f573544b648f5d3381dcb3fbd50a0a31f8c14d1edda7606d9",
+  "model": {
+    "horizons": [
+      {
+        "away_nb_shape": 6.703345133763237,
+        "bivariate_poisson_mean_joint_log_loss": 5.004529349093752,
+        "home_nb_shape": 7.275330370862491,
+        "information_state": "pre_lineup_24h_v1",
+        "negative_binomial_mean_joint_log_loss": 4.832959643063783,
+        "poisson_mean_joint_log_loss": 5.004529247964809,
+        "shared_intensity_fraction": 4.130970012633288e-07,
+        "training_fixtures": 34459,
+        "training_kickoff_end_exclusive": "2026-07-11T00:00:00+00:00",
+        "training_kickoff_start": "2016-08-12T23:00:00+02:00"
+      },
+      {
+        "away_nb_shape": 6.6716762087796075,
+        "bivariate_poisson_mean_joint_log_loss": 5.008573462050555,
+        "home_nb_shape": 7.226435939687357,
+        "information_state": "pre_lineup_72h_clean_v1",
+        "negative_binomial_mean_joint_log_loss": 4.835001431776811,
+        "poisson_mean_joint_log_loss": 5.008573362136756,
+        "shared_intensity_fraction": 4.130970012633288e-07,
+        "training_fixtures": 31152,
+        "training_kickoff_end_exclusive": "2026-07-11T00:00:00+00:00",
+        "training_kickoff_start": "2016-08-12T23:00:00+02:00"
+      }
+    ],
+    "model_version": "joint_corners_v1",
+    "prospective_holdout_start": "2026-07-21T00:00:00+00:00",
+    "status": "dataset_and_baseline_implementation",
+    "training_kickoff_end_exclusive": "2026-07-11T00:00:00+00:00"
+  }
+}

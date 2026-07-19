@@ -1,0 +1,9 @@
+{
+  "shadow_version": "joint_corners_v1_forward_shadow",
+  "model_version": "joint_corners_v1",
+  "logical_model_sha256": "313501f07aea937f573544b648f5d3381dcb3fbd50a0a31f8c14d1edda7606d9",
+  "selected_forward_candidate": "negative_binomial_marginals",
+  "selected_from": "retrospective_development_only_no_promotion_claim",
+  "prospective_holdout_kickoff_start_inclusive": "2026-07-21T00:00:00Z",
+  "status": "frozen_before_first_eligible_forward_prediction"
+}

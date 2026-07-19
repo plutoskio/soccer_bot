@@ -1,0 +1,88 @@
+{
+  "task_version": "joint_corners_v1",
+  "model_version": "joint_corners_v1",
+  "research_status": "dataset_and_baseline_implementation",
+  "recipe_frozen_at": "2026-07-19T00:00:00Z",
+  "training_kickoff_end_exclusive": "2026-07-11T00:00:00Z",
+  "prospective_holdout_kickoff_start_inclusive": "2026-07-21T00:00:00Z",
+  "contract_family": "corners",
+  "information_states": [
+    "pre_lineup_72h_clean_v1",
+    "pre_lineup_24h_v1"
+  ],
+  "target": {
+    "eligibility_flag": "eligible_team_models",
+    "period": "regulation",
+    "required_non_null_fields": ["home_corners", "away_corners"],
+    "multiple_provider_policy": "require_exact_agreement_or_exclude_with_audit",
+    "missing_corner_policy": "exclude_without_imputation"
+  },
+  "features": {
+    "version": "corner_team_state_v1",
+    "result_availability_delay_minutes": 150,
+    "team_log_strength_prior_standard_deviation": 0.45,
+    "team_mean_reversion_half_life_days": 180.0,
+    "competition_log_corner_prior_mean": 1.6094379124341003,
+    "competition_log_corner_prior_standard_deviation": 0.2,
+    "competition_home_advantage_prior_mean": 0.08,
+    "competition_home_advantage_prior_standard_deviation": 0.15,
+    "competition_mean_reversion_half_life_days": 365.0,
+    "minimum_expected_corners": 0.2,
+    "maximum_expected_corners": 20.0,
+    "cold_start_below_matches": 5,
+    "full_history_matches": 20,
+    "candidate_groups": [
+      "opponent_adjusted_corners_for_and_against",
+      "home_away_effect",
+      "competition_level",
+      "shots_and_possession_when_available",
+      "rest_and_congestion",
+      "history_depth_and_missingness"
+    ]
+  },
+  "candidate_models": [
+    "independent_poisson",
+    "negative_binomial_marginals",
+    "dependent_bivariate_count",
+    "constrained_residual_correction"
+  ],
+  "candidate_recipe": {
+    "implemented_candidates": [
+      "independent_poisson",
+      "negative_binomial_marginals",
+      "dependent_bivariate_count"
+    ],
+    "probability_floor": 1e-12,
+    "tail_tolerance": 1e-10,
+    "minimum_max_corners_per_team": 20,
+    "maximum_max_corners_per_team": 140,
+    "minimum_fit_fixtures_per_horizon": 1000,
+    "negative_binomial_shape_minimum": 0.25,
+    "negative_binomial_shape_maximum": 200.0,
+    "shared_intensity_fraction_minimum": 0.0,
+    "shared_intensity_fraction_maximum": 0.95,
+    "optimizer_tolerance": 1e-6
+  },
+  "selection_policy": {
+    "primary_metric": "joint_corner_log_loss",
+    "require_negative_mean_delta_versus_poisson_at_both_horizons": true,
+    "tie_break_metric": "total_corner_rps",
+    "moneyline_or_score_model_compatibility_required": false
+  },
+  "evaluation": {
+    "primary_metric": "joint_corner_log_loss",
+    "required_diagnostics": [
+      "home_corner_log_loss",
+      "away_corner_log_loss",
+      "total_corner_rps",
+      "line_calibration",
+      "tail_coverage"
+    ],
+    "paired_block_unit": "calendar_month",
+    "bootstrap_replicates": 2000,
+    "bootstrap_seed": 7192026,
+    "minimum_competitions": 5,
+    "promotion_window": "new_untouched_window_to_be_frozen_before_scoring"
+  },
+  "parameter_status": "target_feature_candidate_recipes_and_gate_frozen_before_evaluation"
+}

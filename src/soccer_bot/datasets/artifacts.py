@@ -12,6 +12,10 @@ import tempfile
 import duckdb
 
 from soccer_bot.datasets.features import RegulationFeatureRow, feature_rows_sha256
+from soccer_bot.datasets.corner_features import (
+    CornerFeatureRow,
+    corner_feature_rows_sha256,
+)
 
 
 class DatasetArtifactError(RuntimeError):
@@ -170,6 +174,143 @@ def read_regulation_feature_artifact(path: Path) -> list[RegulationFeatureRow]:
                 if value[column] is not None:
                     value[column] = str(value[column])
             values.append(RegulationFeatureRow(**value))
+        return values
+    finally:
+        connection.close()
+
+
+def write_corner_feature_artifact(
+    rows: list[CornerFeatureRow],
+    *,
+    output_dir: Path,
+    warehouse_path: Path,
+    source_files: dict[str, Path],
+    target_conflicts: int,
+) -> dict:
+    """Write the deterministic corner feature dataset and evidence manifest."""
+
+    if not rows:
+        raise DatasetArtifactError("Cannot freeze an empty corner feature dataset")
+    ordered = sorted(
+        rows, key=lambda row: (row.kickoff, row.fixture_id, row.information_state)
+    )
+    keys = [(row.fixture_id, row.information_state) for row in ordered]
+    if len(keys) != len(set(keys)):
+        raise DatasetArtifactError("Corner features contain duplicate logical rows")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    parquet_path = output_dir / "features.parquet"
+    json_handle = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        suffix=".jsonl",
+        prefix="corner-features-",
+        dir=output_dir,
+        delete=False,
+    )
+    json_path = Path(json_handle.name)
+    temporary = output_dir / ".features.parquet.tmp"
+    try:
+        with json_handle:
+            for row in ordered:
+                value = asdict(row)
+                value["prediction_at"] = row.prediction_at.timestamp()
+                value["kickoff"] = row.kickoff.timestamp()
+                json_handle.write(
+                    json.dumps(value, separators=(",", ":"), allow_nan=False) + "\n"
+                )
+        connection = duckdb.connect(":memory:")
+        try:
+            connection.execute(
+                f"""
+                COPY (
+                    SELECT * REPLACE (
+                        to_timestamp(prediction_at) AS prediction_at,
+                        to_timestamp(kickoff) AS kickoff
+                    )
+                    FROM read_json_auto({_sql_literal(json_path)},
+                        format='newline_delimited')
+                    ORDER BY kickoff, fixture_id, information_state
+                ) TO {_sql_literal(temporary)} (FORMAT PARQUET, COMPRESSION ZSTD)
+                """
+            )
+        finally:
+            connection.close()
+        os.replace(temporary, parquet_path)
+    finally:
+        json_path.unlink(missing_ok=True)
+        temporary.unlink(missing_ok=True)
+    verification = _verify_parquet(parquet_path)
+    if verification["rows"] != len(ordered):
+        raise DatasetArtifactError("Corner Parquet row count changed")
+    warehouse_stat = warehouse_path.stat()
+    manifest = {
+        "artifact_version": "corner_team_state_dataset_v1",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "feature_version": ordered[0].feature_version,
+        "eligibility_flag": "eligible_team_models",
+        "missing_corner_policy": "exclude_without_imputation",
+        "provider_disagreement_policy": "exclude_with_audit",
+        "target_conflicts_excluded": target_conflicts,
+        "warehouse_snapshot": {
+            "path": str(warehouse_path.resolve()),
+            "size_bytes": warehouse_stat.st_size,
+            "modified_at": datetime.fromtimestamp(
+                warehouse_stat.st_mtime, timezone.utc
+            ).isoformat(),
+            "sha256": _file_sha256(warehouse_path),
+        },
+        "source_files": {
+            name: {"path": str(path.resolve()), "sha256": _file_sha256(path)}
+            for name, path in sorted(source_files.items())
+        },
+        "dataset": {
+            "path": str(parquet_path.resolve()),
+            "sha256": _file_sha256(parquet_path),
+            "logical_rows_sha256": corner_feature_rows_sha256(ordered),
+            "rows": len(ordered),
+            "fixtures": len({row.fixture_id for row in ordered}),
+            "horizon_rows": dict(
+                sorted(Counter(row.information_state for row in ordered).items())
+            ),
+            "kickoff_start": min(row.kickoff for row in ordered).isoformat(),
+            "kickoff_end": max(row.kickoff for row in ordered).isoformat(),
+            "columns": [field.name for field in fields(CornerFeatureRow)],
+            "verification": verification,
+        },
+    }
+    _atomic_write_json(output_dir / "manifest.json", manifest)
+    return manifest
+
+
+def read_corner_feature_artifact(path: Path) -> list[CornerFeatureRow]:
+    connection = duckdb.connect(":memory:")
+    try:
+        relation = connection.execute(
+            f"""
+            SELECT * FROM read_parquet({_sql_literal(path)})
+            ORDER BY kickoff, fixture_id, information_state
+            """
+        )
+        names = [item[0] for item in relation.description]
+        expected = [field.name for field in fields(CornerFeatureRow)]
+        if names != expected:
+            raise DatasetArtifactError("Unexpected corner feature schema")
+        identifier_columns = {
+            "feature_version",
+            "fixture_id",
+            "information_state",
+            "competition_id",
+            "season_id",
+            "home_team_id",
+            "away_team_id",
+        }
+        values = []
+        for row in relation.fetchall():
+            value = dict(zip(names, row, strict=True))
+            for column in identifier_columns:
+                if value[column] is not None:
+                    value[column] = str(value[column])
+            values.append(CornerFeatureRow(**value))
         return values
     finally:
         connection.close()

@@ -25,6 +25,9 @@ from soccer_bot.modeling.score_grid_shadow import (
 )
 from soccer_bot.modeling.reproducibility import reproducibility_file_sha256
 from soccer_bot.prediction_integrity import champion_prediction_rows_sha256
+from soccer_bot.specialized_evidence import materialize_specialized_evidence
+
+from soccer_bot.platform_snapshot import validate_platform_snapshot
 
 
 CommandRunner = Callable[..., subprocess.CompletedProcess[str]]
@@ -197,6 +200,16 @@ def _generate_validate_publish(
         raise PredictionPublicationError("publication_not_confirmed")
 
     predictions = snapshot["predictions"]
+    specialized_platform_result = _try_publish_specialized_platform(
+        root=root,
+        warehouse_path=warehouse_path,
+        parent_snapshot_path=snapshot_path,
+        parent_snapshot=snapshot,
+        config=config.get("specialized_platform", {}),
+        command_runner=command_runner,
+        environment=subprocess_environment,
+        default_timeout=timeout,
+    )
     market_evidence_result = _try_capture_polymarket_market_evidence(
         root=root,
         warehouse_path=warehouse_path,
@@ -282,6 +295,7 @@ def _generate_validate_publish(
         "prediction_rows": len(predictions),
         "fixture_count": len({row["fixture_id"] for row in predictions}),
         "prediction_rows_sha256": snapshot["prediction_rows_sha256"],
+        "specialized_platform": specialized_platform_result,
         "polymarket_market_evidence": market_evidence_result,
         "shadow_score_grid": shadow_result,
         "confirmed_lineup_player_shadow": player_shadow_result,
@@ -290,6 +304,122 @@ def _generate_validate_publish(
         "polymarket_market_settlement_ledger": market_settlement_result,
         "polymarket_market_evaluation_readiness": market_readiness_result,
     }
+
+
+def _try_publish_specialized_platform(
+    *,
+    root: Path,
+    warehouse_path: Path,
+    parent_snapshot_path: Path,
+    parent_snapshot: dict,
+    config: dict,
+    command_runner: CommandRunner,
+    environment: Mapping[str, str],
+    default_timeout: int,
+) -> dict[str, object]:
+    """Build and publish the research platform without risking the champion."""
+
+    if not config.get("enabled", False):
+        return {"status": "disabled"}
+    try:
+        output_directory = _inside_root(root, config["output_directory"])
+        object_key = str(
+            config.get("object_key", "specialized_platform_v1/latest.json")
+        )
+        if not object_key or object_key.startswith("/") or ".." in Path(object_key).parts:
+            raise PredictionPublicationError("invalid_platform_object_key")
+        timeout = int(config.get("timeout_seconds", default_timeout))
+        generation = command_runner(
+            [
+                sys.executable,
+                str(root / "scripts" / "build_specialized_platform_snapshot.py"),
+                "--warehouse",
+                str(warehouse_path),
+                "--moneyline-snapshot",
+                str(parent_snapshot_path),
+                "--output-dir",
+                str(output_directory),
+                "--latest-only",
+            ],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        if generation.returncode:
+            raise PredictionPublicationError(
+                f"platform_generation_exit_{generation.returncode}"
+            )
+        snapshot_path = output_directory / "latest.json"
+        platform_snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        validate_platform_snapshot(platform_snapshot)
+        if _parse_timestamp(
+            platform_snapshot.get("as_of"), "platform_as_of"
+        ) != _parse_timestamp(parent_snapshot.get("as_of"), "parent_as_of"):
+            raise PredictionPublicationError("platform_snapshot_as_of_mismatch")
+        states = platform_snapshot.get("states")
+        minimum_rows = int(config.get("minimum_state_rows", 1))
+        if not isinstance(states, list) or len(states) < minimum_rows:
+            raise PredictionPublicationError("platform_snapshot_below_minimum_rows")
+        parent_keys = {
+            (row["fixture_id"], row["information_state"])
+            for row in parent_snapshot["predictions"]
+        }
+        platform_keys = {
+            (row["fixture_id"], row["information_state"]) for row in states
+        }
+        if not platform_keys.issubset(parent_keys):
+            raise PredictionPublicationError("platform_snapshot_parent_mismatch")
+        evidence = materialize_specialized_evidence(
+            output_directory=output_directory,
+            snapshot=platform_snapshot,
+        )
+        publication = command_runner(
+            [
+                sys.executable,
+                str(root / "scripts" / "publish_platform_snapshot.py"),
+                "--snapshot",
+                str(snapshot_path),
+                "--key",
+                object_key,
+            ],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        if publication.returncode:
+            raise PredictionPublicationError(
+                f"platform_publication_exit_{publication.returncode}"
+            )
+        try:
+            receipt = json.loads(publication.stdout)
+        except json.JSONDecodeError as error:
+            raise PredictionPublicationError("invalid_platform_publication_receipt") from error
+        if receipt.get("status") != "uploaded":
+            raise PredictionPublicationError("platform_publication_not_confirmed")
+        if receipt.get("state_rows_sha256") != platform_snapshot["state_rows_sha256"]:
+            raise PredictionPublicationError("platform_publication_hash_mismatch")
+        return {
+            "status": "uploaded",
+            "snapshot_version": platform_snapshot["snapshot_version"],
+            "family_registry_version": platform_snapshot["family_registry_version"],
+            "state_rows": len(states),
+            "fixture_count": len({row["fixture_id"] for row in states}),
+            "state_rows_sha256": platform_snapshot["state_rows_sha256"],
+            "forward_evidence": evidence,
+            "ranking_policy": platform_snapshot["ranking_policy"],
+        }
+    except Exception as error:
+        return {
+            "status": "failed",
+            "error_type": type(error).__name__,
+            "error": _safe_error(error),
+        }
 
 
 def _try_generate_confirmed_lineup_player_shadow(

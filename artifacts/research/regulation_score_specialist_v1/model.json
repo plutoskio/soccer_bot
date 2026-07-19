@@ -1,0 +1,49 @@
+{
+  "artifact_version": "regulation_score_specialist_model_v1",
+  "created_at": "2026-07-19T11:24:59.007551+00:00",
+  "logical_model_sha256": "a8579d765fe0afca789403ceb1b22a82c7779ff0aef57ee76feca609ffee0d4e",
+  "model": {
+    "horizons": [
+      {
+        "converged": true,
+        "information_state": "pre_lineup_24h_v1",
+        "iterations": 4,
+        "objective": 46381.74743166777,
+        "parameters": {
+          "away_goals": 0.3322620664388428,
+          "both_teams_to_score": -0.06059020633171321,
+          "draw": 0.10527508994935718,
+          "home_goals": 0.36560387874391603,
+          "log_factorial_sum": -0.8106311388621703,
+          "zero_zero": -0.027756470343811804
+        },
+        "training_fixtures": 15458,
+        "training_kickoff_end_exclusive": "2026-07-11T00:00:00+00:00",
+        "training_kickoff_start": "2023-07-01T18:00:00+02:00"
+      },
+      {
+        "converged": true,
+        "information_state": "pre_lineup_72h_clean_v1",
+        "iterations": 4,
+        "objective": 42359.5881926851,
+        "parameters": {
+          "away_goals": 0.29312223920776875,
+          "both_teams_to_score": -0.03870793204952228,
+          "draw": 0.08946226294799739,
+          "home_goals": 0.32999017156296867,
+          "log_factorial_sum": -0.7623676285288998,
+          "zero_zero": -0.025489333366033533
+        },
+        "training_fixtures": 14139,
+        "training_kickoff_end_exclusive": "2026-07-11T00:00:00+00:00",
+        "training_kickoff_start": "2023-07-01T18:00:00+02:00"
+      }
+    ],
+    "model_family": "unconditional_regularized_exponential_tilt",
+    "model_version": "regulation_score_specialist_v1",
+    "parent_rate_model_version": "regulation_champion_v1",
+    "prospective_holdout_start": "2026-07-21T00:00:00+00:00",
+    "status": "frozen_prospective_specialist_candidate",
+    "training_kickoff_end_exclusive": "2026-07-11T00:00:00+00:00"
+  }
+}
