@@ -243,6 +243,9 @@ def main() -> int:
 
         experimental_allowed = (
             created_at < kickoff
+            and created_at >= score_model.prospective_holdout_start
+            and created_at >= corner_model.prospective_holdout_start
+            and created_at >= timing_model.prospective_holdout_start
             and kickoff >= score_model.prospective_holdout_start
             and kickoff >= corner_model.prospective_holdout_start
             and kickoff >= timing_model.prospective_holdout_start
