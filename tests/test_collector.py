@@ -288,7 +288,7 @@ class CollectorIntegrationTests(unittest.TestCase):
             api_key="test",
             config=self.config,
         )
-        collector._fixture_has_any_market_tokens = lambda fixture_id: True
+        collector._fixture_has_current_market_tokens = lambda fixture: True
         collector._lineup_schedule_version = lambda fixture: (
             "kickoff-old",
             None,

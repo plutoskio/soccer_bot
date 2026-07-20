@@ -1168,7 +1168,7 @@ class Collector:
             fixture
             for fixture in fixtures
             if now < fixture.kickoff <= targeted_search_end
-            and not self._fixture_has_any_market_tokens(fixture.internal_id)
+            and not self._fixture_has_current_market_tokens(fixture)
         ]
         searched = 0
         for fixture in search_fixtures:
@@ -1204,7 +1204,7 @@ class Collector:
                 self.summary["linked_polymarket_events"] = int(
                     self.summary.get("linked_polymarket_events", 0)
                 ) + self._link_polymarket_events([fixture])
-                if self._fixture_has_any_market_tokens(fixture.internal_id):
+                if self._fixture_has_current_market_tokens(fixture):
                     break
         self._record_checkpoint(
             job_key, "polymarket_gamma", "event_discovery", None, now,
@@ -1802,7 +1802,7 @@ class Collector:
             in_live_window = now < canonical_kickoff <= now + live_lookahead
             if in_live_window:
                 live_diagnostics["selected_fixtures_in_live_window"] += 1
-            if not self._fixture_has_any_market_tokens(fixture.internal_id):
+            if not self._fixture_has_current_market_tokens(fixture):
                 if in_live_window:
                     live_diagnostics[
                         "fixtures_without_market_tokens_in_live_window"
@@ -2449,6 +2449,22 @@ class Collector:
             LIMIT 1
             """,
             [fixture_id],
+        ).fetchone()
+        return bool(row)
+
+    def _fixture_has_current_market_tokens(self, fixture: FixtureRecord) -> bool:
+        row = self.connection.execute(
+            """
+            SELECT 1
+            FROM prediction_market_event e
+            JOIN prediction_market m USING (prediction_market_event_id)
+            JOIN prediction_market_outcome o USING (prediction_market_id)
+            WHERE e.fixture_id=? AND e.end_time IS NOT NULL
+              AND abs(epoch(e.end_time)-epoch(?)) <= 6*3600
+              AND o.source_token_id IS NOT NULL
+            LIMIT 1
+            """,
+            [fixture.internal_id, fixture.kickoff],
         ).fetchone()
         return bool(row)
 
