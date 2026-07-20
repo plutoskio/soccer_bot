@@ -278,6 +278,38 @@ class CollectorIntegrationTests(unittest.TestCase):
             [row[0] for row in fake.calls],
         )
 
+    def test_live_market_planning_uses_current_canonical_kickoff(self):
+        now = datetime(2026, 7, 20, 12, tzinfo=timezone.utc)
+        current_kickoff = now + timedelta(hours=24)
+        collector = Collector(
+            warehouse=self.warehouse,
+            raw_store=RawArtifactStore(self.root / "raw"),
+            http_client=HttpClient(),
+            api_key="test",
+            config=self.config,
+        )
+        collector._fixture_has_any_market_tokens = lambda fixture_id: True
+        collector._lineup_schedule_version = lambda fixture: (
+            "kickoff-old",
+            None,
+            now - timedelta(days=1),
+        )
+        collector._lineup_complete = lambda *args, **kwargs: False
+        jobs = collector._plan_market_jobs(
+            [FixtureRecord(
+                "fixture-live",
+                "919",
+                current_kickoff,
+                "scheduled",
+                "Alpha FC",
+                "Beta FC",
+            )],
+            now,
+        )
+        live_jobs = [job for job in jobs if job.job_type == "market_live"]
+        self.assertEqual(1, len(live_jobs))
+        self.assertEqual(current_kickoff, live_jobs[0].fixture.kickoff)
+
     def test_rate_limit_is_persisted_and_run_completes(self):
         self.config["discovery"]["recovery_days"] = 0
         self.config["discovery"]["planning_days"] = 0

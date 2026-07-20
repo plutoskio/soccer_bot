@@ -1154,10 +1154,16 @@ class Collector:
         self.summary["linked_polymarket_events"] = int(
             self.summary.get("linked_polymarket_events", 0)
         ) + self._link_polymarket_events(fixtures)
+        targeted_search_end = min(
+            end,
+            now + timedelta(
+                hours=int(self.polymarket_config.get("live_lookahead_hours", 72))
+            ),
+        )
         search_fixtures = [
             fixture
             for fixture in fixtures
-            if now < fixture.kickoff <= end
+            if now < fixture.kickoff <= targeted_search_end
             and not self._fixture_has_any_market_tokens(fixture.internal_id)
         ]
         searched = 0
@@ -1838,17 +1844,28 @@ class Collector:
                 )
                 for plan in plans
             )
-            if now < kickoff <= now + live_lookahead:
+            # Live display follows the fixture's current canonical kickoff.
+            # Audited cutoff captures above intentionally keep the point-in-
+            # time schedule observation. Mixing the latter into live planning
+            # can suppress a valid current market after a schedule correction.
+            live_kickoff = fixture.kickoff.astimezone(timezone.utc)
+            if now < live_kickoff <= now + live_lookahead:
                 live_diagnostics["fixtures_in_live_window"] += 1
+                live_schedule_version = f"kickoff-{int(live_kickoff.timestamp())}"
                 live_key = (
                     f"polymarket:market_live:{fixture.source_id}:"
-                    f"{schedule_version}:{live_slot.isoformat()}"
+                    f"{live_schedule_version}:{live_slot.isoformat()}"
                 )
                 if self._checkpoint_done(live_key):
                     live_diagnostics["fixtures_already_captured_this_slot"] += 1
                 else:
                     jobs.append(
-                        DetailJob(live_key, "market_live", schedule_fixture, live_slot)
+                        DetailJob(
+                            live_key,
+                            "market_live",
+                            replace(fixture, kickoff=live_kickoff),
+                            live_slot,
+                        )
                     )
                     live_diagnostics["planned_live_jobs"] += 1
         self.summary["market_live_planning"] = live_diagnostics
