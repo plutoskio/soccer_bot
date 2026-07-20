@@ -245,7 +245,9 @@ class Collector:
                     local_date, start_date=start_date, end_date=end_date
                 )
             self.summary["selected_fixtures"] = len(fixtures)
-            self._discover_polymarket(local_date, fixtures, now, dry_run)
+            market_fixtures = self._market_fixture_scope(fixtures, now)
+            self.summary["market_fixture_scope"] = len(market_fixtures)
+            self._discover_polymarket(local_date, market_fixtures, now, dry_run)
             if not dry_run:
                 self._reconcile_fixture_components(fixtures, now)
                 self._mark_expired_pregame_components(fixtures, now)
@@ -259,7 +261,7 @@ class Collector:
                 self._mark_expired_pregame_components(fixtures, now)
                 self.summary["linked_polymarket_events"] = int(
                     self.summary.get("linked_polymarket_events", 0)
-                ) + self._link_polymarket_events(fixtures)
+                ) + self._link_polymarket_events(market_fixtures)
                 policy_path = (
                     Path(__file__).resolve().parents[2]
                     / self.polymarket_config["mapping_policy_path"]
@@ -276,8 +278,10 @@ class Collector:
                         mapped_at=now,
                     )
                 )
-            self._refresh_closed_polymarket_events(fixtures, now, dry_run=dry_run)
-            market_jobs = self._plan_market_jobs(fixtures, now)
+            self._refresh_closed_polymarket_events(
+                market_fixtures, now, dry_run=dry_run
+            )
+            market_jobs = self._plan_market_jobs(market_fixtures, now)
             self.summary["planned_jobs"].extend(job.job_key for job in market_jobs)
             if not dry_run:
                 # Keep audited cutoff captures and display-only live captures in
@@ -2217,6 +2221,47 @@ class Collector:
             selected.append(FixtureRecord(internal_id, str(source_id), kickoff, status, home, away))
         selected.sort(key=lambda fixture: fixture.kickoff)
         return selected
+
+    def _market_fixture_scope(
+        self, monitored: list[FixtureRecord], now: datetime
+    ) -> list[FixtureRecord]:
+        """Include every scheduled fixture the prediction UI may publish.
+
+        Result/team/player collection remains limited to configured
+        competitions. Read-only market discovery must also cover scheduled
+        fixtures selected by upcoming inference, whose query is intentionally
+        eligibility-based rather than collector-scope-based.
+        """
+        lookahead = timedelta(
+            hours=int(self.polymarket_config.get("live_lookahead_hours", 72))
+        )
+        rows = self.connection.execute(
+            """
+            SELECT f.fixture_id,fm.source_entity_id,f.scheduled_kickoff,f.status,
+                   home.name,away.name
+            FROM fixture f
+            JOIN source_entity_map fm
+              ON fm.internal_entity_id=f.fixture_id
+             AND fm.source_code='api_football' AND fm.entity_type='fixture'
+            JOIN team home ON home.team_id=f.home_team_id
+            JOIN team away ON away.team_id=f.away_team_id
+            WHERE f.status='scheduled'
+              AND f.scheduled_kickoff > ? AND f.scheduled_kickoff <= ?
+            ORDER BY f.scheduled_kickoff,f.fixture_id
+            """,
+            [now, now + lookahead],
+        ).fetchall()
+        by_id = {fixture.internal_id: fixture for fixture in monitored}
+        for fixture_id, source_id, kickoff, status, home, away in rows:
+            by_id[str(fixture_id)] = FixtureRecord(
+                str(fixture_id),
+                str(source_id),
+                kickoff.astimezone(timezone.utc),
+                str(status),
+                str(home),
+                str(away),
+            )
+        return sorted(by_id.values(), key=lambda fixture: fixture.kickoff)
 
     def _is_monitored_match(self, match: dict) -> bool:
         league = match.get("league") or {}

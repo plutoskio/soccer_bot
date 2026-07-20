@@ -310,6 +310,39 @@ class CollectorIntegrationTests(unittest.TestCase):
         self.assertEqual(1, len(live_jobs))
         self.assertEqual(current_kickoff, live_jobs[0].fixture.kickoff)
 
+    def test_market_scope_includes_every_upcoming_publishable_fixture(self):
+        now = datetime(2026, 7, 20, 12, tzinfo=timezone.utc)
+        competition_id = self.warehouse.resolve_competition(
+            "api_football", 9999, "Inference-only Competition", country_code="Test"
+        )
+        season_id = self.warehouse.resolve_season(
+            "api_football", "9999|2026", competition_id, "2026"
+        )
+        home_id = self.warehouse.resolve_team(
+            "api_football", 201, "Inference Home", team_type="club"
+        )
+        away_id = self.warehouse.resolve_team(
+            "api_football", 202, "Inference Away", team_type="club"
+        )
+        fixture_id = self.warehouse.resolve_fixture(
+            "api_football", 929,
+            home_team_id=home_id,
+            away_team_id=away_id,
+            scheduled_kickoff=now + timedelta(hours=24),
+            competition_id=competition_id,
+            season_id=season_id,
+            status="scheduled",
+        )
+        collector = Collector(
+            warehouse=self.warehouse,
+            raw_store=RawArtifactStore(self.root / "raw"),
+            http_client=HttpClient(),
+            api_key="test",
+            config=self.config,
+        )
+        scoped = collector._market_fixture_scope([], now)
+        self.assertEqual([fixture_id], [fixture.internal_id for fixture in scoped])
+
     def test_rate_limit_is_persisted_and_run_completes(self):
         self.config["discovery"]["recovery_days"] = 0
         self.config["discovery"]["planning_days"] = 0
