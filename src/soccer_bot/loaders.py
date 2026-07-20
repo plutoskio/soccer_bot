@@ -1988,6 +1988,14 @@ class WarehouseLoader:
             return
         event_id = stable_id("prediction_market_event", source_event_id)
         retrieved_at = parse_datetime(item["retrieved_at"])
+        game_start_times = {
+            value
+            for market in event.get("markets", [])
+            if isinstance(market, dict)
+            if (value := parse_datetime(market.get("gameStartTime"))) is not None
+        }
+        game_start_time = next(iter(game_start_times)) if len(game_start_times) == 1 else None
+        event_end_time = game_start_time or parse_datetime(event.get("endDate"))
         self.connection.execute(
             """
             INSERT INTO prediction_market_event (
@@ -1996,13 +2004,17 @@ class WarehouseLoader:
                 active,closed,retrieved_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (prediction_market_event_id) DO UPDATE SET
-                title = excluded.title, active = excluded.active, closed = excluded.closed,
+                title = excluded.title, slug = excluded.slug,
+                description = excluded.description,
+                start_time = excluded.start_time, end_time = excluded.end_time,
+                resolution_source = excluded.resolution_source,
+                active = excluded.active, closed = excluded.closed,
                 retrieved_at = excluded.retrieved_at
             """,
             [
                 event_id, source_event_id, event.get("title"), event.get("slug"),
                 event.get("description"), None, parse_datetime(event.get("startTime") or event.get("startDate")),
-                parse_datetime(event.get("endDate")), event.get("resolutionSource"),
+                event_end_time, event.get("resolutionSource"),
                 event.get("active"), event.get("closed"), retrieved_at,
             ],
         )
@@ -2020,7 +2032,7 @@ class WarehouseLoader:
                 event_id, item["_raw_artifact_id"], event.get("active"),
                 event.get("closed"),
                 parse_datetime(event.get("startTime") or event.get("startDate")),
-                parse_datetime(event.get("endDate")), event.get("title"),
+                event_end_time, event.get("title"),
                 event.get("description"), event.get("resolutionSource"),
                 parse_datetime(event.get("updatedAt")), retrieved_at,
             ],

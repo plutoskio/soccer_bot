@@ -197,6 +197,7 @@ def _binary(
         "fair_decimal_multiplier": 1.0 / probability,
         "settlement_probabilities": None,
         "market_comparison": None,
+        "live_market": None,
     }
 
 
@@ -230,6 +231,7 @@ def _settlement(
         "fair_decimal_multiplier": None if math.isinf(fair) else fair,
         "settlement_probabilities": probabilities,
         "market_comparison": None,
+        "live_market": None,
     }
 
 

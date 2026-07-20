@@ -27,12 +27,21 @@ export interface MarketQuote {
   probability: number | null;
   fair_decimal_multiplier: number | null;
   settlement_probabilities: SettlementProbabilities | null;
-  market_comparison: {
-    market_probability?: number;
-    market_decimal_multiplier?: number;
-    probability_difference?: number;
-    retrieved_at?: string;
-  } | null;
+  market_comparison: ExternalMarketQuote | null;
+  live_market: ExternalMarketQuote | null;
+}
+
+export interface ExternalMarketQuote {
+  source: "polymarket";
+  quote_type: "cutoff" | "live";
+  market_probability: number;
+  market_decimal_multiplier: number;
+  best_bid_probability: number;
+  best_ask_probability: number;
+  bid_ask_spread: number;
+  observed_at: string;
+  retrieved_at: string;
+  event_url: string | null;
 }
 
 export interface ModelFamily {
@@ -65,6 +74,14 @@ export interface PlatformSnapshot {
   is_stale: boolean;
   family_registry_version: string;
   market_comparison_status: string | null;
+  market_data: {
+    linked_fixture_count?: number;
+    cutoff_market_fixture_count?: number;
+    live_market_fixture_count?: number;
+    live_market_as_of?: string | null;
+    live_refresh_policy?: string;
+    cutoff_policy?: string;
+  };
   ranking_policy: "validated_families_only";
   models: Record<string, { model_version: string; logical_sha256?: string; status: FamilyStatus }>;
   target_audit: Record<string, number>;

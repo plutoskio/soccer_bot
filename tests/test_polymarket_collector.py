@@ -11,9 +11,12 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from soccer_bot.collector import Collector, FixtureRecord  # noqa: E402
 from soccer_bot.collection_planner import market_stage_plans  # noqa: E402
 from soccer_bot.database import Warehouse  # noqa: E402
+from soccer_bot.http import HttpClient  # noqa: E402
 from soccer_bot.loaders import RawCatalog, WarehouseLoader  # noqa: E402
+from soccer_bot.raw_store import RawArtifactStore  # noqa: E402
 
 
 class MarketStagePlannerTests(unittest.TestCase):
@@ -97,9 +100,11 @@ class MarketObservationLoaderTests(unittest.TestCase):
                 event = {
                     "id": "event-1", "title": "Alpha vs Beta",
                     "active": True, "closed": False,
-                    "startTime": "2026-07-12T18:00:00Z",
+                    "startDate": "2026-07-07T18:00:00Z",
+                    "endDate": "2026-07-12T18:00:00Z",
                     "markets": [{
                         "id": "market-1", "question": "Winner?",
+                        "gameStartTime": "2026-07-12T18:00:00Z",
                         "active": True, "closed": False,
                         "outcomes": json.dumps(["Alpha", "Beta"]),
                         "outcomePrices": json.dumps(["0.5", "0.5"]),
@@ -125,6 +130,18 @@ class MarketObservationLoaderTests(unittest.TestCase):
                         SELECT
                           (SELECT count(*) FROM prediction_market_event_observation),
                           (SELECT count(*) FROM prediction_market_observation)
+                        """
+                    ).fetchone(),
+                )
+                self.assertEqual(
+                    (
+                        datetime(2026, 7, 7, 18, tzinfo=timezone.utc),
+                        datetime(2026, 7, 12, 18, tzinfo=timezone.utc),
+                    ),
+                    warehouse.connection.execute(
+                        """
+                        SELECT start_time,end_time
+                        FROM prediction_market_event
                         """
                     ).fetchone(),
                 )
@@ -165,6 +182,83 @@ class MarketObservationLoaderTests(unittest.TestCase):
                         FROM orderbook_snapshot
                         """
                     ).fetchone(),
+                )
+            finally:
+                warehouse.close()
+
+    def test_linker_uses_game_start_and_controlled_team_aliases(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            warehouse = Warehouse(
+                root / "warehouse.duckdb",
+                ROOT / "migrations",
+                ROOT / "config" / "entity_aliases.json",
+            )
+            try:
+                warehouse.migrate()
+                warehouse.register_sources()
+                loader = WarehouseLoader(warehouse, RawCatalog.__new__(RawCatalog))
+                loader.load_polymarket_payload(
+                    "soccer_events",
+                    {
+                        "events": [{
+                            "id": "thun-dinamo",
+                            "title": "FC Thun vs GNK Dinamo Zagreb",
+                            "startDate": "2026-07-16T18:16:09Z",
+                            "endDate": "2026-07-21T18:00:00Z",
+                            "active": True,
+                            "closed": False,
+                            "markets": [{
+                                "id": "thun-home",
+                                "gameStartTime": "2026-07-21T18:00:00Z",
+                                "outcomes": json.dumps(["Yes", "No"]),
+                                "clobTokenIds": json.dumps(["yes", "no"]),
+                            }],
+                        }]
+                    },
+                    {
+                        "retrieved_at": "2026-07-20T21:00:00Z",
+                        "content_sha256": "event-content",
+                        "_raw_artifact_id": "event-artifact",
+                    },
+                )
+                config = json.loads((ROOT / "config" / "collector.json").read_text())
+                collector = Collector(
+                    warehouse=warehouse,
+                    raw_store=RawArtifactStore(root / "raw"),
+                    http_client=HttpClient(),
+                    api_key="test",
+                    config=config,
+                )
+                fixture = FixtureRecord(
+                    "fixture-thun",
+                    "123",
+                    datetime(2026, 7, 21, 18, tzinfo=timezone.utc),
+                    "scheduled",
+                    "FC Thun",
+                    "Dinamo Zagreb",
+                )
+
+                self.assertEqual(1, collector._link_polymarket_events([fixture]))
+                self.assertEqual(
+                    ("fixture-thun", "team_names_and_kickoff"),
+                    warehouse.connection.execute(
+                        """
+                        SELECT fixture_id,fixture_link_method
+                        FROM prediction_market_event
+                        """
+                    ).fetchone(),
+                )
+                collector._lineup_complete = lambda *args, **kwargs: False
+                jobs = collector._plan_market_jobs(
+                    [fixture],
+                    datetime(2026, 7, 20, 21, 3, tzinfo=timezone.utc),
+                )
+                live = [job for job in jobs if job.job_type == "market_live"]
+                self.assertEqual(1, len(live))
+                self.assertEqual(
+                    datetime(2026, 7, 20, 21, 0, tzinfo=timezone.utc),
+                    live[0].scheduled_for,
                 )
             finally:
                 warehouse.close()

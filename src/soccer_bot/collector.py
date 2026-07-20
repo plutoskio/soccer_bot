@@ -270,6 +270,7 @@ class Collector:
                         self.connection,
                         policy=mapping_policy,
                         policy_sha256=mapping_hash,
+                        team_aliases=self.warehouse.team_aliases,
                         mapped_at=now,
                     )
                 )
@@ -277,7 +278,17 @@ class Collector:
             market_jobs = self._plan_market_jobs(fixtures, now)
             self.summary["planned_jobs"].extend(job.job_key for job in market_jobs)
             if not dry_run:
-                self._execute_market_jobs(market_jobs, now)
+                # Keep audited cutoff captures and display-only live captures in
+                # separate payloads so one token can never inherit the wrong
+                # cadence metadata when both are due in the same cycle.
+                self._execute_market_jobs(
+                    [job for job in market_jobs if job.job_type != "market_live"],
+                    now,
+                )
+                self._execute_market_jobs(
+                    [job for job in market_jobs if job.job_type == "market_live"],
+                    now,
+                )
             self.summary["api_football_calls"] = self.api_calls
             self.summary["polymarket_calls"] = self.polymarket_calls
             if not dry_run:
@@ -1699,6 +1710,15 @@ class Collector:
 
     def _plan_market_jobs(self, fixtures: list[FixtureRecord], now: datetime) -> list[DetailJob]:
         jobs: list[DetailJob] = []
+        live_interval = int(self.polymarket_config.get("live_refresh_minutes", 10))
+        live_lookahead = timedelta(
+            hours=int(self.polymarket_config.get("live_lookahead_hours", 72))
+        )
+        live_slot = now.replace(
+            minute=now.minute - (now.minute % live_interval),
+            second=0,
+            microsecond=0,
+        )
         for fixture in fixtures:
             if not self._fixture_has_any_market_tokens(fixture.internal_id):
                 continue
@@ -1751,6 +1771,20 @@ class Collector:
                 )
                 for plan in plans
             )
+            if now < kickoff <= now + live_lookahead:
+                live_key = (
+                    f"polymarket:market_live:{fixture.source_id}:"
+                    f"{schedule_version}:{live_slot.isoformat()}"
+                )
+                if not self._checkpoint_done(live_key):
+                    jobs.append(
+                        DetailJob(
+                            live_key,
+                            "market_live",
+                            schedule_fixture,
+                            live_slot,
+                        )
+                    )
         return jobs
 
     def _execute_market_jobs(self, jobs: list[DetailJob], now: datetime) -> None:
@@ -1862,8 +1896,10 @@ class Collector:
                 [job.job_key],
             ).fetchone()
             previous_attempts = previous_attempts_row[0] if previous_attempts_row else 0
-            maximum_attempts = int(
-                self.polymarket_config.get("snapshot_maximum_attempts", 3)
+            maximum_attempts = (
+                1
+                if job.job_type == "market_live"
+                else int(self.polymarket_config.get("snapshot_maximum_attempts", 3))
             )
             exhausted = not complete and previous_attempts + 1 >= maximum_attempts
             checkpoint_status = (
@@ -1933,6 +1969,8 @@ class Collector:
             return job.scheduled_for <= retrieved_at < job.fixture.kickoff
         if job.job_type == "market_after_closure":
             return retrieved_at >= job.scheduled_for
+        if job.job_type == "market_live":
+            return job.scheduled_for <= retrieved_at < job.fixture.kickoff
         # Compatibility for pre-rework checkpoints/tests. New planning never
         # emits these legacy names.
         return True
@@ -2158,7 +2196,7 @@ class Collector:
     def _link_polymarket_events(self, fixtures: list[FixtureRecord]) -> int:
         events = self.connection.execute(
             """
-            SELECT prediction_market_event_id, title, coalesce(start_time, end_time)
+            SELECT prediction_market_event_id, title, end_time
             FROM prediction_market_event
             WHERE fixture_id IS NULL AND coalesce(active, true)
             """

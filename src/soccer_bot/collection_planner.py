@@ -475,10 +475,21 @@ def validate_collector_config(config: dict, catch_up_days: int | None = None) ->
     for key, default in (
         ("discovery_hourly_minutes", 60),
         ("discovery_matchday_minutes", 15),
+        ("live_refresh_minutes", 10),
     ):
         interval = _positive_int(polymarket.get(key, default), key)
         if interval > 60 or 60 % interval:
             raise ValueError(f"{key} must evenly divide one hour")
+    live_lookahead = _positive_int(
+        polymarket.get("live_lookahead_hours", 72), "live_lookahead_hours"
+    )
+    live_max_age = _positive_int(
+        polymarket.get("live_max_age_minutes", 20), "live_max_age_minutes"
+    )
+    if live_lookahead > 168:
+        raise ValueError("live_lookahead_hours must not exceed seven days")
+    if live_max_age < int(polymarket.get("live_refresh_minutes", 10)):
+        raise ValueError("live_max_age_minutes must cover one refresh interval")
     health = config.get("health", {})
     if not isinstance(health, dict):
         raise ValueError("health config must be an object")

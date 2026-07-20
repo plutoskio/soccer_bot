@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   FamilyStatus,
   InformationState,
@@ -17,6 +17,8 @@ type FixtureGroup = {
   kickoff: string;
   states: Partial<Record<InformationState, PlatformState>>;
 };
+
+type PriceView = "live" | "cutoff";
 
 const HORIZONS: { key: InformationState; short: string; label: string }[] = [
   { key: "pre_lineup_72h_clean_v1", short: "T−72", label: "Clean 72-hour view" },
@@ -45,8 +47,9 @@ type UnavailableCopy = {
   body: string;
 };
 
-export function ProbabilityDesk({ snapshot }: { snapshot: PlatformSnapshot }) {
+export function ProbabilityDesk({ snapshot: initialSnapshot }: { snapshot: PlatformSnapshot }) {
   const reducedMotion = useReducedMotion();
+  const [snapshot, setSnapshot] = useState(initialSnapshot);
   const fixtures = useMemo(() => groupFixtures(snapshot.states), [snapshot.states]);
   const [selectedId, setSelectedId] = useState(fixtures[0]?.id ?? "");
   const [requestedHorizon, setRequestedHorizon] = useState<InformationState>(
@@ -58,6 +61,31 @@ export function ProbabilityDesk({ snapshot }: { snapshot: PlatformSnapshot }) {
   const [requestedGroup, setRequestedGroup] = useState("");
   const [query, setQuery] = useState("");
   const [expandedMarket, setExpandedMarket] = useState<string | null>(null);
+  const [priceView, setPriceView] = useState<PriceView>("live");
+
+  useEffect(() => {
+    let active = true;
+    async function refreshSnapshot() {
+      try {
+        const response = await fetch("/api/platform-snapshot", {
+          cache: "no-store",
+          headers: { accept: "application/json" },
+        });
+        if (!response.ok) return;
+        const next = (await response.json()) as PlatformSnapshot;
+        if (active && next.snapshot_version === "specialized_bet_platform_snapshot_v1") {
+          setSnapshot(next);
+        }
+      } catch {
+        // Preserve the last validated snapshot through transient refresh failures.
+      }
+    }
+    const interval = window.setInterval(refreshSnapshot, 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   const selected = fixtures.find((fixture) => fixture.id === selectedId) ?? fixtures[0];
   if (!selected) return <EmptyDesk snapshot={snapshot} />;
@@ -240,15 +268,35 @@ export function ProbabilityDesk({ snapshot }: { snapshot: PlatformSnapshot }) {
                       </button>
                     ))}
                   </div>
-                  <label className="market-search">
-                    <span className="sr-only">Search bets</span>
-                    <input
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      placeholder="Filter bets"
-                    />
-                    <kbd>/</kbd>
-                  </label>
+                  <div className="market-tools">
+                    <div className="price-view-switch" aria-label="External market price time">
+                      <button
+                        type="button"
+                        data-active={priceView === "live"}
+                        aria-pressed={priceView === "live"}
+                        onClick={() => setPriceView("live")}
+                      >
+                        Live
+                      </button>
+                      <button
+                        type="button"
+                        data-active={priceView === "cutoff"}
+                        aria-pressed={priceView === "cutoff"}
+                        onClick={() => setPriceView("cutoff")}
+                      >
+                        At cutoff
+                      </button>
+                    </div>
+                    <label className="market-search">
+                      <span className="sr-only">Search bets</span>
+                      <input
+                        value={query}
+                        onChange={(event) => setQuery(event.target.value)}
+                        placeholder="Filter bets"
+                      />
+                      <kbd>/</kbd>
+                    </label>
+                  </div>
                 </div>
 
                 <div className="market-table" aria-label={`${activeGroup} probabilities`}>
@@ -256,7 +304,7 @@ export function ProbabilityDesk({ snapshot }: { snapshot: PlatformSnapshot }) {
                     <span>Selection</span>
                     <span>Probability</span>
                     <span>Fair multiplier</span>
-                    <span>Market</span>
+                    <span>{priceView === "live" ? "Live market" : "At cutoff"}</span>
                   </div>
                   <AnimatePresence initial={false}>
                     {visibleMarkets.map((market) => (
@@ -268,6 +316,7 @@ export function ProbabilityDesk({ snapshot }: { snapshot: PlatformSnapshot }) {
                           expandedMarket === market.market_id ? null : market.market_id,
                         )}
                         reducedMotion={Boolean(reducedMotion)}
+                        priceView={priceView}
                       />
                     ))}
                   </AnimatePresence>
@@ -293,13 +342,15 @@ function MarketRow({
   expanded,
   onToggle,
   reducedMotion,
+  priceView,
 }: {
   market: MarketQuote;
   expanded: boolean;
   onToggle: () => void;
   reducedMotion: boolean;
+  priceView: PriceView;
 }) {
-  const marketPrice = market.market_comparison?.market_decimal_multiplier;
+  const quote = priceView === "live" ? market.live_market : market.market_comparison;
   return (
     <motion.div layout={!reducedMotion} className="market-row-wrap">
       <button
@@ -319,9 +370,15 @@ function MarketRow({
         <span className="market-fair">
           {market.fair_decimal_multiplier === null ? "∞" : market.fair_decimal_multiplier.toFixed(2)}
         </span>
-        <span className="market-external">
-          {marketPrice ? marketPrice.toFixed(2) : "—"}
-        </span>
+        <motion.span
+          className="market-external"
+          key={quote?.retrieved_at ?? `${priceView}-missing`}
+          initial={reducedMotion ? false : { opacity: 0.35 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.28 }}
+        >
+          {quote ? quote.market_decimal_multiplier.toFixed(2) : "—"}
+        </motion.span>
       </button>
       <AnimatePresence initial={false}>
         {expanded && (
@@ -348,8 +405,25 @@ function MarketRow({
               </div>
             )}
             <div>
-              <p className="eyebrow">Market comparison</p>
-              <p>{market.market_comparison ? "Timestamped quote matched" : "No safe market match at this cutoff"}</p>
+              <p className="eyebrow">Fair multiplier</p>
+              <p className="settlement-line">
+                {market.fair_decimal_multiplier === null ? "∞" : market.fair_decimal_multiplier.toFixed(2)}
+              </p>
+            </div>
+            <div>
+              <p className="eyebrow">Polymarket prices</p>
+              <p>{quoteSummary("Live", market.live_market)}</p>
+              <p>{quoteSummary("Cutoff", market.market_comparison)}</p>
+              {(market.live_market?.event_url || market.market_comparison?.event_url) && (
+                <a
+                  className="market-link"
+                  href={market.live_market?.event_url ?? market.market_comparison?.event_url ?? "#"}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open market ↗
+                </a>
+              )}
             </div>
           </motion.div>
         )}
@@ -369,6 +443,13 @@ function ModelInspector({
 }) {
   const evidence = evidenceRows(family.evidence);
   const warnings = Array.isArray(family.evidence.warnings) ? family.evidence.warnings : [];
+  const liveQuotes = family.markets.filter((market) => market.live_market).length;
+  const cutoffQuotes = family.markets.filter((market) => market.market_comparison).length;
+  const latestLiveRetrievedAt = family.markets
+    .map((market) => market.live_market?.retrieved_at)
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1);
   return (
     <aside className="model-inspector" aria-label="Model and data evidence">
       <div className="inspector-heading">
@@ -393,8 +474,17 @@ function ModelInspector({
       </div>
       <div className="inspector-block">
         <p className="eyebrow">Market evidence</p>
-        <strong>Not matched</strong>
-        <p>Model prices remain visible. No Polymarket difference is shown without a timestamp-safe contract match.</p>
+        <strong>{liveQuotes ? `${liveQuotes} live ${liveQuotes === 1 ? "price" : "prices"}` : "No live price"}</strong>
+        <p>
+          {liveQuotes
+            ? `Latest live book ${formatTimestamp(latestLiveRetrievedAt ?? snapshot.as_of)}.`
+            : "No fresh, safely linked Polymarket book is available for this family."}
+        </p>
+        <p>
+          {cutoffQuotes
+            ? `${cutoffQuotes} exact-cutoff ${cutoffQuotes === 1 ? "snapshot" : "snapshots"} saved for honest comparison.`
+            : "No exact market snapshot was captured at this prediction cutoff."}
+        </p>
       </div>
       {warnings.length > 0 && (
         <div className="inspector-block warning-block">
@@ -485,6 +575,11 @@ function warningCopy(warning: string) {
     default:
       return humanize(warning);
   }
+}
+
+function quoteSummary(label: string, quote: MarketQuote["live_market"]) {
+  if (!quote) return `${label}: unavailable`;
+  return `${label}: ${formatPercent(quote.best_bid_probability)}–${formatPercent(quote.best_ask_probability)} · buy ${quote.market_decimal_multiplier.toFixed(2)} · ${formatTimestamp(quote.retrieved_at)}`;
 }
 
 function StatusLabel({ status }: { status: FamilyStatus }) {

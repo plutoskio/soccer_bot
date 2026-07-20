@@ -130,6 +130,7 @@ def public_platform_snapshot(value: dict[str, Any]) -> dict[str, Any]:
         "as_of": value["as_of"],
         "family_registry_version": value["family_registry_version"],
         "market_comparison_status": value.get("market_comparison_status"),
+        "market_data": deepcopy(value.get("market_data", {})),
         "ranking_policy": value["ranking_policy"],
         "models": deepcopy(value["models"]),
         "target_audit": deepcopy(value.get("target_audit", {})),

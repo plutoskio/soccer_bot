@@ -142,6 +142,21 @@ class PolymarketContractTests(unittest.TestCase):
             wrong_fixture.rejection_reason,
         )
 
+    def test_controlled_team_aliases_apply_to_contract_mapping(self) -> None:
+        decision = classify_polymarket_contract(
+            self.policy,
+            market_type="moneyline",
+            question="Will GNK Dinamo Zagreb win on 2026-07-21?",
+            line_value=None,
+            rules_text=REGULATION_RULE,
+            home_name="FC Thun",
+            away_name="Dinamo Zagreb",
+            outcomes=(("yes", "Yes"), ("no", "No")),
+            team_aliases={"gnk dinamo zagreb": "dinamo zagreb"},
+        )
+        self.assertEqual("accepted", decision.status)
+        self.assertEqual("away_win", decision.outcomes[0][1])
+
 
 class DepthPricingTests(unittest.TestCase):
     def test_depth_fee_and_expected_value_are_computed_per_fill(self) -> None:

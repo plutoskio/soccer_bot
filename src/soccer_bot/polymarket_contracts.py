@@ -91,6 +91,7 @@ def refresh_polymarket_contract_mappings(
     *,
     policy: Mapping[str, object],
     policy_sha256: str,
+    team_aliases: Mapping[str, str] | None = None,
     mapped_at: datetime | None = None,
 ) -> dict[str, int]:
     """Materialize one immutable, fail-closed semantic decision per market.
@@ -150,6 +151,7 @@ def refresh_polymarket_contract_mappings(
             home_name=str(home_name),
             away_name=str(away_name),
             outcomes=outcomes,
+            team_aliases=team_aliases,
         )
         mapping_id = stable_id("polymarket_contract_mapping", market_id, mapping_version)
         rules_hash = hashlib.sha256(str(rules_text or "").encode("utf-8")).hexdigest()
@@ -203,6 +205,7 @@ def classify_polymarket_contract(
     home_name: str,
     away_name: str,
     outcomes: Sequence[tuple[str, str]],
+    team_aliases: Mapping[str, str] | None = None,
 ) -> ContractDecision:
     supported = policy["supported_market_types"]
     if market_type not in supported:
@@ -215,7 +218,9 @@ def classify_polymarket_contract(
     try:
         if market_type == "moneyline":
             try:
-                selection = _moneyline_selection(question, home_name, away_name)
+                selection = _moneyline_selection(
+                    question, home_name, away_name, team_aliases
+                )
             except ValueError:
                 return _reject("moneyline_question_or_team_ambiguous")
             return _binary_decision(
@@ -230,7 +235,8 @@ def classify_polymarket_contract(
             if (
                 not match
                 or not _fixture_pair_matches(
-                    match.group(1), match.group(2), home_name, away_name
+                    match.group(1), match.group(2), home_name, away_name,
+                    team_aliases,
                 )
                 or not math.isclose(float(match.group(3)), line, abs_tol=1e-9)
             ):
@@ -248,11 +254,15 @@ def classify_polymarket_contract(
             )
             if not match or not math.isclose(float(match.group(2)), line, abs_tol=1e-9):
                 return _reject("spread_line_mismatch")
-            named_side = _team_side(match.group(1), home_name, away_name)
+            named_side = _team_side(
+                match.group(1), home_name, away_name, team_aliases
+            )
             if named_side is None:
                 return _reject("spread_named_team_ambiguous")
             home_handicap = line if named_side == "home" else -line
-            mapped = _team_outcome_names(outcome_by_name, home_name, away_name)
+            mapped = _team_outcome_names(
+                outcome_by_name, home_name, away_name, team_aliases
+            )
             if mapped is None:
                 return _reject("spread_outcomes_do_not_match_fixture_teams")
             return _accepted(
@@ -272,12 +282,15 @@ def classify_polymarket_contract(
             if (
                 not match
                 or not _fixture_pair_matches(
-                    match.group(1), match.group(2), home_name, away_name
+                    match.group(1), match.group(2), home_name, away_name,
+                    team_aliases,
                 )
                 or not math.isclose(float(match.group(4)), line, abs_tol=1e-9)
             ):
                 return _reject("team_total_line_mismatch")
-            team_side = _team_side(match.group(3), home_name, away_name)
+            team_side = _team_side(
+                match.group(3), home_name, away_name, team_aliases
+            )
             if team_side is None:
                 return _reject("team_total_team_ambiguous")
             return _two_way_decision(
@@ -291,7 +304,8 @@ def classify_polymarket_contract(
                 r"(.+) vs\. (.+): Both Teams to Score", question.strip()
             )
             if not match or not _fixture_pair_matches(
-                match.group(1), match.group(2), home_name, away_name
+                match.group(1), match.group(2), home_name, away_name,
+                team_aliases,
             ):
                 return _reject("btts_question_shape_invalid")
             return _binary_decision(
@@ -305,7 +319,9 @@ def classify_polymarket_contract(
                     {"score_bucket": "other"},
                     outcome_by_name,
                 )
-            parsed_score = _exact_score(question, home_name, away_name)
+            parsed_score = _exact_score(
+                question, home_name, away_name, team_aliases
+            )
             if parsed_score is None:
                 return _reject("exact_score_question_ambiguous")
             home_goals, away_goals = parsed_score
@@ -332,18 +348,23 @@ def _period_is_regulation(
     )
 
 
-def _moneyline_selection(question: str, home_name: str, away_name: str) -> str:
+def _moneyline_selection(
+    question: str,
+    home_name: str,
+    away_name: str,
+    team_aliases: Mapping[str, str] | None = None,
+) -> str:
     draw = re.fullmatch(
         r"Will (.+) vs\. (.+) end in a draw\?", question.strip()
     )
     if draw and _fixture_pair_matches(
-        draw.group(1), draw.group(2), home_name, away_name
+        draw.group(1), draw.group(2), home_name, away_name, team_aliases
     ):
         return "draw"
     match = re.fullmatch(r"Will (.+) win on \d{4}-\d{2}-\d{2}\?", question.strip())
     if not match:
         raise ValueError("moneyline question")
-    side = _team_side(match.group(1), home_name, away_name)
+    side = _team_side(match.group(1), home_name, away_name, team_aliases)
     if side is None:
         raise ValueError("moneyline team")
     return f"{side}_win"
@@ -408,35 +429,51 @@ def _validated_line(value: object) -> float:
     return line
 
 
-def _team_variants(name: str) -> set[str]:
-    canonical = normalized_name(name)
-    removable = {"fc", "cf", "afc", "sc", "club", "fk", "pfk", "bk"}
-    variants = {canonical}
-    words = canonical.split()
-    while words and words[0] in removable:
-        words.pop(0)
-    while words and words[-1] in removable:
-        words.pop()
-    if words:
-        variants.add(" ".join(words))
+def _team_variants(
+    name: str, team_aliases: Mapping[str, str] | None = None
+) -> set[str]:
+    aliases = team_aliases or {}
+    normalized = normalized_name(name)
+    canonical = aliases.get(normalized, normalized)
+    variants = {normalized, canonical}
+    variants.update(alias for alias, mapped in aliases.items() if mapped == canonical)
+    removable = {
+        "fc", "cf", "afc", "sc", "club", "fk", "pfk", "bk", "fa", "sk"
+    }
+    for value in list(variants):
+        words = value.split()
+        while words and words[0] in removable:
+            words.pop(0)
+        while words and words[-1] in removable:
+            words.pop()
+        if words:
+            variants.add(" ".join(words))
     return {value for value in variants if value}
 
 
-def _team_side(value: str, home_name: str, away_name: str) -> str | None:
-    candidate_variants = _team_variants(value)
-    home = bool(candidate_variants.intersection(_team_variants(home_name)))
-    away = bool(candidate_variants.intersection(_team_variants(away_name)))
+def _team_side(
+    value: str,
+    home_name: str,
+    away_name: str,
+    team_aliases: Mapping[str, str] | None = None,
+) -> str | None:
+    candidate_variants = _team_variants(value, team_aliases)
+    home = bool(candidate_variants.intersection(_team_variants(home_name, team_aliases)))
+    away = bool(candidate_variants.intersection(_team_variants(away_name, team_aliases)))
     if home == away:
         return None
     return "home" if home else "away"
 
 
 def _team_outcome_names(
-    outcome_by_name: Mapping[str, str], home_name: str, away_name: str
+    outcome_by_name: Mapping[str, str],
+    home_name: str,
+    away_name: str,
+    team_aliases: Mapping[str, str] | None = None,
 ) -> dict[str, str] | None:
     mapped: dict[str, str] = {}
     for name, outcome_id in outcome_by_name.items():
-        side = _team_side(name, home_name, away_name)
+        side = _team_side(name, home_name, away_name, team_aliases)
         if side is None or side in mapped:
             return None
         mapped[side] = outcome_id
@@ -448,15 +485,19 @@ def _fixture_pair_matches(
     question_away: str,
     home_name: str,
     away_name: str,
+    team_aliases: Mapping[str, str] | None = None,
 ) -> bool:
     return (
-        _team_side(question_home, home_name, away_name) == "home"
-        and _team_side(question_away, home_name, away_name) == "away"
+        _team_side(question_home, home_name, away_name, team_aliases) == "home"
+        and _team_side(question_away, home_name, away_name, team_aliases) == "away"
     )
 
 
 def _exact_score(
-    question: str, home_name: str, away_name: str
+    question: str,
+    home_name: str,
+    away_name: str,
+    team_aliases: Mapping[str, str] | None = None,
 ) -> tuple[int, int] | None:
     prefix = "Exact Score: "
     if not question.startswith(prefix) or not question.endswith("?"):
@@ -466,8 +507,8 @@ def _exact_score(
     for match in re.finditer(r" (\d+) - (\d+) ", body):
         left = body[: match.start()]
         right = body[match.end() :]
-        if _team_side(left, home_name, away_name) == "home" and _team_side(
-            right, home_name, away_name
+        if _team_side(left, home_name, away_name, team_aliases) == "home" and _team_side(
+            right, home_name, away_name, team_aliases
         ) == "away":
             candidates.append((int(match.group(1)), int(match.group(2))))
     return candidates[0] if len(candidates) == 1 else None

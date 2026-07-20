@@ -133,6 +133,9 @@
     "closure_snapshot_delay_minutes": 180,
     "snapshot_maximum_attempts": 3,
     "snapshot_retry_minutes": 5,
+    "live_refresh_minutes": 10,
+    "live_lookahead_hours": 72,
+    "live_max_age_minutes": 20,
     "mapping_policy_path": "config/contracts/polymarket_regulation_v1.json"
   },
   "competitions": {

@@ -51,6 +51,8 @@ from soccer_bot.modeling.timing import (
     load_first_score_config,
     load_first_score_model,
 )
+from soccer_bot.platform_market_quotes import attach_polymarket_quotes
+from soccer_bot.polymarket_contracts import load_polymarket_contract_policy
 
 
 def parse_args() -> argparse.Namespace:
@@ -115,6 +117,16 @@ def parse_args() -> argparse.Namespace:
         "--family-registry",
         type=Path,
         default=ROOT / "config/models/specialized_family_registry_v1.json",
+    )
+    parser.add_argument(
+        "--polymarket-policy",
+        type=Path,
+        default=ROOT / "config/contracts/polymarket_regulation_v1.json",
+    )
+    parser.add_argument(
+        "--live-market-max-age-minutes",
+        type=int,
+        default=20,
     )
     parser.add_argument(
         "--output-dir",
@@ -421,13 +433,41 @@ def main() -> int:
             }
         )
 
+    market_policy, market_policy_hash = load_polymarket_contract_policy(
+        args.polymarket_policy
+    )
+    connection = duckdb.connect(str(args.warehouse), read_only=True)
+    try:
+        market_summary = attach_polymarket_quotes(
+            connection,
+            states=state_records,
+            policy=market_policy,
+            policy_sha256=market_policy_hash,
+            created_at=created_at,
+            live_max_age_minutes=args.live_market_max_age_minutes,
+        )
+    finally:
+        connection.close()
+
+    if market_summary["live_market_fixture_count"]:
+        market_status = "live_market_available"
+    elif market_summary["linked_fixture_count"]:
+        market_status = "linked_waiting_for_valid_books"
+    else:
+        market_status = "unavailable_without_linked_polymarket_event"
+
     snapshot = {
         "snapshot_version": "specialized_bet_platform_snapshot_v1",
         "created_at": created_at.isoformat(),
         "as_of": moneyline_snapshot["as_of"],
         "source_moneyline_snapshot_version": moneyline_snapshot["snapshot_version"],
         "family_registry_version": family_registry.registry_version,
-        "market_comparison_status": "unavailable_without_timestamp_safe_mapped_market",
+        "market_comparison_status": market_status,
+        "market_data": {
+            **market_summary,
+            "live_refresh_policy": "display_only_not_model_evidence",
+            "cutoff_policy": "exact_prediction_time_only",
+        },
         "ranking_policy": "validated_families_only",
         "states": state_records,
         "models": {
