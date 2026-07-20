@@ -251,6 +251,17 @@ class MarketObservationLoaderTests(unittest.TestCase):
                     "Dinamo Zagreb",
                 )
 
+                # Simulate a legacy automatic link made from the event's old
+                # market-creation timestamp. The corrected gameStartTime must
+                # be allowed to repair it.
+                warehouse.connection.execute(
+                    """
+                    UPDATE prediction_market_event
+                    SET fixture_id='legacy-wrong-fixture',
+                        fixture_link_method='team_names_and_kickoff'
+                    """
+                )
+
                 self.assertEqual(1, collector._link_polymarket_events([fixture]))
                 self.assertEqual(
                     ("fixture-thun", "team_names_and_kickoff"),

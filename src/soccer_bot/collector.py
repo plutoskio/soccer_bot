@@ -2325,13 +2325,25 @@ class Collector:
     def _link_polymarket_events(self, fixtures: list[FixtureRecord]) -> int:
         events = self.connection.execute(
             """
-            SELECT prediction_market_event_id, title, end_time
-            FROM prediction_market_event
-            WHERE fixture_id IS NULL AND coalesce(active, true)
+            SELECT e.prediction_market_event_id,e.title,e.end_time,e.fixture_id
+            FROM prediction_market_event e
+            LEFT JOIN fixture f ON f.fixture_id=e.fixture_id
+            WHERE coalesce(e.active, true)
+              AND (
+                e.fixture_id IS NULL
+                OR (
+                  e.fixture_link_method='team_names_and_kickoff'
+                  AND e.end_time IS NOT NULL
+                  AND (
+                    f.fixture_id IS NULL
+                    OR abs(epoch(e.end_time)-epoch(f.scheduled_kickoff)) > 6*3600
+                  )
+                )
+              )
             """
         ).fetchall()
         linked = 0
-        for event_id, title, event_time in events:
+        for event_id, title, event_time, existing_fixture_id in events:
             title_norm = normalized_name(title or "")
             candidates: list[tuple[float, FixtureRecord]] = []
             for fixture in fixtures:
@@ -2353,7 +2365,7 @@ class Collector:
                     """
                     UPDATE prediction_market_event
                     SET fixture_link_conflict='ambiguous_fixture_candidates'
-                    WHERE prediction_market_event_id=? AND fixture_id IS NULL
+                    WHERE prediction_market_event_id=?
                     """,
                     [event_id],
                 )
@@ -2364,13 +2376,32 @@ class Collector:
                 SET fixture_id=?, fixture_link_method='team_names_and_kickoff',
                     fixture_link_confidence=?, fixture_linked_at=?,
                     fixture_link_conflict=NULL
-                WHERE prediction_market_event_id=? AND fixture_id IS NULL
+                WHERE prediction_market_event_id=?
+                  AND (fixture_id IS NULL OR fixture_id=?)
                 """,
                 [
                     candidates[0][1].internal_id,
                     1.0 if len(candidates) == 1 else 0.9,
                     datetime.now(timezone.utc),
                     event_id,
+                    existing_fixture_id,
+                ],
+            )
+            self.connection.execute(
+                """
+                UPDATE polymarket_contract_mapping
+                SET fixture_id=?
+                WHERE prediction_market_id IN (
+                    SELECT prediction_market_id
+                    FROM prediction_market
+                    WHERE prediction_market_event_id=?
+                )
+                  AND fixture_id IS DISTINCT FROM ?
+                """,
+                [
+                    candidates[0][1].internal_id,
+                    event_id,
+                    candidates[0][1].internal_id,
                 ],
             )
             linked += 1
