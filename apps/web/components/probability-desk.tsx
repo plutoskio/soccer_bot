@@ -27,7 +27,7 @@ const FAMILY_SHORT: Record<string, string> = {
   regulation_moneyline: "1X2",
   regulation_score: "Scores & goals",
   corners: "Corners",
-  first_score_timing: "First scorer",
+  first_score_timing: "First team",
   player_events: "Players",
 };
 
@@ -36,6 +36,13 @@ const STATUS_COPY: Record<FamilyStatus, string> = {
   experimental: "Forward testing · excluded from ranking",
   unavailable: "No safe forecast at this information state",
   unsupported: "No approved model contract",
+};
+
+type UnavailableCopy = {
+  marker: string;
+  eyebrow: string;
+  title: string;
+  body: string;
 };
 
 export function ProbabilityDesk({ snapshot }: { snapshot: PlatformSnapshot }) {
@@ -205,7 +212,7 @@ export function ProbabilityDesk({ snapshot }: { snapshot: PlatformSnapshot }) {
               <div>
                 <div className="status-line">
                   <StatusLabel status={family.status} />
-                  <span>{STATUS_COPY[family.status]}</span>
+                  <span>{familyStatusCopy(family)}</span>
                 </div>
                 <h2>{family.display_name}</h2>
               </div>
@@ -371,7 +378,7 @@ function ModelInspector({
       <div className="inspector-block model-identity">
         <strong>{family.model_version}</strong>
         {family.logical_model_sha256 && <code>{family.logical_model_sha256.slice(0, 18)}…</code>}
-        <p>{STATUS_COPY[family.status]}.</p>
+        <p>{familyStatusCopy(family)}.</p>
       </div>
       <div className="inspector-block">
         <p className="eyebrow">Information cutoff</p>
@@ -392,7 +399,7 @@ function ModelInspector({
       {warnings.length > 0 && (
         <div className="inspector-block warning-block">
           <p className="eyebrow">Read before use</p>
-          <ul>{warnings.map((warning) => <li key={warning}>{humanize(warning)}</li>)}</ul>
+          <ul>{warnings.map((warning) => <li key={warning}>{warningCopy(warning)}</li>)}</ul>
         </div>
       )}
       <div className="inspector-footer">
@@ -404,16 +411,80 @@ function ModelInspector({
 }
 
 function UnavailableFamily({ family }: { family: ModelFamily }) {
+  const copy = unavailableFamilyCopy(family);
   return (
     <div className="unavailable-family">
-      <span aria-hidden="true">×</span>
+      <span aria-hidden="true">{copy.marker}</span>
       <div>
-        <p className="eyebrow">Forecast unavailable</p>
-        <h3>{humanize(family.unavailable_reason ?? "No safe prediction")}</h3>
-        <p>The desk does not fill missing evidence with assumptions. This family will appear when its exact data and timing rules are satisfied.</p>
+        <p className="eyebrow">{copy.eyebrow}</p>
+        <h3>{copy.title}</h3>
+        <p>{copy.body}</p>
       </div>
     </div>
   );
+}
+
+function familyStatusCopy(family: ModelFamily) {
+  if (family.status !== "unavailable") return STATUS_COPY[family.status];
+  switch (family.unavailable_reason) {
+    case "prospective_holdout_not_started_for_this_fixture":
+      return "Model trained · forward test scheduled";
+    case "requires_two_timestamp_safe_confirmed_lineups":
+      return "Waiting for both confirmed lineups";
+    case "corner_feature_not_available_at_horizon":
+      return "Fixture data requirement not met";
+    default:
+      return STATUS_COPY.unavailable;
+  }
+}
+
+function unavailableFamilyCopy(family: ModelFamily): UnavailableCopy {
+  if (family.unavailable_reason === "prospective_holdout_not_started_for_this_fixture") {
+    const holdoutStart = family.evidence.prospective_holdout_start;
+    return {
+      marker: "→",
+      eyebrow: "Forward test scheduled",
+      title: typeof holdoutStart === "string"
+        ? `Predictions start ${formatAvailabilityStart(holdoutStart)}`
+        : "Predictions start when the forward test opens",
+      body: "This model is trained. After that time, the next five-minute publication cycle will show eligible future fixtures here. Until then, its estimates are intentionally hidden from betting use.",
+    };
+  }
+  if (family.unavailable_reason === "requires_two_timestamp_safe_confirmed_lineups") {
+    return {
+      marker: "XI",
+      eyebrow: "Confirmed lineups required",
+      title: "Waiting for both confirmed lineups",
+      body: "Player goal and assist forecasts are published only when both teams’ confirmed lineups were captured safely before kickoff. This is a separate data requirement, not a failed score model.",
+    };
+  }
+  if (family.unavailable_reason === "corner_feature_not_available_at_horizon") {
+    return {
+      marker: "…",
+      eyebrow: "Match data incomplete",
+      title: "Corner history is not ready at this horizon",
+      body: "This fixture does not have enough safely timed corner information for a forecast. Other fixtures can still become available when their data requirements are met.",
+    };
+  }
+  return {
+    marker: "×",
+    eyebrow: "Forecast unavailable",
+    title: humanize(family.unavailable_reason ?? "No safe prediction"),
+    body: "The desk does not fill missing evidence with assumptions. This family will appear when its exact data and timing rules are satisfied.",
+  };
+}
+
+function warningCopy(warning: string) {
+  switch (warning) {
+    case "prospective_holdout_not_started_for_this_fixture":
+      return "No estimate is published before the frozen forward-test start.";
+    case "requires_two_timestamp_safe_confirmed_lineups":
+      return "Both confirmed lineups must be captured safely before kickoff.";
+    case "corner_feature_not_available_at_horizon":
+      return "Safely timed corner history is incomplete for this fixture.";
+    default:
+      return humanize(warning);
+  }
 }
 
 function StatusLabel({ status }: { status: FamilyStatus }) {
@@ -480,6 +551,7 @@ const formatter = (options: Intl.DateTimeFormatOptions) => new Intl.DateTimeForm
 function formatKickoffShort(value: string) { return formatter({ weekday: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(value)); }
 function formatKickoffLong(value: string) { return formatter({ weekday: "long", day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit", timeZoneName: "short" }).format(new Date(value)); }
 function formatTimestamp(value: string) { return formatter({ day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZoneName: "short" }).format(new Date(value)); }
+function formatAvailabilityStart(value: string) { return formatter({ day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZoneName: "short" }).format(new Date(value)); }
 function formatAsOf(value: string) { return formatter({ day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(value)); }
 function formatPercent(value: number) { return `${(value * 100).toFixed(1)}%`; }
 function formatInteger(value: number) { return new Intl.NumberFormat("en-GB").format(value); }

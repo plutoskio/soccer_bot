@@ -114,7 +114,7 @@ button { color: inherit; }
 .no-markets { margin: 0; padding: 30px 0; color: var(--faint); font: 400 10px/1.4 var(--mono); }
 
 .unavailable-family { min-height: 330px; display: grid; grid-template-columns: 54px minmax(0,520px); gap: 25px; align-content: center; border-bottom: 1px solid var(--line); }
-.unavailable-family > span { color: var(--faint); font: 300 52px/.8 var(--sans); }
+.unavailable-family > span { color: var(--signal); font: 400 34px/.8 var(--mono); letter-spacing: -.08em; }
 .unavailable-family h3 { margin: 14px 0 12px; font-size: clamp(24px,3vw,38px); line-height: 1.04; letter-spacing: -.05em; font-weight: 500; }
 .unavailable-family p:not(.eyebrow) { max-width: 490px; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
 

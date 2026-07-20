@@ -328,10 +328,22 @@ def main() -> int:
             families.extend(
                 [
                     _unavailable(
-                        "regulation_score", "Score and goals", score_model.model_version, unavailable_reason
+                        "regulation_score",
+                        "Score and goals",
+                        score_model.model_version,
+                        unavailable_reason,
+                        evidence={
+                            "prospective_holdout_start": score_model.prospective_holdout_start.isoformat()
+                        },
                     ),
                     _unavailable(
-                        "first_score_timing", "First team to score", timing_model.model_version, unavailable_reason
+                        "first_score_timing",
+                        "First team to score",
+                        timing_model.model_version,
+                        unavailable_reason,
+                        evidence={
+                            "prospective_holdout_start": timing_model.prospective_holdout_start.isoformat()
+                        },
                     ),
                 ]
             )
@@ -384,6 +396,9 @@ def main() -> int:
                     "Corners",
                     corner_model.model_version,
                     unavailable_reason or "corner_feature_not_available_at_horizon",
+                    evidence={
+                        "prospective_holdout_start": corner_model.prospective_holdout_start.isoformat()
+                    },
                 )
             )
         families.append(
@@ -538,8 +553,15 @@ def _family(
 
 
 def _unavailable(
-    family_key: str, display_name: str, model_version: str, reason: str
+    family_key: str,
+    display_name: str,
+    model_version: str,
+    reason: str,
+    *,
+    evidence: dict | None = None,
 ) -> dict:
+    unavailable_evidence = dict(evidence or {})
+    unavailable_evidence["warnings"] = [reason]
     return {
         "family_key": family_key,
         "display_name": display_name,
@@ -548,7 +570,7 @@ def _unavailable(
         "logical_model_sha256": None,
         "eligible_for_ranking": False,
         "unavailable_reason": reason,
-        "evidence": {"warnings": [reason]},
+        "evidence": unavailable_evidence,
         "markets": [],
     }
 
