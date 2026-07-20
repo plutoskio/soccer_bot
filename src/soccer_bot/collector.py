@@ -1786,8 +1786,10 @@ class Collector:
         )
         live_diagnostics = {
             "selected_fixtures": len(fixtures),
+            "selected_fixtures_in_live_window": 0,
             "fixtures_with_market_tokens": 0,
             "fixtures_in_live_window": 0,
+            "fixtures_without_market_tokens_in_live_window": 0,
             "fixtures_already_captured_this_slot": 0,
             "planned_live_jobs": 0,
             "slot": live_slot.isoformat(),
@@ -1796,7 +1798,15 @@ class Collector:
             ),
         }
         for fixture in fixtures:
+            canonical_kickoff = fixture.kickoff.astimezone(timezone.utc)
+            in_live_window = now < canonical_kickoff <= now + live_lookahead
+            if in_live_window:
+                live_diagnostics["selected_fixtures_in_live_window"] += 1
             if not self._fixture_has_any_market_tokens(fixture.internal_id):
+                if in_live_window:
+                    live_diagnostics[
+                        "fixtures_without_market_tokens_in_live_window"
+                    ] += 1
                 continue
             live_diagnostics["fixtures_with_market_tokens"] += 1
             schedule_version, _, kickoff = self._lineup_schedule_version(fixture)
@@ -1852,7 +1862,7 @@ class Collector:
             # Audited cutoff captures above intentionally keep the point-in-
             # time schedule observation. Mixing the latter into live planning
             # can suppress a valid current market after a schedule correction.
-            live_kickoff = fixture.kickoff.astimezone(timezone.utc)
+            live_kickoff = canonical_kickoff
             if now < live_kickoff <= now + live_lookahead:
                 live_diagnostics["fixtures_in_live_window"] += 1
                 live_schedule_version = f"kickoff-{int(live_kickoff.timestamp())}"
