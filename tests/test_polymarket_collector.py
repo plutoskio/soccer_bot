@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from soccer_bot.collector import Collector, FixtureRecord  # noqa: E402
 from soccer_bot.collection_planner import market_stage_plans  # noqa: E402
-from soccer_bot.database import Warehouse  # noqa: E402
+from soccer_bot.database import Warehouse, normalized_name  # noqa: E402
 from soccer_bot.http import HttpClient  # noqa: E402
 from soccer_bot.loaders import RawCatalog, WarehouseLoader  # noqa: E402
 from soccer_bot.raw_store import RawArtifactStore  # noqa: E402
@@ -230,6 +230,18 @@ class MarketObservationLoaderTests(unittest.TestCase):
                     api_key="test",
                     config=config,
                 )
+                for canonical, provider_title in (
+                    ("Ham-Kam", "FK Bodø/Glimt vs Hamarkameratene"),
+                    ("Saburtalo", "SK Iberia 1999 vs Slovan Bratislava"),
+                    ("KI Klaksvik", "KÍ vs FK Kauno Žalgiris"),
+                    ("Vikingur Reykjavik", "KF Víkingur vs Hapoel Be'er Sheva"),
+                    ("Larne", "Larne FC vs FK Crvena zvezda"),
+                ):
+                    self.assertTrue(
+                        collector._team_name_in_title(
+                            canonical, normalized_name(provider_title)
+                        )
+                    )
                 fixture = FixtureRecord(
                     "fixture-thun",
                     "123",
