@@ -6,6 +6,7 @@ import hashlib
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -304,6 +305,20 @@ class PredictionApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["market"]["fair_decimal_multiplier"], 2.5)
         self.assertFalse(response.json()["eligible_for_ranking"])
+
+    def test_platform_freshness_is_recomputed_on_cache_hits(self) -> None:
+        value = sample_platform_snapshot()
+        value["as_of"] = (datetime.now(timezone.utc) - timedelta(seconds=2)).isoformat()
+        self.platform_path.write_text(json.dumps(value), encoding="utf-8")
+        store = PlatformSnapshotStore(self.platform_path)
+
+        with patch.dict("os.environ", {"SOCCER_SNAPSHOT_STALE_SECONDS": "1"}):
+            first = store.load()
+            second = store.load()
+
+        self.assertTrue(first["is_stale"])
+        self.assertTrue(second["is_stale"])
+        self.assertGreaterEqual(second["snapshot_age_seconds"], 2)
 
     def test_platform_rejects_experimental_ranking(self) -> None:
         value = sample_platform_snapshot()

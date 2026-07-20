@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import threading
 import time
@@ -21,6 +22,7 @@ DEFAULT_PLATFORM_SNAPSHOT_PATH = Path(
 )
 PLATFORM_SNAPSHOT_VERSION = "specialized_bet_platform_snapshot_v1"
 PLATFORM_STATUSES = {"validated", "experimental", "unavailable", "unsupported"}
+DEFAULT_SNAPSHOT_STALE_SECONDS = 1200
 
 
 class PlatformSnapshotUnavailableError(RuntimeError):
@@ -47,7 +49,7 @@ class PlatformSnapshotStore:
             ) from error
         with self._lock:
             if self._cached is not None and self._cached_mtime_ns == mtime:
-                return deepcopy(self._cached)
+                return _with_freshness(self._cached)
             try:
                 value = json.loads(self.path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as error:
@@ -57,7 +59,7 @@ class PlatformSnapshotStore:
             validate_platform_snapshot(value)
             self._cached = public_platform_snapshot(value)
             self._cached_mtime_ns = mtime
-            return deepcopy(self._cached)
+            return _with_freshness(self._cached)
 
 
 class S3PlatformSnapshotStore:
@@ -82,7 +84,7 @@ class S3PlatformSnapshotStore:
         now = time.monotonic()
         with self._lock:
             if self._cached is not None and now < self._refresh_after:
-                return deepcopy(self._cached)
+                return _with_freshness(self._cached)
             try:
                 response = self.client.get_object(Bucket=self.bucket, Key=self.key)
                 body = response["Body"].read()
@@ -90,13 +92,13 @@ class S3PlatformSnapshotStore:
             except Exception as error:
                 if self._cached is not None:
                     self._refresh_after = now + min(5.0, self.cache_seconds)
-                    return deepcopy(self._cached)
+                    return _with_freshness(self._cached)
                 raise PlatformSnapshotUnavailableError(
                     "Platform snapshot could not be read from object storage"
                 ) from error
             if self._cached is not None and etag and etag == self._cached_etag:
                 self._refresh_after = now + self.cache_seconds
-                return deepcopy(self._cached)
+                return _with_freshness(self._cached)
             try:
                 value = json.loads(body)
             except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -107,7 +109,7 @@ class S3PlatformSnapshotStore:
             self._cached = public_platform_snapshot(value)
             self._cached_etag = etag
             self._refresh_after = now + self.cache_seconds
-            return deepcopy(self._cached)
+            return _with_freshness(self._cached)
 
 
 def validate_platform_snapshot(value: object) -> None:
@@ -122,14 +124,10 @@ def public_platform_snapshot(value: dict[str, Any]) -> dict[str, Any]:
         deepcopy(value["states"]),
         key=lambda row: (row["kickoff"], row["fixture_id"], row["information_state"]),
     )
-    as_of = _timestamp(value["as_of"], "as_of")
-    age = max(0.0, (datetime.now(timezone.utc) - as_of).total_seconds())
-    return {
+    public = {
         "snapshot_version": value["snapshot_version"],
         "created_at": value["created_at"],
         "as_of": value["as_of"],
-        "snapshot_age_seconds": round(age),
-        "is_stale": age > 21600,
         "family_registry_version": value["family_registry_version"],
         "market_comparison_status": value.get("market_comparison_status"),
         "ranking_policy": value["ranking_policy"],
@@ -143,6 +141,37 @@ def public_platform_snapshot(value: dict[str, Any]) -> dict[str, Any]:
         "state_rows_sha256": value["state_rows_sha256"],
         "states": states,
     }
+    return _with_freshness(public)
+
+
+def _with_freshness(value: dict[str, Any]) -> dict[str, Any]:
+    """Recompute freshness on every read, including cache hits."""
+
+    public = deepcopy(value)
+    as_of = _timestamp(public["as_of"], "as_of")
+    age = max(0.0, (datetime.now(timezone.utc) - as_of).total_seconds())
+    public["snapshot_age_seconds"] = round(age)
+    public["is_stale"] = age > _stale_after_seconds()
+    return public
+
+
+def _stale_after_seconds() -> int:
+    try:
+        value = int(
+            os.environ.get(
+                "SOCCER_SNAPSHOT_STALE_SECONDS",
+                str(DEFAULT_SNAPSHOT_STALE_SECONDS),
+            )
+        )
+    except ValueError as error:
+        raise PlatformSnapshotValidationError(
+            "SOCCER_SNAPSHOT_STALE_SECONDS must be an integer"
+        ) from error
+    if value <= 0:
+        raise PlatformSnapshotValidationError(
+            "SOCCER_SNAPSHOT_STALE_SECONDS must be positive"
+        )
+    return value
 
 
 def _validate_state(value: object, index: int, created_at: datetime) -> None:

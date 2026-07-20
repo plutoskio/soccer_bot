@@ -308,6 +308,12 @@ class Collector:
                     "report_date": health.report_date.isoformat(),
                     "severity": health.severity,
                     "blocking_reason": health.blocking_reason,
+                    "invalid_required_components": health.metrics.get(
+                        "invalid_required_components", {}
+                    ),
+                    "publication_blocking_invalid_components": health.metrics.get(
+                        "publication_blocking_invalid_components", {}
+                    ),
                     "markdown_path": (
                         str(health.markdown_path) if health.markdown_path else None
                     ),

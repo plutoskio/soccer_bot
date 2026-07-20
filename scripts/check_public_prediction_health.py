@@ -7,13 +7,14 @@ import argparse
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-import re
 import sys
 from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_URL = "https://soccer-bot-web-production.up.railway.app/"
+DEFAULT_URL = (
+    "https://soccer-bot-web-production.up.railway.app/api/prediction-health"
+)
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 
 
@@ -21,26 +22,29 @@ class PublicPredictionHealthError(RuntimeError):
     """Raised when the independent public heartbeat check fails closed."""
 
 
-def extract_public_snapshot(html: str) -> dict[str, object]:
-    """Extract the server-rendered public snapshot metadata from Next.js HTML."""
+def extract_public_snapshot(payload: str) -> dict[str, object]:
+    """Validate the stable, singular public heartbeat JSON contract."""
 
-    patterns = {
-        "model_version": r'\\"model_version\\":\\"([^"\\]+)\\"',
-        "logical_model_sha256": r'\\"logical_model_sha256\\":\\"([0-9a-f]{64})\\"',
-        "as_of": r'\\"as_of\\":\\"([^"\\]+)\\"',
-        "prediction_count": r'\\"prediction_count\\":([0-9]+)',
-        "fixture_count": r'\\"fixture_count\\":([0-9]+)',
-    }
-    extracted: dict[str, object] = {}
-    for field, pattern in patterns.items():
-        matches = set(re.findall(pattern, html))
-        if len(matches) != 1:
-            raise PublicPredictionHealthError(
-                f"public_snapshot_{field}_missing_or_ambiguous"
-            )
-        value = matches.pop()
-        extracted[field] = int(value) if field.endswith("_count") else value
-    return extracted
+    try:
+        value = json.loads(payload)
+    except json.JSONDecodeError as error:
+        raise PublicPredictionHealthError(
+            "public_heartbeat_not_json"
+        ) from error
+    if not isinstance(value, dict):
+        raise PublicPredictionHealthError("public_heartbeat_not_object")
+    if value.get("heartbeat_version") != "public_prediction_heartbeat_v1":
+        raise PublicPredictionHealthError("public_heartbeat_version_invalid")
+    for field in ("model_version", "logical_model_sha256", "as_of"):
+        if not isinstance(value.get(field), str) or not value[field]:
+            raise PublicPredictionHealthError(f"public_snapshot_{field}_invalid")
+    if len(str(value["logical_model_sha256"])) != 64:
+        raise PublicPredictionHealthError("public_snapshot_logical_model_sha256_invalid")
+    for field in ("prediction_count", "fixture_count"):
+        field_value = value.get(field)
+        if isinstance(field_value, bool) or not isinstance(field_value, int):
+            raise PublicPredictionHealthError(f"public_snapshot_{field}_invalid")
+    return value
 
 
 def evaluate_public_snapshot(
@@ -92,11 +96,11 @@ def evaluate_public_snapshot(
     }
 
 
-def fetch_html(url: str, *, timeout_seconds: float) -> str:
+def fetch_heartbeat(url: str, *, timeout_seconds: float) -> str:
     request = Request(
         url,
         headers={
-            "Accept": "text/html",
+            "Accept": "application/json",
             "User-Agent": "soccer-bot-independent-watchdog/1.0",
         },
     )
@@ -131,7 +135,7 @@ def main() -> int:
         config = json.loads(args.collector_config.read_text(encoding="utf-8"))
         publication = config["prediction_publication"]
         snapshot = extract_public_snapshot(
-            fetch_html(args.url, timeout_seconds=args.timeout_seconds)
+            fetch_heartbeat(args.url, timeout_seconds=args.timeout_seconds)
         )
         result = evaluate_public_snapshot(
             snapshot,

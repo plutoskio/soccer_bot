@@ -37,7 +37,8 @@
     "heartbeat_interval_seconds": 30
   },
   "health": {
-    "report_directory": "data/reports/collector"
+    "report_directory": "data/reports/collector",
+    "nonblocking_invalid_components": ["lineups"]
   },
   "operations": {
     "enabled": true,

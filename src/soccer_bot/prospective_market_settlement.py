@@ -100,21 +100,12 @@ def update_market_settlement_ledger(
         if score.get("eligible_for_prospective_gate") is not True:
             skipped_ineligible += 1
             continue
-        candidates = coverage.get(pair, [])
-        matching = [
-            row
-            for row in candidates
-            if row.get("prediction_at") == score.get("prediction_at")
-            and row.get("kickoff") == score.get("kickoff")
-        ]
-        if not matching:
+        coverage_row = _coverage_for_settled_forecast(
+            coverage.get(pair, []), score=score
+        )
+        if coverage_row is None:
             pending_coverage += 1
             continue
-        if len(matching) != 1:
-            raise ProspectiveMarketSettlementError(
-                "multiple coverage records match one settled forecast"
-            )
-        coverage_row = matching[0]
         evidence_row = None
         if coverage_row["market_evidence_available"]:
             evidence_id = str(coverage_row["evidence_id"])
@@ -182,6 +173,99 @@ def update_market_settlement_ledger(
         "evaluation_report_written": False,
         "orders_or_trading_actions_performed": False,
     }
+
+
+def _coverage_for_settled_forecast(
+    candidates: list[dict[str, object]],
+    *,
+    score: Mapping[str, object],
+) -> dict[str, object] | None:
+    """Select the immutable coverage row for the forecast that was settled.
+
+    A forecast-envelope upgrade can give the same fixture/horizon forecast a
+    new row hash without changing its probabilities. Conversely, a corrected
+    forecast can share the same prediction time. The score settlement contains
+    the parent moneyline probabilities, so use those to distinguish the two
+    cases and then retain the first observed equivalent coverage state.
+    """
+
+    matching = [
+        row
+        for row in candidates
+        if row.get("prediction_at") == score.get("prediction_at")
+        and row.get("kickoff") == score.get("kickoff")
+    ]
+    if not matching:
+        return None
+    if len(matching) == 1:
+        return matching[0]
+
+    expected = _score_parent_moneyline_probabilities(score)
+    probability_matches = []
+    for row in matching:
+        raw = row.get("model_probabilities")
+        if not isinstance(raw, Mapping):
+            raise ProspectiveMarketSettlementError(
+                "coverage model probabilities missing"
+            )
+        observed = {
+            key: _probability(raw.get(key), "coverage model probability")
+            for key in REQUIRED_MONEYLINE
+        }
+        _require_probability_simplex(observed, "coverage model")
+        if all(
+            math.isclose(
+                observed[key], expected[key], rel_tol=0.0, abs_tol=1e-12
+            )
+            for key in REQUIRED_MONEYLINE
+        ):
+            probability_matches.append(row)
+    if not probability_matches:
+        raise ProspectiveMarketSettlementError(
+            "coverage probabilities do not match settled forecast"
+        )
+    if len(probability_matches) == 1:
+        return probability_matches[0]
+
+    first_observed = min(
+        _timestamp(row.get("first_observed_at")) for row in probability_matches
+    )
+    earliest = [
+        row
+        for row in probability_matches
+        if _timestamp(row.get("first_observed_at")) == first_observed
+    ]
+    if len(earliest) != 1:
+        raise ProspectiveMarketSettlementError(
+            "multiple equivalent coverage records share first observation time"
+        )
+    return earliest[0]
+
+
+def _score_parent_moneyline_probabilities(
+    score: Mapping[str, object],
+) -> dict[str, float]:
+    contracts = score.get("reference_contract_settlements")
+    if not isinstance(contracts, Mapping):
+        raise ProspectiveMarketSettlementError(
+            "settled forecast parent moneyline probabilities missing"
+        )
+    baseline = contracts.get("baseline")
+    handicaps = baseline.get("goal_handicap") if isinstance(baseline, Mapping) else None
+    level = handicaps.get("0") if isinstance(handicaps, Mapping) else None
+    home = level.get("home") if isinstance(level, Mapping) else None
+    forecast = home.get("forecast") if isinstance(home, Mapping) else None
+    if not isinstance(forecast, Mapping):
+        raise ProspectiveMarketSettlementError(
+            "settled forecast parent moneyline probabilities missing"
+        )
+    probabilities = {
+        "home_win": _probability(forecast.get("win"), "settled home probability"),
+        "draw": _probability(forecast.get("push"), "settled draw probability"),
+        "away_win": _probability(forecast.get("loss"), "settled away probability"),
+    }
+    _require_probability_simplex(probabilities, "settled parent moneyline")
+    return probabilities
 
 
 def _build_record(

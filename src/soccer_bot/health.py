@@ -158,17 +158,33 @@ def generate_health_report(
             "staged_snapshots_today": market_metrics[2],
         },
     }
-    blocking = connection.execute(
-        """
-        SELECT count(*) FROM fixture_collection_component
-        WHERE state='invalid' AND required_for_fixture_terminal
-        """
-    ).fetchone()[0]
-    if blocking:
+    invalid_required_components = dict(
+        connection.execute(
+            """
+            SELECT component_code,count(*) FROM fixture_collection_component
+            WHERE state='invalid' AND required_for_fixture_terminal
+            GROUP BY component_code ORDER BY component_code
+            """
+        ).fetchall()
+    )
+    nonblocking_invalid_components = set(
+        config.get("health", {}).get("nonblocking_invalid_components", [])
+    )
+    publication_blocking_components = {
+        component: count
+        for component, count in invalid_required_components.items()
+        if component not in nonblocking_invalid_components
+    }
+    metrics["invalid_required_components"] = invalid_required_components
+    metrics["publication_blocking_invalid_components"] = (
+        publication_blocking_components
+    )
+    if publication_blocking_components:
         severity = "blocking"
         blocking_reason = "invalid_required_components"
     elif (
-        missing_dates
+        invalid_required_components
+        or missing_dates
         or unresolved
         or any(state in checkpoints for state in ("failed", "rate_limited", "incomplete"))
         or any(
@@ -285,6 +301,10 @@ def render_health_markdown(
         f"- Unresolved player identities: {metrics['unresolved_player_identities']}",
         f"- Checkpoints: `{json.dumps(metrics['checkpoints'], sort_keys=True)}`",
         f"- Components: `{json.dumps(metrics['components'], sort_keys=True)}`",
+        "- Invalid required components: "
+        f"`{json.dumps(metrics['invalid_required_components'], sort_keys=True)}`",
+        "- Publication-blocking invalid components: "
+        f"`{json.dumps(metrics['publication_blocking_invalid_components'], sort_keys=True)}`",
         "",
         "## Providers",
         "",

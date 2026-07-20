@@ -123,7 +123,7 @@ def create_app(
         snapshot = store.load()
         platform = platform_store.load()
         age_seconds = snapshot_age_seconds(snapshot)
-        stale_after = int(os.environ.get("SOCCER_SNAPSHOT_STALE_SECONDS", "21600"))
+        stale_after = int(os.environ.get("SOCCER_SNAPSHOT_STALE_SECONDS", "1200"))
         return {
             "status": "stale" if age_seconds > stale_after else "ok",
             "snapshot_as_of": snapshot["as_of"],
@@ -138,7 +138,7 @@ def create_app(
     def get_snapshot(store: StoreDependency) -> dict[str, Any]:
         snapshot = store.load()
         age_seconds = snapshot_age_seconds(snapshot)
-        stale_after = int(os.environ.get("SOCCER_SNAPSHOT_STALE_SECONDS", "21600"))
+        stale_after = int(os.environ.get("SOCCER_SNAPSHOT_STALE_SECONDS", "1200"))
         return {
             **snapshot,
             "snapshot_age_seconds": round(age_seconds),

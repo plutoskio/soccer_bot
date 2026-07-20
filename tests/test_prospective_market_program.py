@@ -75,6 +75,21 @@ class MarketSettlementTests(unittest.TestCase):
                 "away_goals": 1 if outcome == "away_win" else 0,
                 "result": outcome,
             },
+            "reference_contract_settlements": {
+                "baseline": {
+                    "goal_handicap": {
+                        "0": {
+                            "home": {
+                                "forecast": {
+                                    "win": 0.6,
+                                    "push": 0.25,
+                                    "loss": 0.15,
+                                }
+                            }
+                        }
+                    }
+                }
+            },
             "previous_record_sha256": previous,
         }
         row["record_sha256"] = logical_hash(row)
@@ -92,9 +107,23 @@ class MarketSettlementTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def write_coverage(self, fixture: str, *, covered: bool) -> dict:
-        probabilities = {"home_win": 0.6, "draw": 0.25, "away_win": 0.15}
-        prediction_row_hash = hashlib.sha256(fixture.encode()).hexdigest()
+    def write_coverage(
+        self,
+        fixture: str,
+        *,
+        covered: bool,
+        probabilities: dict[str, float] | None = None,
+        row_identity: str | None = None,
+        first_observed_minutes: int = 1,
+    ) -> dict:
+        probabilities = probabilities or {
+            "home_win": 0.6,
+            "draw": 0.25,
+            "away_win": 0.15,
+        }
+        prediction_row_hash = hashlib.sha256(
+            (row_identity or fixture).encode()
+        ).hexdigest()
         coverage_id = hashlib.sha256(
             "|".join(
                 (
@@ -112,7 +141,9 @@ class MarketSettlementTests(unittest.TestCase):
         row = {
             "coverage_universe_version": COVERAGE_UNIVERSE_VERSION,
             "coverage_id": coverage_id,
-            "first_observed_at": (self.prediction_at + timedelta(minutes=1)).isoformat(),
+            "first_observed_at": (
+                self.prediction_at + timedelta(minutes=first_observed_minutes)
+            ).isoformat(),
             "fixture_id": fixture,
             "information_state": HORIZON,
             "prediction_at": self.prediction_at.isoformat(),
@@ -146,6 +177,66 @@ class MarketSettlementTests(unittest.TestCase):
         if covered:
             self.write_evidence(row)
         return row
+
+    def test_forecast_upgrade_duplicates_match_settled_probabilities_then_first_seen(self) -> None:
+        self.write_score_rows(
+            [("fixture-corrected", "home_win"), ("fixture-equivalent", "draw")]
+        )
+        correct = self.write_coverage(
+            "fixture-corrected",
+            covered=False,
+            row_identity="corrected-original",
+            first_observed_minutes=1,
+        )
+        self.write_coverage(
+            "fixture-corrected",
+            covered=False,
+            probabilities={"home_win": 0.55, "draw": 0.25, "away_win": 0.20},
+            row_identity="corrected-replacement",
+            first_observed_minutes=2,
+        )
+        earliest = self.write_coverage(
+            "fixture-equivalent",
+            covered=False,
+            row_identity="equivalent-old-envelope",
+            first_observed_minutes=1,
+        )
+        self.write_coverage(
+            "fixture-equivalent",
+            covered=False,
+            row_identity="equivalent-new-envelope",
+            first_observed_minutes=2,
+        )
+
+        receipt = update_market_settlement_ledger(
+            coverage_universe_directory=self.coverage,
+            evidence_directory=self.evidence,
+            score_settlement_ledger_path=self.score_ledger,
+            score_settlement_config_path=self.score_config,
+            market_policy_path=self.policy_path,
+            settlement_config_path=self.settlement_config,
+            output_directory=self.output,
+            settled_at=self.kickoff + timedelta(hours=3),
+        )
+
+        self.assertEqual(2, receipt["records_added"])
+        rows, _ = load_market_settlement_ledger(
+            ledger_path=self.output / "ledger.jsonl",
+            settlement_config_path=self.settlement_config,
+        )
+        by_fixture = {row["fixture_id"]: row for row in rows}
+        self.assertEqual(
+            correct["coverage_id"],
+            by_fixture["fixture-corrected"]["coverage_id"],
+        )
+        self.assertEqual(
+            earliest["coverage_id"],
+            by_fixture["fixture-equivalent"]["coverage_id"],
+        )
+        self.assertAlmostEqual(
+            -math.log(0.6),
+            by_fixture["fixture-corrected"]["model_metrics"]["log_loss"],
+        )
 
     def write_evidence(self, coverage: dict) -> None:
         probabilities = coverage["model_probabilities"]

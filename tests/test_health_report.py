@@ -75,6 +75,33 @@ class HealthReportTests(unittest.TestCase):
         )
         self.assertEqual("blocking", report.severity)
         self.assertEqual("invalid_required_components", report.blocking_reason)
+        self.assertEqual(
+            {"result": 1}, report.metrics["publication_blocking_invalid_components"]
+        )
+
+    def test_invalid_lineup_is_quarantined_without_blocking_other_families(self):
+        self.warehouse.connection.execute(
+            """
+            INSERT INTO fixture_collection_component (
+                fixture_id,source_code,component_code,state,
+                required_for_fixture_terminal
+            ) VALUES ('fixture','api_football','lineups','invalid',true)
+            """
+        )
+
+        report = generate_health_report(
+            self.warehouse.connection,
+            config=self.config,
+            collection_run_id="run",
+            now=self.now,
+        )
+
+        self.assertEqual("warning", report.severity)
+        self.assertIsNone(report.blocking_reason)
+        self.assertEqual(
+            {"lineups": 1}, report.metrics["invalid_required_components"]
+        )
+        self.assertEqual({}, report.metrics["publication_blocking_invalid_components"])
 
 
 if __name__ == "__main__":
