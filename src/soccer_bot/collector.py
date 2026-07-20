@@ -257,7 +257,9 @@ class Collector:
                 self._execute_detail_jobs(detail_jobs, now)
                 self._reconcile_fixture_components(fixtures, now)
                 self._mark_expired_pregame_components(fixtures, now)
-                self.summary["linked_polymarket_events"] = self._link_polymarket_events(fixtures)
+                self.summary["linked_polymarket_events"] = int(
+                    self.summary.get("linked_polymarket_events", 0)
+                ) + self._link_polymarket_events(fixtures)
                 policy_path = (
                     Path(__file__).resolve().parents[2]
                     / self.polymarket_config["mapping_policy_path"]
@@ -1070,7 +1072,7 @@ class Collector:
         self.summary["planned_jobs"].append(job_key)
         if dry_run:
             return
-        start = datetime.combine(local_date, datetime_time.min, self.zone).astimezone(timezone.utc)
+        start = now
         end = datetime.combine(
             local_date + timedelta(days=7), datetime_time.max, self.zone
         ).astimezone(timezone.utc)
@@ -1083,8 +1085,12 @@ class Collector:
                 "active": "true",
                 "closed": "false",
                 "limit": self.polymarket_config["event_page_size"],
-                "start_time_min": start.isoformat(),
-                "start_time_max": end.isoformat(),
+                # Sports startDate is the market creation time. endDate tracks
+                # the match clock and is the supported discovery filter here.
+                "end_date_min": start.isoformat(),
+                "end_date_max": end.isoformat(),
+                "order": "end_date",
+                "ascending": "true",
             }
             if cursor:
                 params["after_cursor"] = cursor
@@ -1142,9 +1148,58 @@ class Collector:
             if not next_cursor or next_cursor == cursor or not events:
                 break
             cursor = next_cursor
+        # The soccer tag spans every competition and each match can have many
+        # sibling events. Link the page scan, then search only watched upcoming
+        # fixtures that the bounded scan did not cover.
+        self.summary["linked_polymarket_events"] = int(
+            self.summary.get("linked_polymarket_events", 0)
+        ) + self._link_polymarket_events(fixtures)
+        search_fixtures = [
+            fixture
+            for fixture in fixtures
+            if now < fixture.kickoff <= end
+            and not self._fixture_has_any_market_tokens(fixture.internal_id)
+        ]
+        searched = 0
+        for fixture in search_fixtures:
+            # The full pairing is precise. A home-only fallback handles naming
+            # differences such as Ham-Kam vs Hamarkameratene; the strict linker
+            # still requires both teams and a compatible kickoff before it can
+            # attach any returned event.
+            queries = (
+                f"{fixture.home_name} {fixture.away_name}",
+                fixture.home_name,
+            )
+            for query in queries:
+                try:
+                    payload, item, status = self._polymarket_get(
+                        "fixture_search",
+                        "/public-search",
+                        {
+                            "q": query,
+                            "events_status": "active",
+                            "limit_per_type": 20,
+                            "search_tags": "false",
+                            "search_profiles": "false",
+                        },
+                    )
+                except Exception:
+                    self.summary.setdefault("warnings", []).append(
+                        f"Polymarket fixture search deferred for {fixture.source_id}"
+                    )
+                    continue
+                statuses.append(status)
+                searched += 1
+                self.loader.load_polymarket_payload("fixture_search", payload, item)
+                self.summary["linked_polymarket_events"] = int(
+                    self.summary.get("linked_polymarket_events", 0)
+                ) + self._link_polymarket_events([fixture])
+                if self._fixture_has_any_market_tokens(fixture.internal_id):
+                    break
         self._record_checkpoint(
             job_key, "polymarket_gamma", "event_discovery", None, now,
-            "succeeded", statuses[-1] if statuses else None, {"events": event_count},
+            "succeeded", statuses[-1] if statuses else None,
+            {"events": event_count, "targeted_fixture_searches": searched},
         )
         self.summary["executed_jobs"].append(job_key)
 

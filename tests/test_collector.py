@@ -185,6 +185,99 @@ class CollectorIntegrationTests(unittest.TestCase):
         self.assertTrue(collector._is_monitored_match(england))
         self.assertFalse(collector._is_monitored_match(ethiopia))
 
+    def test_polymarket_discovery_uses_match_date_and_targeted_fallback(self):
+        now = datetime(2026, 7, 20, 12, tzinfo=timezone.utc)
+        kickoff = datetime(2026, 7, 21, 18, tzinfo=timezone.utc)
+        competition_id = self.warehouse.resolve_competition(
+            "api_football", 39, "Premier League", country_code="England"
+        )
+        season_id = self.warehouse.resolve_season(
+            "api_football", "39|2026", competition_id, "2026"
+        )
+        home_id = self.warehouse.resolve_team(
+            "api_football", 101, "Alpha FC", team_type="club"
+        )
+        away_id = self.warehouse.resolve_team(
+            "api_football", 102, "Beta FC", team_type="club"
+        )
+        fixture_id = self.warehouse.resolve_fixture(
+            "api_football", 909,
+            home_team_id=home_id,
+            away_team_id=away_id,
+            scheduled_kickoff=kickoff,
+            competition_id=competition_id,
+            season_id=season_id,
+            status="scheduled",
+        )
+
+        class FakePolymarketHttp:
+            def __init__(self):
+                self.calls = []
+
+            def get(self, base_url, path, *, params=None, headers=None, timeout=30):
+                self.calls.append((path, params))
+                if path == "/events/keyset":
+                    self.assert_discovery_params(params)
+                    body = {"events": [], "next_cursor": None}
+                elif path == "/public-search":
+                    body = {
+                        "events": [{
+                            "id": "alpha-beta",
+                            "title": "Alpha FC vs. Beta FC",
+                            "startDate": "2026-07-10T10:00:00Z",
+                            "endDate": kickoff.isoformat(),
+                            "active": True,
+                            "closed": False,
+                            "markets": [{
+                                "id": "alpha-beta-winner",
+                                "question": "Alpha FC vs. Beta FC winner?",
+                                "gameStartTime": kickoff.isoformat(),
+                                "active": True,
+                                "closed": False,
+                                "outcomes": json.dumps(["Alpha FC", "Beta FC"]),
+                                "clobTokenIds": json.dumps(["alpha-token", "beta-token"]),
+                            }],
+                        }]
+                    }
+                else:
+                    raise AssertionError(f"Unexpected Polymarket path: {path}")
+                return HttpResponse(
+                    f"{base_url}{path}", 200,
+                    {"content-type": "application/json"},
+                    json.dumps(body).encode(),
+                )
+
+            @staticmethod
+            def assert_discovery_params(params):
+                if "start_time_min" in params or "start_time_max" in params:
+                    raise AssertionError("Market creation time must not drive discovery")
+                if not params.get("end_date_min") or not params.get("end_date_max"):
+                    raise AssertionError("Match-date discovery bounds are required")
+
+        fake = FakePolymarketHttp()
+        collector = Collector(
+            warehouse=self.warehouse,
+            raw_store=RawArtifactStore(self.root / "raw"),
+            http_client=fake,
+            api_key="test",
+            config=self.config,
+        )
+        collector._discover_polymarket(
+            now.astimezone(collector.zone).date(),
+            [FixtureRecord(
+                fixture_id, "909", kickoff, "scheduled", "Alpha FC", "Beta FC"
+            )],
+            now,
+            False,
+        )
+        self.assertEqual(
+            ["alpha-token", "beta-token"], collector._market_tokens(fixture_id)
+        )
+        self.assertEqual(
+            ["/events/keyset", "/public-search"],
+            [row[0] for row in fake.calls],
+        )
+
     def test_rate_limit_is_persisted_and_run_completes(self):
         self.config["discovery"]["recovery_days"] = 0
         self.config["discovery"]["planning_days"] = 0
