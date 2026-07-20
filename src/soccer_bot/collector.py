@@ -248,6 +248,9 @@ class Collector:
             market_fixtures = self._market_fixture_scope(fixtures, now)
             self.summary["market_fixture_scope"] = len(market_fixtures)
             self._discover_polymarket(local_date, market_fixtures, now, dry_run)
+            self._discover_missing_fixture_markets(
+                market_fixtures, now, dry_run=dry_run
+            )
             if not dry_run:
                 self._reconcile_fixture_components(fixtures, now)
                 self._mark_expired_pregame_components(fixtures, now)
@@ -1152,35 +1155,53 @@ class Collector:
             if not next_cursor or next_cursor == cursor or not events:
                 break
             cursor = next_cursor
-        # The soccer tag spans every competition and each match can have many
-        # sibling events. Link the page scan, then search only watched upcoming
-        # fixtures that the bounded scan did not cover.
+        # Link the bounded page scan. Fixture-specific recovery runs as its own
+        # checkpointed job so a completed broad scan cannot suppress it.
         self.summary["linked_polymarket_events"] = int(
             self.summary.get("linked_polymarket_events", 0)
         ) + self._link_polymarket_events(fixtures)
-        targeted_search_end = min(
-            end,
-            now + timedelta(
-                hours=int(self.polymarket_config.get("live_lookahead_hours", 72))
-            ),
+        self._record_checkpoint(
+            job_key, "polymarket_gamma", "event_discovery", None, now,
+            "succeeded", statuses[-1] if statuses else None,
+            {"events": event_count},
         )
-        search_fixtures = [
+        self.summary["executed_jobs"].append(job_key)
+
+    def _discover_missing_fixture_markets(
+        self,
+        fixtures: list[FixtureRecord],
+        now: datetime,
+        *,
+        dry_run: bool,
+    ) -> None:
+        interval = int(self.polymarket_config.get("discovery_matchday_minutes", 15))
+        slot = now.replace(
+            minute=now.minute - (now.minute % interval), second=0, microsecond=0
+        )
+        job_key = f"polymarket:fixture_market_recovery:{slot.isoformat()}"
+        if self._checkpoint_done(job_key):
+            return
+        lookahead = timedelta(
+            hours=int(self.polymarket_config.get("live_lookahead_hours", 72))
+        )
+        missing = [
             fixture
             for fixture in fixtures
-            if now < fixture.kickoff <= targeted_search_end
+            if now < fixture.kickoff <= now + lookahead
             and not self._fixture_has_current_market_tokens(fixture)
         ]
+        self.summary["planned_jobs"].append(job_key)
+        if dry_run:
+            return
+        statuses: list[int] = []
         searched = 0
-        for fixture in search_fixtures:
-            # The full pairing is precise. A home-only fallback handles naming
-            # differences such as Ham-Kam vs Hamarkameratene; the strict linker
-            # still requires both teams and a compatible kickoff before it can
-            # attach any returned event.
-            queries = (
+        for fixture in missing:
+            # Full pairing is precise; home-only handles provider naming
+            # differences. The linker still requires both teams and kickoff.
+            for query in (
                 f"{fixture.home_name} {fixture.away_name}",
                 fixture.home_name,
-            )
-            for query in queries:
+            ):
                 try:
                     payload, item, status = self._polymarket_get(
                         "fixture_search",
@@ -1207,9 +1228,14 @@ class Collector:
                 if self._fixture_has_current_market_tokens(fixture):
                     break
         self._record_checkpoint(
-            job_key, "polymarket_gamma", "event_discovery", None, now,
-            "succeeded", statuses[-1] if statuses else None,
-            {"events": event_count, "targeted_fixture_searches": searched},
+            job_key,
+            "polymarket_gamma",
+            "fixture_market_recovery",
+            None,
+            slot,
+            "succeeded",
+            statuses[-1] if statuses else None,
+            {"missing_fixtures": len(missing), "searches": searched},
         )
         self.summary["executed_jobs"].append(job_key)
 

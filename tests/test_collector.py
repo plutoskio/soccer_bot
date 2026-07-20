@@ -270,6 +270,13 @@ class CollectorIntegrationTests(unittest.TestCase):
             now,
             False,
         )
+        collector._discover_missing_fixture_markets(
+            [FixtureRecord(
+                fixture_id, "909", kickoff, "scheduled", "Alpha FC", "Beta FC"
+            )],
+            now,
+            dry_run=False,
+        )
         self.assertEqual(
             ["alpha-token", "beta-token"], collector._market_tokens(fixture_id)
         )
