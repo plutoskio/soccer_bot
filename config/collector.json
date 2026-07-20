@@ -123,8 +123,8 @@
   },
   "polymarket": {
     "soccer_tag_id": 100350,
-    "maximum_event_pages": 5,
-    "event_page_size": 100,
+    "maximum_event_pages": 1,
+    "event_page_size": 20,
     "orderbook_batch_size": 500,
     "discovery_hourly_minutes": 60,
     "discovery_matchday_minutes": 15,
