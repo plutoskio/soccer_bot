@@ -1719,9 +1719,21 @@ class Collector:
             second=0,
             microsecond=0,
         )
+        live_diagnostics = {
+            "selected_fixtures": len(fixtures),
+            "fixtures_with_market_tokens": 0,
+            "fixtures_in_live_window": 0,
+            "fixtures_already_captured_this_slot": 0,
+            "planned_live_jobs": 0,
+            "slot": live_slot.isoformat(),
+            "lookahead_hours": int(
+                self.polymarket_config.get("live_lookahead_hours", 72)
+            ),
+        }
         for fixture in fixtures:
             if not self._fixture_has_any_market_tokens(fixture.internal_id):
                 continue
+            live_diagnostics["fixtures_with_market_tokens"] += 1
             schedule_version, _, kickoff = self._lineup_schedule_version(fixture)
             rows = self.connection.execute(
                 """
@@ -1772,19 +1784,19 @@ class Collector:
                 for plan in plans
             )
             if now < kickoff <= now + live_lookahead:
+                live_diagnostics["fixtures_in_live_window"] += 1
                 live_key = (
                     f"polymarket:market_live:{fixture.source_id}:"
                     f"{schedule_version}:{live_slot.isoformat()}"
                 )
-                if not self._checkpoint_done(live_key):
+                if self._checkpoint_done(live_key):
+                    live_diagnostics["fixtures_already_captured_this_slot"] += 1
+                else:
                     jobs.append(
-                        DetailJob(
-                            live_key,
-                            "market_live",
-                            schedule_fixture,
-                            live_slot,
-                        )
+                        DetailJob(live_key, "market_live", schedule_fixture, live_slot)
                     )
+                    live_diagnostics["planned_live_jobs"] += 1
+        self.summary["market_live_planning"] = live_diagnostics
         return jobs
 
     def _execute_market_jobs(self, jobs: list[DetailJob], now: datetime) -> None:
