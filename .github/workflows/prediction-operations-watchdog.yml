@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Check freshness, row count, and frozen identity
+      - name: Check both public snapshots, freshness, and frozen identities
         id: watchdog
         continue-on-error: true
         run: |
@@ -55,7 +55,7 @@ jobs:
         run: |
           issue_number="$(gh issue list --state open --json number,title --jq '.[] | select(.title == "[operations] Soccer Bot prediction watchdog") | .number' | head -n 1)"
           if [ -n "$issue_number" ]; then
-            gh issue close "$issue_number" --comment "The independent public heartbeat check recovered in run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID."
+            gh issue close "$issue_number" --comment "The independent public snapshot checks recovered in run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID."
           fi
 
       - name: Mark failed checks red
