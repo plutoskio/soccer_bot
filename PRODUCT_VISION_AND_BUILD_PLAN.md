@@ -28,8 +28,8 @@ The intended workflow is:
 5. The application loads the relevant production model and current features.
 6. It displays a probability together with model quality, training coverage,
    current-data completeness, applicability, and uncertainty.
-7. If a safely linked Polymarket market exists, it compares the model
-   probability with the observed market price, spread, depth, and timestamp.
+7. If a leakage-safe API-Football 1X2 bookmaker snapshot exists at the same
+   horizon, it compares the model with a de-vigged multi-bookmaker consensus.
 
 An example view is:
 
@@ -69,7 +69,11 @@ The collector obtains evidence; it does not train models. It stores:
 - confirmed lineups and their retrieval times;
 - results, events, team statistics, and player statistics;
 - player-identity reconciliation state;
-- Polymarket events, markets, outcomes, and order-book snapshots.
+- API-Football pre-match Match Winner odds at frozen T−72h/T−24h cutoffs.
+
+Polymarket collection is disabled. Its historical raw and normalized evidence
+is preserved for audit and possible later archival, but it is not refreshed,
+published, or used for current evaluation.
 
 On Railway, the collector wakes every five minutes. Internal planning determines
 whether any API request is actually due, so the user's computer can remain off.
@@ -246,19 +250,20 @@ Warnings should identify the actual limitation: sparse player history,
 unconfirmed lineup, low competition coverage, missing fields, distribution
 shift, stale prices, or weak market linkage.
 
-### 5.5 Polymarket comparison
+### 5.5 Bookmaker consensus comparison
 
-For a semantically identical and safely linked market, display:
+For a complete API-Football Match Winner snapshot retrieved before the exact
+model cutoff, display:
 
 - model probability;
-- latest market price and observation time;
-- bid/ask spread and depth where available;
-- liquidity and staleness;
+- median proportional-de-vigged bookmaker probability;
+- fair consensus decimal multiplier and retrieval time;
+- number of complete Home/Draw/Away bookmakers;
 - model-market probability delta;
-- mapping confidence and any warning.
+- timing/completeness warning when consensus is unavailable.
 
-Market evaluation must account for fees, spread, depth, and selection effects.
-The first application does not place trades.
+The bookmaker consensus is a benchmark, never a contemporaneous model feature.
+It is not an executable price and the application does not place trades.
 
 ## 6. Model families
 
@@ -584,11 +589,13 @@ Poisson by 0.00453 at T-24h and 0.00434 at clean T-72h, with both paired
 month-block 95% intervals below zero.
 
 The historical strict as-of Polymarket benchmark has zero complete eligible
-three-way fixtures. Prospective T−72h/T−24h collection is now active under a
-frozen pre-cutoff policy. Regulation mappings, full-depth snapshots, immutable
-champion/book evidence, fee-aware ladder walks, and count-only coverage/alerts
-are implemented. This is accumulation infrastructure, not evidence that an
-edge exists. Football-Data closing consensus is a useful retrospective
+three-way fixtures. Its high-frequency collection and publication paths were
+disabled on 2026-07-21 because they consumed substantial storage without
+producing usable evaluation evidence. The replacement captures API-Football
+Match Winner odds only in the frozen windows immediately before T−72h and
+T−24h, then forms a median of per-bookmaker proportional-de-vigged three-way
+probabilities when at least three complete books exist. This benchmark remains
+independent of model features. Football-Data closing consensus is a useful retrospective
 yardstick over 12,458 fixtures, but cannot be used as an earlier-time feature
 because `quoted_at` is missing. On its covered final-test subset it still beats
 the champion by about 0.042 log-loss points at both horizons, establishing the
@@ -657,18 +664,13 @@ forward evaluation.
    against the frozen champion. Promotion requires better unseen-match proper
    scoring rules and calibration, stable results across time/competitions, and
    no material degradation in important subgroups.
-5. **Accumulate executable market benchmarks.** Continue capturing complete,
-   timestamped Polymarket books under
-   `polymarket_regulation_market_evidence_v1`. T−72 and T−24 are now paired
-   strictly before their exact model cutoffs with spread, depth, fee, and
-   immutable provenance. The outcome-blind coverage denominator, append-only
-   result-linked market settlement ledger, and frozen five-part one-shot
-   evaluation are implemented. Automatic operation remains count-only; the
-   report stays locked until both horizons satisfy six mature months, 2,000
-   settled forecasts, market coverage/execution minimums, five competitions,
-   and minimum paper-selection counts. Add a separately ordered
-   confirmed-lineup protocol only when that prediction model exists; do not
-   pretend a post-lineup book preceded a prediction made from the lineup.
+5. **Accumulate bookmaker benchmark evidence.** Capture only complete
+   API-Football Match Winner books in the frozen pre-cutoff T−72 and T−24
+   windows. Track coverage and score the de-vigged consensus against settled
+   outcomes under a new forward protocol. Do not use the odds as model inputs,
+   do not call consensus fair odds executable prices, and do not tune against
+   the opened result-model final test. Design a separate confirmed-lineup odds
+   protocol only after a lineup model exists.
 6. **Unlock contracts in validated layers.** First add regulation spreads and
    totals derived from a validated score distribution. Then add exact score,
    both teams to score, and first-team-to-score contracts. Unlock player goals,

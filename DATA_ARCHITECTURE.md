@@ -1,5 +1,13 @@
 # Soccer Polymarket Model — Data Architecture
 
+> Operational update (2026-07-21): Polymarket collection and publication are
+> disabled. Historical Polymarket rows/raw artifacts remain immutable audit
+> evidence. Current market benchmarking uses API-Football Match Winner odds
+> captured only in the 16-minute windows immediately before T−72h and T−24h,
+> normalized into `bookmaker_quote`. Any Polymarket schedules and retention
+> proposals below describe the retired design and are not active collector
+> policy.
+
 Status: initial source probes validated; schema mapping still provisional
 Date: 2 July 2026
 Related document: [DATA_SOURCE_AUDIT.md](./DATA_SOURCE_AUDIT.md)
@@ -815,13 +823,16 @@ This schedule is provisional and will be measured during source probing.
 
 For a 100-call daily allowance, the configuration must reserve enough calls for all `P0` fixtures before assigning calls to backfill. The exact number of supported daily fixtures will be calculated from the source probe rather than guessed.
 
-### 14.4 Polymarket schedule
+### 14.4 Market benchmark schedule
 
-- Discover soccer events periodically through Gamma.
-- Refresh event/market metadata when markets change state.
-- Capture CLOB top-of-book snapshots more frequently as kickoff approaches.
-- Prefer a WebSocket feed for sustained high-frequency capture once the basic REST integration is validated.
-- Stop high-frequency capture at market close and record final resolution later.
+- Do not call Polymarket Gamma or CLOB endpoints.
+- Request API-Football `/odds` with Match Winner bet ID 1 only during the
+  16-minute windows immediately before T−72h and T−24h.
+- Persist each provider page immutably and normalize Home/Draw/Away prices into
+  `bookmaker_quote` with a horizon-specific `quote_type`.
+- Exclude responses retrieved at or after the model cutoff from consensus.
+- Require at least three complete bookmakers, remove each bookmaker's
+  three-way margin proportionally, and take the median probability by outcome.
 
 ### 14.5 Scraping policy
 
@@ -1058,8 +1069,10 @@ Canonical facts should be rebuildable from raw artifacts plus parser code and ma
 
 - Keep unique raw historical sports responses indefinitely unless source terms require otherwise.
 - Deduplicate identical poll responses physically.
-- Retain top-of-book Polymarket history indefinitely.
-- Retain full order-book depth according to storage size; downsample older depth only through a documented policy.
+- Preserve existing Polymarket history until a backed-up reference audit
+  identifies which files can be archived or pruned safely.
+- Keep new bookmaker raw responses only at frozen research horizons; no live or
+  high-frequency odds polling is permitted.
 - Never delete a raw artifact needed by a published dataset/model manifest.
 
 ## 20. Schema evolution

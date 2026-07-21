@@ -1,5 +1,11 @@
 # Railway Collector Operations
 
+> Market-data update (2026-07-21): all Polymarket collection, evidence
+> publication, settlement, and evaluation jobs are disabled. Existing paths
+> below are historical audit artifacts and must not be deleted until a stopped-
+> scheduler backup/reference audit is complete. Active market collection is
+> limited to API-Football Match Winner snapshots at frozen T−72h/T−24h cutoffs.
+
 This document is the production runbook for the Soccer Bot collector. Railway
 runs the collector; DuckDB remains the canonical warehouse. Supabase and other
 databases are not part of this deployment.

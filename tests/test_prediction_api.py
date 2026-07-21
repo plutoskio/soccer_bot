@@ -331,6 +331,44 @@ class PredictionApiTests(unittest.TestCase):
         with self.assertRaises(PlatformSnapshotValidationError):
             PlatformSnapshotStore(self.platform_path).load()
 
+    def test_platform_accepts_bookmaker_consensus_and_rejects_polymarket_quote(self) -> None:
+        value = sample_platform_snapshot()
+        market = value["states"][0]["families"][0]["markets"][0]
+        market["live_market"] = None
+        market["market_comparison"] = {
+            "source": "api_football",
+            "quote_type": "cutoff_consensus",
+            "market_probability": 0.5,
+            "market_decimal_multiplier": 2.0,
+            "bookmaker_count": 5,
+            "consensus_method": "median_proportional_devig",
+            "observed_at": value["as_of"],
+            "retrieved_at": value["as_of"],
+        }
+        value["state_rows_sha256"] = hashlib.sha256(
+            json.dumps(
+                value["states"], sort_keys=True, separators=(",", ":"), allow_nan=False
+            ).encode()
+        ).hexdigest()
+        self.platform_path.write_text(json.dumps(value), encoding="utf-8")
+        loaded = PlatformSnapshotStore(self.platform_path).load()
+        self.assertEqual(
+            "api_football",
+            loaded["states"][0]["families"][0]["markets"][0][
+                "market_comparison"
+            ]["source"],
+        )
+
+        market["market_comparison"]["source"] = "polymarket"
+        value["state_rows_sha256"] = hashlib.sha256(
+            json.dumps(
+                value["states"], sort_keys=True, separators=(",", ":"), allow_nan=False
+            ).encode()
+        ).hexdigest()
+        self.platform_path.write_text(json.dumps(value), encoding="utf-8")
+        with self.assertRaises(PlatformSnapshotValidationError):
+            PlatformSnapshotStore(self.platform_path).load()
+
     def test_invalid_probability_sum_fails_closed(self) -> None:
         value = sample_snapshot()
         value["predictions"][0]["home_win_probability"] = 0.6

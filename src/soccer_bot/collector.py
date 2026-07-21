@@ -25,6 +25,7 @@ from .collection_state import (
     validate_team_statistics,
 )
 from .collection_planner import (
+    bookmaker_odds_stage_plans,
     DiscoveryJob,
     discovery_date_from_checkpoint,
     discovery_date_window,
@@ -35,6 +36,7 @@ from .collection_planner import (
     postmatch_stage_plans,
     validate_collector_config,
 )
+from .bookmaker_odds import persist_api_football_moneyline_odds
 from .database import Warehouse, json_text, normalized_name
 from .http import HttpClient, HttpResponse
 from .health import generate_health_report
@@ -161,6 +163,7 @@ class Collector:
         self.zone = ZoneInfo(config["timezone"])
         self.discovery_config = config.get("discovery", {})
         self.api_config = config["api_football"]
+        self.bookmaker_odds_config = config.get("bookmaker_odds", {})
         self.polymarket_config = config["polymarket"]
         retry_config = config.get("retry", {})
         self.request_executor = RequestExecutor(
@@ -247,10 +250,12 @@ class Collector:
             self.summary["selected_fixtures"] = len(fixtures)
             market_fixtures = self._market_fixture_scope(fixtures, now)
             self.summary["market_fixture_scope"] = len(market_fixtures)
-            self._discover_polymarket(local_date, market_fixtures, now, dry_run)
-            self._discover_missing_fixture_markets(
-                market_fixtures, now, dry_run=dry_run
-            )
+            polymarket_enabled = bool(self.polymarket_config.get("enabled", True))
+            if polymarket_enabled:
+                self._discover_polymarket(local_date, market_fixtures, now, dry_run)
+                self._discover_missing_fixture_markets(
+                    market_fixtures, now, dry_run=dry_run
+                )
             if not dry_run:
                 self._reconcile_fixture_components(fixtures, now)
                 self._mark_expired_pregame_components(fixtures, now)
@@ -262,31 +267,44 @@ class Collector:
                 self._execute_detail_jobs(detail_jobs, now)
                 self._reconcile_fixture_components(fixtures, now)
                 self._mark_expired_pregame_components(fixtures, now)
-                self.summary["linked_polymarket_events"] = int(
-                    self.summary.get("linked_polymarket_events", 0)
-                ) + self._link_polymarket_events(market_fixtures)
-                policy_path = (
-                    Path(__file__).resolve().parents[2]
-                    / self.polymarket_config["mapping_policy_path"]
-                )
-                mapping_policy, mapping_hash = load_polymarket_contract_policy(
-                    policy_path
-                )
-                self.summary["polymarket_contract_mappings"] = (
-                    refresh_polymarket_contract_mappings(
-                        self.connection,
-                        policy=mapping_policy,
-                        policy_sha256=mapping_hash,
-                        team_aliases=self.warehouse.team_aliases,
-                        mapped_at=now,
+                if polymarket_enabled:
+                    self.summary["linked_polymarket_events"] = int(
+                        self.summary.get("linked_polymarket_events", 0)
+                    ) + self._link_polymarket_events(market_fixtures)
+                    policy_path = (
+                        Path(__file__).resolve().parents[2]
+                        / self.polymarket_config["mapping_policy_path"]
                     )
-                )
-            self._refresh_closed_polymarket_events(
-                market_fixtures, now, dry_run=dry_run
+                    mapping_policy, mapping_hash = load_polymarket_contract_policy(
+                        policy_path
+                    )
+                    self.summary["polymarket_contract_mappings"] = (
+                        refresh_polymarket_contract_mappings(
+                            self.connection,
+                            policy=mapping_policy,
+                            policy_sha256=mapping_hash,
+                            team_aliases=self.warehouse.team_aliases,
+                            mapped_at=now,
+                        )
+                    )
+            bookmaker_jobs = (
+                self._plan_bookmaker_odds_jobs(market_fixtures, now)
+                if self.bookmaker_odds_config.get("enabled", False)
+                else []
             )
-            market_jobs = self._plan_market_jobs(market_fixtures, now)
-            self.summary["planned_jobs"].extend(job.job_key for job in market_jobs)
+            self.summary["planned_jobs"].extend(job.job_key for job in bookmaker_jobs)
             if not dry_run:
+                self._execute_bookmaker_odds_jobs(bookmaker_jobs, now)
+            if polymarket_enabled:
+                self._refresh_closed_polymarket_events(
+                    market_fixtures, now, dry_run=dry_run
+                )
+                market_jobs = self._plan_market_jobs(market_fixtures, now)
+                self.summary["planned_jobs"].extend(job.job_key for job in market_jobs)
+            else:
+                market_jobs = []
+                self.summary["polymarket_status"] = "disabled"
+            if not dry_run and market_jobs:
                 # Keep audited cutoff captures and display-only live captures in
                 # separate payloads so one token can never inherit the wrong
                 # cadence metadata when both are due in the same cycle.
@@ -1797,6 +1815,246 @@ class Collector:
                 result.last_raw_artifact_id,
             ),
             now=now,
+        )
+
+    def _plan_bookmaker_odds_jobs(
+        self, fixtures: list[FixtureRecord], now: datetime
+    ) -> list[DetailJob]:
+        jobs: list[DetailJob] = []
+        maximum_attempts = int(
+            self.bookmaker_odds_config.get("maximum_attempts", 3)
+        )
+        for fixture in fixtures:
+            schedule_version, _, kickoff = self._lineup_schedule_version(fixture)
+            rows = self.connection.execute(
+                """
+                SELECT job_key,status,attempts,next_attempt_at
+                FROM collection_checkpoint
+                WHERE fixture_id=? AND source_code='api_football'
+                  AND job_type LIKE 'bookmaker_odds_t_minus_%'
+                """,
+                [fixture.internal_id],
+            ).fetchall()
+            attempted = {
+                key
+                for key, status, attempts, next_attempt_at in rows
+                if checkpoint_is_stopping(status)
+                or attempts >= maximum_attempts
+                or (next_attempt_at is not None and next_attempt_at > now)
+            }
+            plans = bookmaker_odds_stage_plans(
+                fixture_source_id=fixture.source_id,
+                schedule_version=schedule_version,
+                kickoff=kickoff,
+                now=now,
+                offsets_minutes=self.bookmaker_odds_config[
+                    "snapshot_offsets_minutes"
+                ],
+                stage_window_minutes=int(
+                    self.bookmaker_odds_config["snapshot_stage_window_minutes"]
+                ),
+                attempted_job_keys=attempted,
+            )
+            schedule_fixture = replace(fixture, kickoff=kickoff)
+            jobs.extend(
+                DetailJob(
+                    plan.job_key,
+                    plan.stage,
+                    schedule_fixture,
+                    plan.stage_time,
+                    capture_target_at=plan.capture_target_at,
+                    capture_deadline_at=plan.capture_deadline_at,
+                )
+                for plan in plans
+            )
+        self.summary["bookmaker_odds_planning"] = {
+            "enabled": True,
+            "selected_fixtures": len(fixtures),
+            "planned_jobs": len(jobs),
+            "snapshot_offsets_minutes": list(
+                self.bookmaker_odds_config["snapshot_offsets_minutes"]
+            ),
+        }
+        return jobs
+
+    def _execute_bookmaker_odds_jobs(
+        self, jobs: list[DetailJob], now: datetime
+    ) -> None:
+        for job in jobs:
+            maximum_attempts = int(
+                self.bookmaker_odds_config.get("maximum_attempts", 3)
+            )
+            bet_id = int(self.bookmaker_odds_config.get("bet_id", 1))
+            attempt_ids = self._begin_attempts(
+                [job],
+                "api_football",
+                now,
+                {
+                    "fixture_id": job.fixture.source_id,
+                    "bet_id": bet_id,
+                    "cadence_stage": job.job_type,
+                },
+            )
+            inserted_quotes = 0
+            complete_bookmakers = 0
+            last_status: int | None = None
+            last_item: dict[str, object] = {}
+            timing_valid = True
+            total_pages = 1
+            try:
+                page = 1
+                while page <= total_pages:
+                    payload, item, status = self._api_get(
+                        "fixture_odds",
+                        "/odds",
+                        {
+                            "fixture": job.fixture.source_id,
+                            "bet": bet_id,
+                            "page": page,
+                        },
+                        now,
+                    )
+                    last_status = status
+                    last_item = item
+                    retrieved_at = parse_datetime(item.get("retrieved_at")) or now
+                    page_timing_valid = self._bookmaker_retrieval_valid(
+                        job, retrieved_at
+                    )
+                    timing_valid = timing_valid and page_timing_valid
+                    paging = payload.get("paging")
+                    if isinstance(paging, dict):
+                        try:
+                            total_pages = max(1, int(paging.get("total", 1)))
+                        except (TypeError, ValueError):
+                            total_pages = 1
+                    if not page_timing_valid:
+                        # The provider response is already too late for this
+                        # frozen cutoff. Preserve this raw page for audit, but
+                        # do not spend more calls paging through unusable data.
+                        break
+                    if page_timing_valid:
+                        stats = persist_api_football_moneyline_odds(
+                            self.connection,
+                            payload=payload,
+                            raw_item=item,
+                            fixture_id=job.fixture.internal_id,
+                            fixture_source_id=job.fixture.source_id,
+                            quote_type=job.job_type.replace(
+                                "bookmaker_odds_", "bookmaker_", 1
+                            ),
+                            bet_id=bet_id,
+                        )
+                        inserted_quotes += stats["inserted_quotes"]
+                        complete_bookmakers += stats["complete_bookmakers"]
+                    page += 1
+            except Exception as error:
+                (
+                    checkpoint_status,
+                    attempt_status,
+                    next_attempt,
+                    retry_after,
+                    raw_id,
+                    terminal_reason,
+                ) = self._request_failure_disposition(error, now)
+                self._finish_attempts(
+                    attempt_ids,
+                    status=attempt_status,
+                    finished_at=datetime.now(timezone.utc),
+                    http_status=(
+                        error.http_status
+                        if isinstance(error, RequestExecutionError)
+                        else None
+                    ),
+                    retry_after_seconds=retry_after,
+                    raw_artifact_id=raw_id,
+                    error=error,
+                    metadata={"cadence_stage": job.job_type},
+                )
+                self._record_checkpoint(
+                    job.job_key,
+                    "api_football",
+                    job.job_type,
+                    job.fixture.source_id,
+                    job.scheduled_for,
+                    checkpoint_status,
+                    (
+                        error.http_status
+                        if isinstance(error, RequestExecutionError)
+                        else None
+                    ),
+                    {"cadence_stage": job.job_type},
+                    error=str(error),
+                    fixture_id=job.fixture.internal_id,
+                    next_attempt_at=next_attempt,
+                    maximum_attempts=maximum_attempts,
+                    terminal_reason=terminal_reason,
+                )
+                self.summary.setdefault("warnings", []).append(
+                    "API-Football bookmaker odds capture deferred"
+                )
+                continue
+
+            complete = timing_valid and complete_bookmakers > 0
+            prior_row = self.connection.execute(
+                "SELECT attempts FROM collection_checkpoint WHERE job_key=?",
+                [job.job_key],
+            ).fetchone()
+            prior_attempts = int(prior_row[0]) if prior_row else 0
+            exhausted = not complete and prior_attempts + 1 >= maximum_attempts
+            checkpoint_status = (
+                "succeeded" if complete else "terminal" if exhausted else "incomplete"
+            )
+            retry_at = (
+                None
+                if complete or exhausted
+                else now
+                + timedelta(
+                    minutes=int(
+                        self.bookmaker_odds_config.get("retry_minutes", 5)
+                    )
+                )
+            )
+            metadata = {
+                "cadence_stage": job.job_type,
+                "pages": total_pages,
+                "inserted_quotes": inserted_quotes,
+                "complete_bookmakers": complete_bookmakers,
+                "retrieval_within_stage_window": timing_valid,
+            }
+            self._record_checkpoint(
+                job.job_key,
+                "api_football",
+                job.job_type,
+                job.fixture.source_id,
+                job.scheduled_for,
+                checkpoint_status,
+                last_status,
+                metadata,
+                fixture_id=job.fixture.internal_id,
+                next_attempt_at=retry_at,
+                maximum_attempts=maximum_attempts,
+                terminal_reason=(
+                    "bookmaker_odds_unavailable_before_cutoff" if exhausted else None
+                ),
+            )
+            self._finish_attempts(
+                attempt_ids,
+                status="succeeded" if complete else "incomplete",
+                finished_at=datetime.now(timezone.utc),
+                http_status=last_status,
+                raw_artifact_id=last_item.get("_raw_artifact_id"),
+                metadata=metadata,
+            )
+            self.summary["executed_jobs"].append(job.job_key)
+
+    @staticmethod
+    def _bookmaker_retrieval_valid(job: DetailJob, retrieved_at: datetime) -> bool:
+        if job.capture_deadline_at is None:
+            return False
+        retrieved_at = retrieved_at.astimezone(timezone.utc)
+        return (
+            job.scheduled_for <= retrieved_at < job.capture_deadline_at
+            and retrieved_at < job.fixture.kickoff
         )
 
     def _plan_market_jobs(self, fixtures: list[FixtureRecord], now: datetime) -> list[DetailJob]:

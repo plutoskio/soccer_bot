@@ -18,8 +18,6 @@ type FixtureGroup = {
   states: Partial<Record<InformationState, PlatformState>>;
 };
 
-type PriceView = "live" | "cutoff";
-
 const HORIZONS: { key: InformationState; short: string; label: string }[] = [
   { key: "pre_lineup_72h_clean_v1", short: "T−72", label: "Clean 72-hour view" },
   { key: "pre_lineup_24h_v1", short: "T−24", label: "24-hour view" },
@@ -61,7 +59,6 @@ export function ProbabilityDesk({ snapshot: initialSnapshot }: { snapshot: Platf
   const [requestedGroup, setRequestedGroup] = useState("");
   const [query, setQuery] = useState("");
   const [expandedMarket, setExpandedMarket] = useState<string | null>(null);
-  const [priceView, setPriceView] = useState<PriceView>("live");
 
   useEffect(() => {
     let active = true;
@@ -269,24 +266,6 @@ export function ProbabilityDesk({ snapshot: initialSnapshot }: { snapshot: Platf
                     ))}
                   </div>
                   <div className="market-tools">
-                    <div className="price-view-switch" aria-label="External market price time">
-                      <button
-                        type="button"
-                        data-active={priceView === "live"}
-                        aria-pressed={priceView === "live"}
-                        onClick={() => setPriceView("live")}
-                      >
-                        Live
-                      </button>
-                      <button
-                        type="button"
-                        data-active={priceView === "cutoff"}
-                        aria-pressed={priceView === "cutoff"}
-                        onClick={() => setPriceView("cutoff")}
-                      >
-                        At cutoff
-                      </button>
-                    </div>
                     <label className="market-search">
                       <span className="sr-only">Search bets</span>
                       <input
@@ -304,7 +283,7 @@ export function ProbabilityDesk({ snapshot: initialSnapshot }: { snapshot: Platf
                     <span>Selection</span>
                     <span>Probability</span>
                     <span>Fair multiplier</span>
-                    <span>{priceView === "live" ? "Live market" : "At cutoff"}</span>
+                    <span>Bookmaker consensus</span>
                   </div>
                   <AnimatePresence initial={false}>
                     {visibleMarkets.map((market) => (
@@ -316,7 +295,6 @@ export function ProbabilityDesk({ snapshot: initialSnapshot }: { snapshot: Platf
                           expandedMarket === market.market_id ? null : market.market_id,
                         )}
                         reducedMotion={Boolean(reducedMotion)}
-                        priceView={priceView}
                       />
                     ))}
                   </AnimatePresence>
@@ -342,15 +320,13 @@ function MarketRow({
   expanded,
   onToggle,
   reducedMotion,
-  priceView,
 }: {
   market: MarketQuote;
   expanded: boolean;
   onToggle: () => void;
   reducedMotion: boolean;
-  priceView: PriceView;
 }) {
-  const quote = priceView === "live" ? market.live_market : market.market_comparison;
+  const quote = market.market_comparison;
   return (
     <motion.div layout={!reducedMotion} className="market-row-wrap">
       <button
@@ -372,7 +348,7 @@ function MarketRow({
         </span>
         <motion.span
           className="market-external"
-          key={quote?.retrieved_at ?? `${priceView}-missing`}
+          key={quote?.retrieved_at ?? "consensus-missing"}
           initial={reducedMotion ? false : { opacity: 0.35 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.28 }}
@@ -411,19 +387,9 @@ function MarketRow({
               </p>
             </div>
             <div>
-              <p className="eyebrow">Polymarket prices</p>
-              <p>{quoteSummary("Live", market.live_market)}</p>
-              <p>{quoteSummary("Cutoff", market.market_comparison)}</p>
-              {(market.live_market?.event_url || market.market_comparison?.event_url) && (
-                <a
-                  className="market-link"
-                  href={market.live_market?.event_url ?? market.market_comparison?.event_url ?? "#"}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Open market ↗
-                </a>
-              )}
+              <p className="eyebrow">Bookmaker benchmark</p>
+              <p>{quoteSummary(market.market_comparison)}</p>
+              <p className="settlement-line">Median of complete 1X2 books after proportional margin removal. Benchmark only; never a model feature.</p>
             </div>
           </motion.div>
         )}
@@ -443,10 +409,9 @@ function ModelInspector({
 }) {
   const evidence = evidenceRows(family.evidence);
   const warnings = Array.isArray(family.evidence.warnings) ? family.evidence.warnings : [];
-  const liveQuotes = family.markets.filter((market) => market.live_market).length;
   const cutoffQuotes = family.markets.filter((market) => market.market_comparison).length;
-  const latestLiveRetrievedAt = family.markets
-    .map((market) => market.live_market?.retrieved_at)
+  const latestConsensusRetrievedAt = family.markets
+    .map((market) => market.market_comparison?.retrieved_at)
     .filter((value): value is string => Boolean(value))
     .sort()
     .at(-1);
@@ -474,16 +439,11 @@ function ModelInspector({
       </div>
       <div className="inspector-block">
         <p className="eyebrow">Market evidence</p>
-        <strong>{liveQuotes ? `${liveQuotes} live ${liveQuotes === 1 ? "price" : "prices"}` : "No live price"}</strong>
-        <p>
-          {liveQuotes
-            ? `Latest live book ${formatTimestamp(latestLiveRetrievedAt ?? snapshot.as_of)}.`
-            : "No fresh, safely linked Polymarket book is available for this family."}
-        </p>
+        <strong>{cutoffQuotes ? `${cutoffQuotes} cutoff ${cutoffQuotes === 1 ? "benchmark" : "benchmarks"}` : "No cutoff benchmark"}</strong>
         <p>
           {cutoffQuotes
-            ? `${cutoffQuotes} exact-cutoff ${cutoffQuotes === 1 ? "snapshot" : "snapshots"} saved for honest comparison.`
-            : "No exact market snapshot was captured at this prediction cutoff."}
+            ? `API-Football 1X2 consensus retrieved before the model cutoff at ${formatTimestamp(latestConsensusRetrievedAt ?? snapshot.as_of)}.`
+            : "No complete three-way bookmaker consensus was captured safely before this prediction cutoff."}
         </p>
       </div>
       {warnings.length > 0 && (
@@ -577,9 +537,9 @@ function warningCopy(warning: string) {
   }
 }
 
-function quoteSummary(label: string, quote: MarketQuote["live_market"]) {
-  if (!quote) return `${label}: unavailable`;
-  return `${label}: ${formatPercent(quote.best_bid_probability)}–${formatPercent(quote.best_ask_probability)} · buy ${quote.market_decimal_multiplier.toFixed(2)} · ${formatTimestamp(quote.retrieved_at)}`;
+function quoteSummary(quote: MarketQuote["market_comparison"]) {
+  if (!quote) return "Consensus: unavailable";
+  return `Consensus: ${formatPercent(quote.market_probability)} · fair ${quote.market_decimal_multiplier.toFixed(2)} · ${quote.bookmaker_count} books · ${formatTimestamp(quote.retrieved_at)}`;
 }
 
 function StatusLabel({ status }: { status: FamilyStatus }) {

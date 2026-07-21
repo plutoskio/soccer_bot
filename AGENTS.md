@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Build a soccer forecasting system for researching Polymarket bets. The model
+Build a soccer forecasting system for researching soccer betting markets. The model
 should use confirmed lineups and player-level histories to estimate:
 
 - Regulation moneyline and spreads (highest priority)
@@ -52,8 +52,11 @@ to read-only upcoming-fixture inference.
   the final test was scored once. Versus calibrated independent Poisson, log
   loss improved by 0.00453 at T-24h and 0.00434 at clean T-72h; both paired
   month-block 95% intervals exclude zero. This is the current champion recipe.
-- Strict timestamped Polymarket three-way coverage is currently zero complete
-  eligible fixtures. Football-Data closing consensus covers 12,458 fixtures,
+- Strict timestamped Polymarket three-way coverage produced zero complete
+  eligible fixtures, so Polymarket collection/publication was disabled on
+  2026-07-21. API-Football Match Winner prices are now captured only in frozen
+  pre-cutoff T−72h/T−24h windows for a de-vigged bookmaker benchmark.
+  Football-Data closing consensus covers 12,458 fixtures,
   but its missing quote timestamps make it a retrospective benchmark only,
   never a model feature.
 - The 2026-07-15 all-history refit uses 38,445 T−24h and 34,813 clean T−72h
@@ -208,7 +211,7 @@ reviewed first.
   lineups, team stats, goals, and substitutions but no player minutes. It is
   result/team eligible and player ineligible.
 - The collector is a restart-safe, locked run-once program with rolling
-  recovery, staged lineup/post-match/Polymarket jobs, bounded HTTP retries, and
+  recovery, staged lineup/post-match/bookmaker-odds jobs, bounded HTTP retries, and
   daily health reporting. Railway is the production host: `/app/data` is the
   persistent volume and the tracked `railway.json` schedules the collector
   every five minutes. No second production scheduler is supported.
@@ -284,7 +287,7 @@ history, with labels derived from the frozen 1,000/5/20 evidence thresholds.
 Do not tune further against the current final-test report. The collector volume
 resize, native daily backup schedule, guarded publication, and source commit are
 complete. Next add publication-failure/staleness alerting, test a restore into
-an isolated volume, continue collecting complete timestamped Polymarket books,
+an isolated volume, accumulate leakage-safe API-Football bookmaker benchmarks,
 and begin confirmed-lineup/player research under a new forward or nested
 evaluation window. Treat T−24h as a comparable
 pre-lineup anchor, not a separate model for every hour. Keep result, team, and

@@ -19,7 +19,10 @@ from soccer_bot.collector import (
     lineup_stage,
     postmatch_stage,
 )
-from soccer_bot.collection_planner import postmatch_stage_plans
+from soccer_bot.collection_planner import (
+    bookmaker_odds_stage_plans,
+    postmatch_stage_plans,
+)
 from soccer_bot.database import Warehouse
 from soccer_bot.http import HttpClient, HttpResponse
 from soccer_bot.loaders import RawCatalog, WarehouseLoader
@@ -77,6 +80,29 @@ class SchedulingTests(unittest.TestCase):
         self.assertEqual("postmatch_retry", postmatch_stage(
             now=self.kickoff + timedelta(minutes=1590),
             primary_attempted=True, retry_attempted=False, **common,
+        ))
+
+    def test_bookmaker_capture_is_only_due_before_exact_cutoff(self):
+        cutoff = self.kickoff - timedelta(days=1)
+        plans = bookmaker_odds_stage_plans(
+            fixture_source_id="100",
+            schedule_version="kickoff-1",
+            kickoff=self.kickoff,
+            now=cutoff - timedelta(minutes=5),
+            offsets_minutes=[4320, 1440],
+            stage_window_minutes=16,
+            attempted_job_keys=set(),
+        )
+        self.assertEqual(["bookmaker_odds_t_minus_1440"], [plan.stage for plan in plans])
+        self.assertEqual(cutoff, plans[0].capture_deadline_at)
+        self.assertEqual([], bookmaker_odds_stage_plans(
+            fixture_source_id="100",
+            schedule_version="kickoff-1",
+            kickoff=self.kickoff,
+            now=cutoff,
+            offsets_minutes=[4320, 1440],
+            stage_window_minutes=16,
+            attempted_job_keys=set(),
         ))
 
     def test_status_aware_postmatch_slots_and_corrections(self):
@@ -448,7 +474,7 @@ class CollectorIntegrationTests(unittest.TestCase):
         self.assertEqual([], collector._monitored_fixtures(current_date, lookback_days=0))
         self.assertEqual(1, len(collector._monitored_fixtures(current_date, lookback_days=2)))
 
-    def test_live_cycle_uses_paid_ids_batch_and_second_run_is_idempotent(self):
+    def test_live_cycle_uses_paid_ids_batch_and_skips_disabled_polymarket(self):
         self.config["api_football"]["minimum_interval_seconds"] = 0
         self.config["discovery"]["recovery_days"] = 0
         self.config["discovery"]["planning_days"] = 0
@@ -528,8 +554,6 @@ class CollectorIntegrationTests(unittest.TestCase):
                 ("api_football", "http_request", "succeeded"),
                 ("api_football", "http_request", "succeeded"),
                 ("api_football", "postmatch_status", "incomplete"),
-                ("polymarket_gamma", "event_discovery", "succeeded"),
-                ("polymarket_gamma", "http_request", "succeeded"),
             ],
             attempts,
         )
