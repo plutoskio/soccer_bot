@@ -349,6 +349,48 @@ def market_stage_plans(
     return sorted(plans, key=lambda plan: (plan.stage_time, plan.job_key))
 
 
+def bookmaker_odds_stage_plans(
+    *,
+    fixture_source_id: str,
+    schedule_version: str,
+    kickoff: datetime,
+    now: datetime,
+    offsets_minutes: list[int],
+    stage_window_minutes: int,
+    attempted_job_keys: set[str],
+) -> list[MarketStagePlan]:
+    """Plan leakage-safe pre-match bookmaker captures.
+
+    Each capture is made during the configured window immediately *before*
+    the model information cutoff. A response retrieved at or after the cutoff
+    cannot be relabelled as cutoff evidence.
+    """
+    kickoff = kickoff.astimezone(UTC)
+    now = now.astimezone(UTC)
+    window = _positive_int(stage_window_minutes, "bookmaker odds stage window")
+    offsets = sorted(
+        {_positive_int(value, "bookmaker odds snapshot offset") for value in offsets_minutes},
+        reverse=True,
+    )
+    plans: list[MarketStagePlan] = []
+    for offset in offsets:
+        stage = f"bookmaker_odds_t_minus_{offset}"
+        capture_target = kickoff - timedelta(minutes=offset)
+        stage_time = capture_target - timedelta(minutes=window)
+        key = f"api_football:{stage}:{fixture_source_id}:{schedule_version}"
+        if stage_time <= now < capture_target and key not in attempted_job_keys:
+            plans.append(
+                MarketStagePlan(
+                    stage,
+                    stage_time,
+                    key,
+                    capture_target_at=capture_target,
+                    capture_deadline_at=capture_target,
+                )
+            )
+    return sorted(plans, key=lambda plan: (plan.stage_time, plan.job_key))
+
+
 def validate_collector_config(config: dict, catch_up_days: int | None = None) -> None:
     """Fail before database or network work when collector policy is invalid."""
     if not isinstance(config, dict):
@@ -435,9 +477,48 @@ def validate_collector_config(config: dict, catch_up_days: int | None = None) ->
     )
     if heartbeat >= stale:
         raise ValueError("heartbeat_interval_seconds must be below stale timeout")
+    bookmaker_odds = config.get("bookmaker_odds")
+    if not isinstance(bookmaker_odds, dict):
+        raise ValueError("bookmaker_odds config must be an object")
+    if not isinstance(bookmaker_odds.get("enabled", False), bool):
+        raise ValueError("bookmaker_odds enabled must be boolean")
+    bookmaker_offsets = bookmaker_odds.get("snapshot_offsets_minutes", [4320, 1440])
+    if not isinstance(bookmaker_offsets, list) or not bookmaker_offsets:
+        raise ValueError("bookmaker odds snapshot_offsets_minutes must be a non-empty list")
+    normalized_bookmaker_offsets = [
+        _positive_int(value, "bookmaker odds snapshot offset")
+        for value in bookmaker_offsets
+    ]
+    if len(set(normalized_bookmaker_offsets)) != len(normalized_bookmaker_offsets):
+        raise ValueError("bookmaker odds snapshot_offsets_minutes must not contain duplicates")
+    bookmaker_attempts = _positive_int(
+        bookmaker_odds.get("maximum_attempts", 3),
+        "bookmaker odds maximum_attempts",
+    )
+    bookmaker_retry = _positive_int(
+        bookmaker_odds.get("retry_minutes", 5),
+        "bookmaker odds retry_minutes",
+    )
+    bookmaker_window = _positive_int(
+        bookmaker_odds.get("snapshot_stage_window_minutes", 16),
+        "bookmaker odds snapshot_stage_window_minutes",
+    )
+    if bookmaker_window <= bookmaker_retry * (bookmaker_attempts - 1):
+        raise ValueError(
+            "bookmaker odds snapshot_stage_window_minutes must permit every "
+            "configured retry strictly before the cutoff"
+        )
+    _positive_int(bookmaker_odds.get("bet_id", 1), "bookmaker odds bet_id")
+    _positive_int(
+        bookmaker_odds.get("minimum_bookmakers_for_consensus", 3),
+        "minimum_bookmakers_for_consensus",
+    )
+
     polymarket = config.get("polymarket")
     if not isinstance(polymarket, dict):
         raise ValueError("polymarket config must be an object")
+    if not isinstance(polymarket.get("enabled", True), bool):
+        raise ValueError("polymarket enabled must be boolean")
     offsets = polymarket.get("snapshot_offsets_minutes", [1440, 360, 90, 15, 5])
     if not isinstance(offsets, list) or not offsets:
         raise ValueError("snapshot_offsets_minutes must be a non-empty list")
@@ -591,6 +672,24 @@ def validate_collector_config(config: dict, catch_up_days: int | None = None) ->
                 platform.get("timeout_seconds", 240),
                 "specialized_platform timeout_seconds",
             )
+            platform_window = _positive_int(
+                platform.get("bookmaker_stage_window_minutes", 16),
+                "specialized_platform bookmaker_stage_window_minutes",
+            )
+            platform_minimum = _positive_int(
+                platform.get("minimum_bookmakers_for_consensus", 3),
+                "specialized_platform minimum_bookmakers_for_consensus",
+            )
+            if platform_window != bookmaker_window:
+                raise ValueError(
+                    "specialized platform and collector bookmaker stage windows must match"
+                )
+            if platform_minimum != int(
+                bookmaker_odds.get("minimum_bookmakers_for_consensus", 3)
+            ):
+                raise ValueError(
+                    "specialized platform and collector bookmaker minimums must match"
+                )
         market_evidence = publication.get("polymarket_market_evidence", {})
         if not isinstance(market_evidence, dict):
             raise ValueError("polymarket_market_evidence must be an object")

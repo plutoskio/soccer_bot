@@ -32,16 +32,14 @@ export interface MarketQuote {
 }
 
 export interface ExternalMarketQuote {
-  source: "polymarket";
-  quote_type: "cutoff" | "live";
+  source: "api_football";
+  quote_type: "cutoff_consensus";
   market_probability: number;
   market_decimal_multiplier: number;
-  best_bid_probability: number;
-  best_ask_probability: number;
-  bid_ask_spread: number;
+  bookmaker_count: number;
+  consensus_method: "median_proportional_devig";
   observed_at: string;
   retrieved_at: string;
-  event_url: string | null;
 }
 
 export interface ModelFamily {
@@ -75,12 +73,15 @@ export interface PlatformSnapshot {
   family_registry_version: string;
   market_comparison_status: string | null;
   market_data: {
-    linked_fixture_count?: number;
+    source?: "api_football";
+    consensus_method?: "median_proportional_devig";
     cutoff_market_fixture_count?: number;
-    live_market_fixture_count?: number;
-    live_market_as_of?: string | null;
-    live_refresh_policy?: string;
+    cutoff_market_quote_count?: number;
+    minimum_bookmakers?: number;
+    minimum_observed_bookmakers?: number | null;
+    maximum_observed_bookmakers?: number | null;
     cutoff_policy?: string;
+    model_usage_policy?: string;
   };
   ranking_policy: "validated_families_only";
   models: Record<string, { model_version: string; logical_sha256?: string; status: FamilyStatus }>;

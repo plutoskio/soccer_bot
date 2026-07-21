@@ -1171,11 +1171,16 @@ Poisson, the calibrated rich model improves final-test log loss by 0.00453 at
 T-24h and 0.00434 at clean T-72h; both paired month-block 95% intervals exclude
 zero. It is the current regulation-moneyline champion.
 
-The strict timestamped Polymarket audit finds no complete eligible three-way
-fixture histories yet. Untimestamped Football-Data closing consensus is kept
-only as a retrospective no-vig yardstick. It beats the champion by about 0.042
-log-loss points on the covered final-test subset, so the remaining gap is
-recorded rather than hidden.
+The strict timestamped Polymarket audit found no complete eligible three-way
+fixture histories. High-frequency Polymarket collection and all related
+publication/evaluation paths were therefore disabled on 2026-07-21. The new
+forward benchmark captures API-Football Match Winner prices only in the frozen
+pre-cutoff T−72h/T−24h windows. Each complete bookmaker is proportionally
+de-vigged and the outcome medians are renormalized; at least three complete
+books are required. These prices are benchmark evidence only, never model
+features. Untimestamped Football-Data closing consensus remains a retrospective
+yardstick. It beats the champion by about 0.042 log-loss points on the covered
+final-test subset, so the remaining gap is recorded rather than hidden.
 
 The champion is now refit and packaged on all eligible local history. The
 versioned artifact contains horizon-specific global rate scales, rich xG/shots
@@ -1192,8 +1197,8 @@ rule. The calibrated output is currently regulation moneyline only because
 temperature scaling is not coherent with the raw score grid. Full decisions and
 parameters are in `REGULATION_CHAMPION_MODEL.md`.
 
-The fixture-selection application and timestamped Polymarket evidence path are
-now connected. The confirmed-lineup/player component and immutable shadow path
+The fixture-selection application and cutoff bookmaker-consensus path are now
+connected. The confirmed-lineup/player component and immutable shadow path
 also exist, but remain disabled for public output. The next evidence is a new
 prospective cohort of lineups genuinely retrieved before kickoff; distribution-
 level calibration and any team-rate promotion must use that cohort rather than

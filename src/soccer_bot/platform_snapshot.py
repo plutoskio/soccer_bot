@@ -124,22 +124,22 @@ def _validate_family(family: object) -> None:
             or fair < 1
         ):
             raise PlatformSnapshotValidationError("Fair multiplier is invalid")
-        _validate_market_quote(market.get("market_comparison"), "cutoff")
-        _validate_market_quote(market.get("live_market"), "live")
+        _validate_market_quote(market.get("market_comparison"), "cutoff_consensus")
+        if market.get("live_market") is not None:
+            raise PlatformSnapshotValidationError(
+                "Live external markets are disabled for platform publication"
+            )
 
 
 def _validate_market_quote(value: object, expected_type: str) -> None:
     if value is None:
         return
-    if not isinstance(value, dict) or value.get("source") != "polymarket":
+    if not isinstance(value, dict) or value.get("source") != "api_football":
         raise PlatformSnapshotValidationError("Market quote source is invalid")
     if value.get("quote_type") != expected_type:
         raise PlatformSnapshotValidationError("Market quote type is invalid")
     for field in (
         "market_probability",
-        "best_bid_probability",
-        "best_ask_probability",
-        "bid_ask_spread",
     ):
         number = value.get(field)
         if (
@@ -149,12 +149,6 @@ def _validate_market_quote(value: object, expected_type: str) -> None:
             or not 0 <= number <= 1
         ):
             raise PlatformSnapshotValidationError(f"Market quote {field} is invalid")
-    bid = float(value["best_bid_probability"])
-    ask = float(value["best_ask_probability"])
-    if bid > ask or not math.isclose(
-        float(value["bid_ask_spread"]), ask - bid, abs_tol=1e-9
-    ):
-        raise PlatformSnapshotValidationError("Market quote spread is incoherent")
     multiplier = value.get("market_decimal_multiplier")
     if (
         isinstance(multiplier, bool)
@@ -163,6 +157,22 @@ def _validate_market_quote(value: object, expected_type: str) -> None:
         or multiplier < 1
     ):
         raise PlatformSnapshotValidationError("Market quote multiplier is invalid")
+    probability = float(value["market_probability"])
+    if probability <= 0 or not math.isclose(
+        multiplier, 1.0 / probability, rel_tol=1e-9, abs_tol=1e-9
+    ):
+        raise PlatformSnapshotValidationError(
+            "Bookmaker consensus probability and multiplier are incoherent"
+        )
+    bookmaker_count = value.get("bookmaker_count")
+    if (
+        isinstance(bookmaker_count, bool)
+        or not isinstance(bookmaker_count, int)
+        or bookmaker_count <= 0
+    ):
+        raise PlatformSnapshotValidationError("Bookmaker count is invalid")
+    if value.get("consensus_method") != "median_proportional_devig":
+        raise PlatformSnapshotValidationError("Bookmaker consensus method is invalid")
     _timestamp(value.get("observed_at"), "market observed_at")
     _timestamp(value.get("retrieved_at"), "market retrieved_at")
 

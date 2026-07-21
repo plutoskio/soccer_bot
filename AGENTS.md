@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Build a soccer forecasting system for researching Polymarket bets. The model
+Build a soccer forecasting system for researching soccer betting markets. The model
 should use confirmed lineups and player-level histories to estimate:
 
 - Regulation moneyline and spreads (highest priority)
@@ -52,8 +52,11 @@ to read-only upcoming-fixture inference.
   the final test was scored once. Versus calibrated independent Poisson, log
   loss improved by 0.00453 at T-24h and 0.00434 at clean T-72h; both paired
   month-block 95% intervals exclude zero. This is the current champion recipe.
-- Strict timestamped Polymarket three-way coverage is currently zero complete
-  eligible fixtures. Football-Data closing consensus covers 12,458 fixtures,
+- Strict timestamped Polymarket three-way coverage produced zero complete
+  eligible fixtures, so Polymarket collection/publication was disabled on
+  2026-07-21. API-Football Match Winner prices are now captured only in frozen
+  pre-cutoff T−72h/T−24h windows for a de-vigged bookmaker benchmark.
+  Football-Data closing consensus covers 12,458 fixtures,
   but its missing quote timestamps make it a retrospective benchmark only,
   never a model feature.
 - The 2026-07-15 all-history refit uses 38,445 T−24h and 34,813 clean T−72h
@@ -82,8 +85,8 @@ production deployment subsequently reached Railway status `SUCCESS`.
 - Schedule: every five minutes (`*/5 * * * *`)
 - Restart policy: `NEVER` because this is a run-once cron process
 - Persistent volume mount: `/app/data`
-- Volume capacity: 10 GB; 3,996.7 MB was used immediately after the
-  2026-07-15 online resize and the volume reported `Ready`
+- Volume capacity: 20 GB; 8,448.5 MB was stored when the 2026-07-21 live
+  resize completed and the volume reported `Ready`
 - Required collector variables: `API_FOOTBALL_KEY` plus the snapshot bucket
   references documented in `RAILWAY_APPLICATION_DEPLOYMENT.md`; never print
   their values
@@ -107,8 +110,8 @@ The local checkout is already linked through the Railway CLI. Useful read-only
 status commands are:
 
 ```bash
-railway service status --json
-railway logs
+railway service status --service soccer_bot --json
+railway logs --service soccer_bot
 ```
 
 Do not assume the local DuckDB contains observations collected after the cloud
@@ -135,7 +138,9 @@ The guarded publisher rollout retained a verified compressed DuckDB backup at
 SHA-256 is recorded in `RAILWAY_APPLICATION_DEPLOYMENT.md`. Railway Pro was
 enabled on 2026-07-15, the production volume was resized online from 5 GB to
 10 GB, and Railway created the 3.91 GB manual restore point `Online resize to
-10000MB`. Native daily backups are enabled with Railway's six-day retention.
+10000MB`. The volume was live-resized again from 10 GB to 20 GB on 2026-07-21
+after usage reached 84%; Railway reported it `Ready` with 8,448.5 MB stored.
+Native daily backups are enabled with Railway's six-day retention.
 The Backups UI exposes `Restore` and a delete-only actions menu for this manual
 restore point; it does not expose a separate lock toggle. Volume-usage alerts
 are enabled at 80%, 95%, and 100%; the account cost warning/limit described in
@@ -206,7 +211,7 @@ reviewed first.
   lineups, team stats, goals, and substitutions but no player minutes. It is
   result/team eligible and player ineligible.
 - The collector is a restart-safe, locked run-once program with rolling
-  recovery, staged lineup/post-match/Polymarket jobs, bounded HTTP retries, and
+  recovery, staged lineup/post-match/bookmaker-odds jobs, bounded HTTP retries, and
   daily health reporting. Railway is the production host: `/app/data` is the
   persistent volume and the tracked `railway.json` schedules the collector
   every five minutes. No second production scheduler is supported.
@@ -282,7 +287,7 @@ history, with labels derived from the frozen 1,000/5/20 evidence thresholds.
 Do not tune further against the current final-test report. The collector volume
 resize, native daily backup schedule, guarded publication, and source commit are
 complete. Next add publication-failure/staleness alerting, test a restore into
-an isolated volume, continue collecting complete timestamped Polymarket books,
+an isolated volume, accumulate leakage-safe API-Football bookmaker benchmarks,
 and begin confirmed-lineup/player research under a new forward or nested
 evaluation window. Treat T−24h as a comparable
 pre-lineup anchor, not a separate model for every hour. Keep result, team, and

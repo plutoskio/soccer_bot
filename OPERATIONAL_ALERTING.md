@@ -33,7 +33,7 @@ successful collection commits and does not roll back provider data. It makes
 an operationally failed publication or shadow cycle visible as a failed
 Railway cron invocation. Blocking data health remains distinct at exit `2`.
 
-### 1.2 Independent public-heartbeat monitor
+### 1.2 Independent public-snapshot monitor
 
 A process cannot report that it was never started. Scheduler death therefore
 cannot be inferred from an in-process heartbeat alone.
@@ -41,13 +41,17 @@ cannot be inferred from an in-process heartbeat alone.
 `.github/workflows/prediction-operations-watchdog.yml` runs every 15 minutes
 on GitHub's scheduler, independently of Railway. It executes
 `scripts/check_public_prediction_health.py` against the public web service and
-verifies the server-rendered snapshot's:
+verifies both the compact champion heartbeat and the specialized V2 platform
+snapshot. The checks cover:
 
 - `as_of` freshness;
 - production model version;
 - frozen logical model SHA-256;
 - positive prediction-row count;
 - positive fixture count.
+- the frozen family-registry version and validated-only ranking policy;
+- every exposed family model's registry membership and logical identity;
+- positive platform state count and non-empty information-state coverage.
 
 The freshness limit is 1,200 seconds. With a five-minute production cron, the
 snapshot can miss three refresh opportunities before the fourth missed
@@ -64,7 +68,7 @@ credential is stored in GitHub.
 ### 1.3 Railway-native capacity alerts
 
 Railway volume alerts remain the authoritative provider-side signal at 80%,
-95%, and 100% of the 10 GB volume. The in-process check duplicates the 80%
+95%, and 100% of the 20 GB volume. The in-process check duplicates the 80%
 warning and 95% critical boundary so every collector receipt records capacity
 evidence. Filesystem-reported capacity is corroborative; Railway's quota
 calculation is authoritative if the two disagree.
@@ -245,7 +249,7 @@ provider body, command stderr, or credential path enters either artifact.
 ### Public snapshot stale or scheduler stopped
 
 1. Open the GitHub incident and linked workflow.
-2. Run `railway service status --json`; confirm the exact collector commit,
+2. Run `railway service status --service soccer_bot --json`; confirm the exact collector commit,
    cron `*/5 * * * *`, and restart policy `NEVER`.
 3. Inspect recent logs without opening DuckDB.
 4. If a writer may exist, do not start a manual collector.

@@ -21,6 +21,15 @@
     "post_match_final_retry_minutes": 480,
     "correction_refresh_offsets_minutes": [1440, 4320]
   },
+  "bookmaker_odds": {
+    "enabled": true,
+    "bet_id": 1,
+    "snapshot_offsets_minutes": [4320, 1440],
+    "snapshot_stage_window_minutes": 16,
+    "maximum_attempts": 3,
+    "retry_minutes": 5,
+    "minimum_bookmakers_for_consensus": 3
+  },
   "identity": {
     "recent_team_lookback_days": 730,
     "recent_team_max_candidates": 50
@@ -65,22 +74,24 @@
       "output_directory": "data/predictions/specialized_platform_v1",
       "object_key": "specialized_platform_v1/latest.json",
       "minimum_state_rows": 1,
+      "bookmaker_stage_window_minutes": 16,
+      "minimum_bookmakers_for_consensus": 3,
       "timeout_seconds": 240
     },
     "polymarket_market_evidence": {
-      "enabled": true,
+      "enabled": false,
       "policy_path": "config/contracts/polymarket_regulation_v1.json",
       "policy_sha256": "e11ebe375845ec8293249730b889478a907e102abf401f87cfbcc96b8f4f900b",
       "output_directory": "data/predictions/polymarket_market_evidence_v1",
       "timeout_seconds": 120,
       "market_research": {
-        "enabled": true,
+        "enabled": false,
         "settlement_config_path": "config/models/polymarket_regulation_market_settlement_v1.json",
         "settlement_config_sha256": "093226ac2f0b3d36eab59b7aa1aea1617579752d154916379cf22fb1179d3543",
         "output_directory": "data/predictions/polymarket_regulation_market_settlement_v1",
         "timeout_seconds": 120,
         "evaluation_program": {
-          "enabled": true,
+          "enabled": false,
           "config_path": "config/models/polymarket_regulation_market_evaluation_v1.json",
           "evaluation_config_sha256": "46e2df784aba1bc4245942fecc5c1a0ea1944b53afeac5ecad2ee4bc9e9bc3a2",
           "output_directory": "data/predictions/polymarket_regulation_market_evaluation_v1",
@@ -122,6 +133,7 @@
     }
   },
   "polymarket": {
+    "enabled": false,
     "soccer_tag_id": 100350,
     "maximum_event_pages": 1,
     "event_page_size": 20,

@@ -22,6 +22,62 @@ from soccer_bot.prediction_publication import run_prediction_publication
 from soccer_bot.raw_store import RawArtifactStore
 
 
+def compact_runtime_summary(
+    summary: dict[str, object], *, dry_run: bool
+) -> dict[str, object]:
+    """Return a bounded log record while durable stores retain full detail."""
+
+    if dry_run:
+        return summary
+    health = summary.get("health")
+    publication = summary.get("prediction_publication")
+    operations = summary.get("operational_watchdog")
+    compact: dict[str, object] = {
+        "status": "completed",
+        "api_football_calls": summary.get("api_football_calls", 0),
+        "polymarket_calls": summary.get("polymarket_calls", 0),
+        "planned_job_count": len(summary.get("planned_jobs", [])),
+        "executed_job_count": len(summary.get("executed_jobs", [])),
+        "selected_fixtures": summary.get("selected_fixtures", 0),
+        "market_fixture_scope": summary.get("market_fixture_scope", 0),
+        "linked_polymarket_events": summary.get(
+            "linked_polymarket_events", 0
+        ),
+    }
+    if isinstance(health, dict):
+        compact["health"] = {
+            key: health.get(key)
+            for key in ("report_date", "severity", "blocking_reason")
+        }
+    if isinstance(publication, dict):
+        compact["prediction_publication"] = {
+            key: publication.get(key)
+            for key in (
+                "status",
+                "as_of",
+                "model_version",
+                "logical_model_sha256",
+                "prediction_rows",
+                "fixture_count",
+                "error_type",
+                "error",
+            )
+            if key in publication
+        }
+    if isinstance(operations, dict):
+        alerts = operations.get("alerts", [])
+        compact["operational_watchdog"] = {
+            "overall_status": operations.get("overall_status"),
+            "should_fail_run": operations.get("should_fail_run", False),
+            "alert_codes": [
+                alert.get("code")
+                for alert in alerts
+                if isinstance(alert, dict) and alert.get("code")
+            ],
+        }
+    return compact
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run one quota-aware collection cycle for due soccer fixtures"
@@ -136,18 +192,19 @@ def main() -> int:
                 }
             summary["operational_watchdog"] = operations
             operational_exit = bool(operations.get("should_fail_run", False))
-            if operations.get("alerts"):
-                print(
-                    json.dumps(
-                        {
-                            "operational_alerts": operations["alerts"],
-                            "overall_status": operations.get("overall_status"),
-                        },
-                        sort_keys=True,
-                    ),
-                    file=sys.stderr,
-                )
-        print(json.dumps(summary, indent=2, sort_keys=True))
+        runtime_summary = compact_runtime_summary(summary, dry_run=args.dry_run)
+        if args.dry_run:
+            print(json.dumps(runtime_summary, indent=2, sort_keys=True))
+        else:
+            stream = (
+                sys.stderr
+                if health_severity == "blocking" or operational_exit
+                else sys.stdout
+            )
+            print(
+                json.dumps(runtime_summary, separators=(",", ":"), sort_keys=True),
+                file=stream,
+            )
         if health_severity == "blocking":
             return 2
         return 3 if operational_exit else 0
