@@ -157,7 +157,10 @@ not run migrations, `CHECKPOINT`, `VACUUM`, repair scripts, or the collector.
 Railway Pro was enabled on 2026-07-15. The production volume was resized online
 from 5 GB to 10 GB and immediately reported `Ready`, with 3,996.7 MB used.
 Railway created a 3.91 GB manual restore point named `Online resize to
-10000MB`, and native daily backups are enabled with six-day retention. The
+10000MB`. After usage reached 84%, it was live-resized again from 10 GB to
+20 GB on 2026-07-21 and reported `Ready`, with 8,448.5 MB stored. Railway bills
+the bytes stored rather than the configured maximum. Native daily backups are
+enabled with six-day retention. The
 Backups UI exposes `Restore` and a delete-only actions menu for the manual
 restore point; it does not expose a separate lock control. Do not delete it
 until an isolated restoration test has succeeded. Volume-usage alerts are

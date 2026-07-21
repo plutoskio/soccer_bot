@@ -82,8 +82,8 @@ production deployment subsequently reached Railway status `SUCCESS`.
 - Schedule: every five minutes (`*/5 * * * *`)
 - Restart policy: `NEVER` because this is a run-once cron process
 - Persistent volume mount: `/app/data`
-- Volume capacity: 10 GB; 3,996.7 MB was used immediately after the
-  2026-07-15 online resize and the volume reported `Ready`
+- Volume capacity: 20 GB; 8,448.5 MB was stored when the 2026-07-21 live
+  resize completed and the volume reported `Ready`
 - Required collector variables: `API_FOOTBALL_KEY` plus the snapshot bucket
   references documented in `RAILWAY_APPLICATION_DEPLOYMENT.md`; never print
   their values
@@ -107,8 +107,8 @@ The local checkout is already linked through the Railway CLI. Useful read-only
 status commands are:
 
 ```bash
-railway service status --json
-railway logs
+railway service status --service soccer_bot --json
+railway logs --service soccer_bot
 ```
 
 Do not assume the local DuckDB contains observations collected after the cloud
@@ -135,7 +135,9 @@ The guarded publisher rollout retained a verified compressed DuckDB backup at
 SHA-256 is recorded in `RAILWAY_APPLICATION_DEPLOYMENT.md`. Railway Pro was
 enabled on 2026-07-15, the production volume was resized online from 5 GB to
 10 GB, and Railway created the 3.91 GB manual restore point `Online resize to
-10000MB`. Native daily backups are enabled with Railway's six-day retention.
+10000MB`. The volume was live-resized again from 10 GB to 20 GB on 2026-07-21
+after usage reached 84%; Railway reported it `Ready` with 8,448.5 MB stored.
+Native daily backups are enabled with Railway's six-day retention.
 The Backups UI exposes `Restore` and a delete-only actions menu for this manual
 restore point; it does not expose a separate lock toggle. Volume-usage alerts
 are enabled at 80%, 95%, and 100%; the account cost warning/limit described in
