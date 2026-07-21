@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
@@ -26,6 +26,15 @@ from soccer_bot.datasets.corner_features import (
 )
 from soccer_bot.datasets.corners import build_corner_targets
 from soccer_bot.datasets.features import RegulationInferenceFixture
+from soccer_bot.datasets.features import load_team_state_feature_config
+from soccer_bot.datasets.targets import (
+    build_regulation_score_targets,
+    load_regulation_target_exclusions,
+)
+from soccer_bot.match_context import (
+    build_match_contexts,
+    load_fixture_display_metadata,
+)
 from soccer_bot.modeling.corners import (
     corner_model_sha256,
     corner_score_grid,
@@ -118,6 +127,16 @@ def parse_args() -> argparse.Namespace:
         default=ROOT / "config/models/specialized_family_registry_v1.json",
     )
     parser.add_argument(
+        "--team-feature-config",
+        type=Path,
+        default=ROOT / "config/features/regulation_team_state_v1.json",
+    )
+    parser.add_argument(
+        "--target-exclusions",
+        type=Path,
+        default=ROOT / "config/models/regulation_score_exclusions_v1.json",
+    )
+    parser.add_argument(
         "--bookmaker-stage-window-minutes",
         type=int,
         default=16,
@@ -155,6 +174,7 @@ def main() -> int:
     timing_config = load_first_score_config(args.timing_config)
     timing_model = load_first_score_model(args.timing_model)
     family_registry = load_specialized_family_registry(args.family_registry)
+    team_feature_config = load_team_state_feature_config(args.team_feature_config)
     _require_registered_artifact(
         family_registry,
         family_key="regulation_moneyline",
@@ -193,9 +213,31 @@ def main() -> int:
         raise RuntimeError("Corner manifest has no supported forward candidate")
 
     upcoming = _upcoming_from_moneyline(source_rows)
+    availability_policy = moneyline_snapshot.get("availability_policy", {})
+    strict_fixture_kickoff_start = _timestamp(
+        availability_policy["strict_fixture_kickoff_start"]
+    )
     connection = duckdb.connect(str(args.warehouse), read_only=True)
     try:
         corner_target_build = build_corner_targets(connection)
+        historical_targets = build_regulation_score_targets(
+            connection,
+            reviewed_exclusions=load_regulation_target_exclusions(
+                args.target_exclusions
+            ),
+            strict_retrieval_from=strict_fixture_kickoff_start,
+            result_availability_delay=timedelta(
+                minutes=team_feature_config.result_availability_delay_minutes
+            ),
+        )
+        match_contexts = build_match_contexts(
+            historical_targets,
+            source_rows,
+            load_fixture_display_metadata(connection),
+            result_availability_delay=timedelta(
+                minutes=team_feature_config.result_availability_delay_minutes
+            ),
+        )
     finally:
         connection.close()
     corner_rows = ChronologicalCornerFeatureBuilder(
@@ -428,6 +470,11 @@ def main() -> int:
                 "information_state": source["information_state"],
                 "prediction_at": source["prediction_at"],
                 "issued_at": created_at.isoformat(),
+                "match_context": match_contexts[key],
+                "model_expectation": {
+                    "expected_home_goals": source["expected_home_goals"],
+                    "expected_away_goals": source["expected_away_goals"],
+                },
                 "families": families,
             }
         )

@@ -331,6 +331,74 @@ class PredictionApiTests(unittest.TestCase):
         with self.assertRaises(PlatformSnapshotValidationError):
             PlatformSnapshotStore(self.platform_path).load()
 
+    def test_platform_context_is_public_and_rejects_post_cutoff_results(self) -> None:
+        value = sample_platform_snapshot()
+        state = value["states"][0]
+        cutoff = datetime.fromisoformat(state["prediction_at"])
+        match = {
+            "fixture_id": "previous",
+            "kickoff": (cutoff - timedelta(days=4)).isoformat(),
+            "available_at": (cutoff - timedelta(days=3, hours=21)).isoformat(),
+            "competition_name": "Competition",
+            "opponent_name": "Opponent",
+            "venue": "home",
+            "neutral_venue": False,
+            "team_score": 2,
+            "opponent_score": 1,
+            "outcome": "win",
+        }
+        trend = {
+            "sample_size": 1,
+            "wins": 1,
+            "draws": 0,
+            "losses": 0,
+            "goals_for_per_match": 2.0,
+            "goals_against_per_match": 1.0,
+            "clean_sheet_rate": 0.0,
+            "both_teams_scored_rate": 1.0,
+        }
+        team = {
+            "team_id": "team-home",
+            "rest_days": 4.0,
+            "matches_last_7d": 1,
+            "matches_last_14d": 1,
+            "matches_last_30d": 1,
+            "recent_matches": [match],
+            "trends": {"last_5": trend, "last_10": trend},
+        }
+        state["match_context"] = {
+            "cutoff_at": state["prediction_at"],
+            "home": team,
+            "away": {**team, "team_id": "team-away"},
+        }
+        state["model_expectation"] = {
+            "expected_home_goals": 1.5,
+            "expected_away_goals": 0.9,
+        }
+        value["state_rows_sha256"] = hashlib.sha256(
+            json.dumps(
+                value["states"], sort_keys=True, separators=(",", ":"), allow_nan=False
+            ).encode()
+        ).hexdigest()
+        self.platform_path.write_text(json.dumps(value), encoding="utf-8")
+        loaded = PlatformSnapshotStore(self.platform_path).load()
+        self.assertEqual(
+            loaded["states"][0]["match_context"]["home"]["recent_matches"][0]["team_score"],
+            2,
+        )
+
+        state["match_context"]["home"]["recent_matches"][0]["available_at"] = (
+            cutoff + timedelta(seconds=1)
+        ).isoformat()
+        value["state_rows_sha256"] = hashlib.sha256(
+            json.dumps(
+                value["states"], sort_keys=True, separators=(",", ":"), allow_nan=False
+            ).encode()
+        ).hexdigest()
+        self.platform_path.write_text(json.dumps(value), encoding="utf-8")
+        with self.assertRaises(PlatformSnapshotValidationError):
+            PlatformSnapshotStore(self.platform_path).load()
+
     def test_platform_accepts_bookmaker_consensus_and_rejects_polymarket_quote(self) -> None:
         value = sample_platform_snapshot()
         market = value["states"][0]["families"][0]["markets"][0]

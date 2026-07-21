@@ -20,6 +20,10 @@ export function formatKickoffLong(value: string) {
   }).format(new Date(value));
 }
 
+export function formatMatchDate(value: string) {
+  return formatter({ day: "numeric", month: "short" }).format(new Date(value));
+}
+
 export function formatTimestamp(value: string) {
   return formatter({
     day: "2-digit",
@@ -42,6 +46,10 @@ export function formatPercent(value: number | null) {
 
 export function formatInteger(value: number) {
   return new Intl.NumberFormat("en-GB").format(value);
+}
+
+export function formatRate(value: number | null) {
+  return value === null ? "—" : value.toFixed(2);
 }
 
 export function humanize(value: string) {

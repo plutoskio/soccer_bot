@@ -61,7 +61,57 @@ export interface PlatformState {
   prediction_at: string;
   issued_at: string;
   information_state: InformationState;
+  match_context?: MatchContext;
+  model_expectation?: ModelExpectation;
   families: ModelFamily[];
+}
+
+export interface ModelExpectation {
+  expected_home_goals: number;
+  expected_away_goals: number;
+}
+
+export interface MatchContext {
+  cutoff_at: string;
+  home: TeamMatchContext;
+  away: TeamMatchContext;
+}
+
+export interface TeamMatchContext {
+  team_id: string;
+  rest_days: number | null;
+  matches_last_7d: number;
+  matches_last_14d: number;
+  matches_last_30d: number;
+  recent_matches: RecentMatch[];
+  trends: {
+    last_5: TeamTrend;
+    last_10: TeamTrend;
+  };
+}
+
+export interface RecentMatch {
+  fixture_id: string;
+  kickoff: string;
+  available_at: string;
+  competition_name: string;
+  opponent_name: string;
+  venue: "home" | "away";
+  neutral_venue: boolean;
+  team_score: number;
+  opponent_score: number;
+  outcome: "win" | "draw" | "loss";
+}
+
+export interface TeamTrend {
+  sample_size: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  goals_for_per_match: number | null;
+  goals_against_per_match: number | null;
+  clean_sheet_rate: number | null;
+  both_teams_scored_rate: number | null;
 }
 
 export interface PlatformSnapshot {
