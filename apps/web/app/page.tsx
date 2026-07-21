@@ -1,21 +1,34 @@
-import { ProbabilityDesk } from "@/components/probability-desk";
+import { FixtureIndex } from "@/components/fixture-index";
+import { SiteHeader } from "@/components/site-header";
 import { getPredictionSnapshot } from "@/lib/snapshot";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
   try {
-    return <ProbabilityDesk snapshot={await getPredictionSnapshot()} />;
+    const snapshot = await getPredictionSnapshot();
+    return (
+      <>
+        <SiteHeader active="matches" snapshot={snapshot} />
+        <FixtureIndex snapshot={snapshot} />
+      </>
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown API error";
-    return (
+    return <UnavailableState message={message} />;
+  }
+}
+
+function UnavailableState({ message }: { message: string }) {
+  return (
+    <>
+      <SiteHeader active="matches" />
       <main className="system-state">
-        <div className="wordmark"><span aria-hidden="true">SB</span> Soccer Bot</div>
-        <p className="eyebrow">Probability desk unavailable</p>
-        <h1>The forecast snapshot could not be loaded.</h1>
-        <p className="state-copy">The interface fails closed when its audited prediction source is unavailable. No probabilities have been guessed or cached in the browser.</p>
+        <p className="section-label">Forecasts unavailable</p>
+        <h1>The latest predictions could not be loaded.</h1>
+        <p>The product stops before displaying unvalidated or invented probabilities.</p>
         <code>{message}</code>
       </main>
-    );
-  }
+    </>
+  );
 }
