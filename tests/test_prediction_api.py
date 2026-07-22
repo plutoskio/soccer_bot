@@ -11,6 +11,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from apps.api.main import create_app
+from apps.api.history_store import HistoryStore, HistoryValidationError
 from apps.api.platform_store import (
     PlatformSnapshotStore,
     PlatformSnapshotValidationError,
@@ -202,6 +203,79 @@ def sample_platform_snapshot() -> dict:
     }
 
 
+def sample_history() -> dict:
+    now = datetime.now(timezone.utc)
+    fixture = {
+        "fixture_id": "fixture-history-1",
+        "kickoff": (now - timedelta(days=1)).isoformat(),
+        "competition_id": "competition-1",
+        "competition_name": "Competition",
+        "home_team_name": "Home",
+        "away_team_name": "Away",
+        "result": {
+            "status": "settled",
+            "home_goals": 2,
+            "away_goals": 1,
+            "outcome": "home_win",
+            "settled_at": now.isoformat(),
+        },
+        "prediction_groups": [
+            {
+                "prediction_key": "prediction-key",
+                "evidence_classification": "published_forward",
+                "evidence_label": "PUBLISHED BEFORE KICKOFF",
+                "family_key": "regulation_score",
+                "display_name": "Score and goals",
+                "model_version": "score-model",
+                "logical_model_sha256": "a" * 64,
+                "model_status_at_prediction": "experimental",
+                "information_state": "pre_lineup_24h_v1",
+                "prediction_at": (now - timedelta(days=2)).isoformat(),
+                "first_published_at": (now - timedelta(days=2)).isoformat(),
+                "eligible_for_performance_claim": False,
+                "expected_home_goals": 1.7,
+                "expected_away_goals": 1.1,
+                "warnings": [],
+                "markets": [
+                    {
+                        "market_id": "moneyline:home_win",
+                        "group": "Match result",
+                        "label": "Home",
+                        "probability": 0.5,
+                        "fair_decimal_multiplier": 2.0,
+                        "settlement_probabilities": None,
+                        "realized_settlement": "win",
+                        "market_comparison": None,
+                    }
+                ],
+            }
+        ],
+    }
+    encoded = json.dumps([fixture], sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return {
+        "history_version": "published_prediction_history_v1",
+        "generated_at": now.isoformat(),
+        "as_of": now.isoformat(),
+        "fixture_count": 1,
+        "prediction_group_count": 1,
+        "excluded_ineligible_records": 0,
+        "ledger_head_sha256": "b" * 64,
+        "history_rows_sha256": hashlib.sha256(encoded.encode()).hexdigest(),
+        "bookmaker_readiness": {
+            "status": "collecting",
+            "settled_timestamp_safe_quotes": 0,
+            "settled_fixture_horizons": 0,
+            "calendar_months": 0,
+            "minimum_settled_fixture_horizons": 500,
+            "minimum_calendar_months": 3,
+            "performance_statistics_exposed": False,
+            "gate_policy": "minimums_frozen_before_first_forward_comparison",
+            "comparison": None,
+        },
+        "fixtures": [fixture],
+    }
+
+
 class PredictionApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -211,10 +285,13 @@ class PredictionApiTests(unittest.TestCase):
         self.platform_path.write_text(
             json.dumps(sample_platform_snapshot()), encoding="utf-8"
         )
+        self.history_path = Path(self.tempdir.name) / "history.json"
+        self.history_path.write_text(json.dumps(sample_history()), encoding="utf-8")
         self.client = TestClient(
             create_app(
                 SnapshotStore(self.path),
                 PlatformSnapshotStore(self.platform_path),
+                HistoryStore(self.history_path),
             )
         )
 
@@ -305,6 +382,24 @@ class PredictionApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["market"]["fair_decimal_multiplier"], 2.5)
         self.assertFalse(response.json()["eligible_for_ranking"])
+
+    def test_published_history_list_and_detail(self) -> None:
+        response = self.client.get("/v2/history?limit=1")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["fixture_count"], 1)
+        self.assertEqual(response.json()["fixtures"][0]["result"]["home_goals"], 2)
+        detail = self.client.get("/v2/history/fixture-history-1")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["fixture"]["prediction_groups"][0]["markets"][0]["realized_settlement"], "win")
+
+    def test_published_history_rejects_post_kickoff_publication(self) -> None:
+        value = sample_history()
+        value["fixtures"][0]["prediction_groups"][0]["first_published_at"] = value["fixtures"][0]["result"]["settled_at"]
+        encoded = json.dumps(value["fixtures"], sort_keys=True, separators=(",", ":"), allow_nan=False)
+        value["history_rows_sha256"] = hashlib.sha256(encoded.encode()).hexdigest()
+        self.history_path.write_text(json.dumps(value), encoding="utf-8")
+        with self.assertRaises(HistoryValidationError):
+            HistoryStore(self.history_path).load()
 
     def test_platform_freshness_is_recomputed_on_cache_hits(self) -> None:
         value = sample_platform_snapshot()

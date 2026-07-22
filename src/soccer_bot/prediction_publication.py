@@ -25,6 +25,7 @@ from soccer_bot.modeling.score_grid_shadow import (
 )
 from soccer_bot.modeling.reproducibility import reproducibility_file_sha256
 from soccer_bot.prediction_integrity import champion_prediction_rows_sha256
+from soccer_bot.prediction_history import validate_prediction_history
 from soccer_bot.specialized_evidence import materialize_specialized_evidence
 
 from soccer_bot.platform_snapshot import validate_platform_snapshot
@@ -283,6 +284,15 @@ def _generate_validate_publish(
         default_timeout=timeout,
         as_of=datetime.now(timezone.utc),
     )
+    history_result = _try_publish_prediction_history(
+        root=root,
+        config=config.get("published_history", {}),
+        shadow_config=config.get("shadow_score_grid", {}),
+        command_runner=command_runner,
+        environment=subprocess_environment,
+        default_timeout=timeout,
+        generated_at=datetime.now(timezone.utc),
+    )
     return {
         "status": "uploaded",
         "as_of": snapshot["as_of"],
@@ -303,6 +313,7 @@ def _generate_validate_publish(
         "prospective_evaluation_readiness": readiness_result,
         "polymarket_market_settlement_ledger": market_settlement_result,
         "polymarket_market_evaluation_readiness": market_readiness_result,
+        "published_history": history_result,
     }
 
 
@@ -413,6 +424,98 @@ def _try_publish_specialized_platform(
             "state_rows_sha256": platform_snapshot["state_rows_sha256"],
             "forward_evidence": evidence,
             "ranking_policy": platform_snapshot["ranking_policy"],
+        }
+    except Exception as error:
+        return {
+            "status": "failed",
+            "error_type": type(error).__name__,
+            "error": _safe_error(error),
+        }
+
+
+def _try_publish_prediction_history(
+    *,
+    root: Path,
+    config: dict,
+    shadow_config: dict,
+    command_runner: CommandRunner,
+    environment: Mapping[str, str],
+    default_timeout: int,
+    generated_at: datetime,
+) -> dict[str, object]:
+    if not config.get("enabled", False):
+        return {"status": "disabled"}
+    try:
+        settlement = shadow_config.get("settlement_ledger", {})
+        shadow_output = _inside_root(root, shadow_config["output_directory"])
+        settlement_output = _inside_root(root, settlement["output_directory"])
+        settlement_config = _inside_root(root, settlement["config_path"])
+        platform_output = _inside_root(
+            root,
+            config["platform_snapshot_directory"],
+        )
+        output_directory = _inside_root(root, config["output_directory"])
+        object_key = str(config.get("object_key", "published_history_v1/latest.json"))
+        if not object_key or object_key.startswith("/") or ".." in Path(object_key).parts:
+            raise PredictionPublicationError("invalid_history_object_key")
+        timeout = int(config.get("timeout_seconds", default_timeout))
+        generation = command_runner(
+            [
+                sys.executable,
+                str(root / "scripts" / "build_prediction_history.py"),
+                "--evidence-dir",
+                str(shadow_output / "evidence"),
+                "--ledger",
+                str(settlement_output / "ledger.jsonl"),
+                "--settlement-config",
+                str(settlement_config),
+                "--platform-snapshot-dir",
+                str(platform_output),
+                "--output-dir",
+                str(output_directory),
+                "--generated-at",
+                generated_at.isoformat(),
+            ],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        if generation.returncode:
+            raise PredictionPublicationError(f"history_generation_exit_{generation.returncode}")
+        snapshot_path = output_directory / "latest.json"
+        artifact = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        validate_prediction_history(artifact)
+        publication = command_runner(
+            [
+                sys.executable,
+                str(root / "scripts" / "publish_prediction_history.py"),
+                "--snapshot",
+                str(snapshot_path),
+                "--key",
+                object_key,
+            ],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        if publication.returncode:
+            raise PredictionPublicationError(f"history_publication_exit_{publication.returncode}")
+        receipt = json.loads(publication.stdout)
+        if receipt.get("status") != "uploaded" or receipt.get("history_rows_sha256") != artifact["history_rows_sha256"]:
+            raise PredictionPublicationError("history_publication_not_confirmed")
+        return {
+            "status": "uploaded",
+            "history_version": artifact["history_version"],
+            "fixture_count": artifact["fixture_count"],
+            "prediction_group_count": artifact["prediction_group_count"],
+            "history_rows_sha256": artifact["history_rows_sha256"],
+            "bookmaker_readiness": artifact["bookmaker_readiness"],
         }
     except Exception as error:
         return {

@@ -8,7 +8,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from soccer_bot.prediction_publication import run_prediction_publication
+from soccer_bot.prediction_publication import (
+    _try_publish_prediction_history,
+    run_prediction_publication,
+)
 from soccer_bot.prediction_integrity import champion_prediction_rows_sha256
 from soccer_bot.modeling.reproducibility import file_sha256
 
@@ -349,6 +352,60 @@ class FakeRunner:
                     }
                 ),
                 stderr="player secret",
+            )
+        if command[1].endswith("build_prediction_history.py"):
+            output = Path(command[command.index("--output-dir") + 1])
+            output.mkdir(parents=True, exist_ok=True)
+            generated_at = command[command.index("--generated-at") + 1]
+            artifact = {
+                "history_version": "published_prediction_history_v1",
+                "generated_at": generated_at,
+                "as_of": generated_at,
+                "fixture_count": 0,
+                "prediction_group_count": 0,
+                "excluded_ineligible_records": 0,
+                "ledger_head_sha256": None,
+                "history_rows_sha256": (
+                    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f"
+                    "11161202b945"
+                ),
+                "bookmaker_readiness": {
+                    "status": "collecting",
+                    "settled_timestamp_safe_quotes": 0,
+                    "settled_fixture_horizons": 0,
+                    "calendar_months": 0,
+                    "minimum_settled_fixture_horizons": 500,
+                    "minimum_calendar_months": 3,
+                    "performance_statistics_exposed": False,
+                    "gate_policy": (
+                        "minimums_frozen_before_first_forward_comparison"
+                    ),
+                    "comparison": None,
+                },
+                "fixtures": [],
+            }
+            (output / "latest.json").write_text(
+                json.dumps(artifact), encoding="utf-8"
+            )
+            return subprocess.CompletedProcess(
+                command, 0, stdout=json.dumps({"status": "written"}), stderr=""
+            )
+        if command[1].endswith("publish_prediction_history.py"):
+            artifact = json.loads(
+                Path(command[command.index("--snapshot") + 1]).read_text(
+                    encoding="utf-8"
+                )
+            )
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=json.dumps(
+                    {
+                        "status": "uploaded",
+                        "history_rows_sha256": artifact["history_rows_sha256"],
+                    }
+                ),
+                stderr="",
             )
         return subprocess.CompletedProcess(
             command,
@@ -773,6 +830,37 @@ class PredictionPublicationTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "uploaded")
         self.assertEqual(result["report_status"], "failed")
+
+    def test_verified_prediction_history_is_built_and_published(self) -> None:
+        runner = FakeRunner(self.snapshot())
+        result = _try_publish_prediction_history(
+            root=self.root,
+            config={
+                "enabled": True,
+                "output_directory": "data/predictions/published_history_v1",
+                "platform_snapshot_directory": (
+                    "data/predictions/specialized_platform_v1"
+                ),
+                "object_key": "published_history_v1/latest.json",
+                "timeout_seconds": 30,
+            },
+            shadow_config=self.config["prediction_publication"][
+                "shadow_score_grid"
+            ],
+            command_runner=runner,
+            environment=self.environment,
+            default_timeout=30,
+            generated_at=self.as_of,
+        )
+
+        self.assertEqual(result["status"], "uploaded")
+        self.assertEqual(result["fixture_count"], 0)
+        self.assertEqual(result["prediction_group_count"], 0)
+        self.assertEqual(result["bookmaker_readiness"]["status"], "collecting")
+        self.assertEqual(
+            [Path(command[1]).name for command in runner.commands],
+            ["build_prediction_history.py", "publish_prediction_history.py"],
+        )
 
     def test_polymarket_evidence_is_failure_isolated_and_receipt_validated(self) -> None:
         self.config["prediction_publication"]["polymarket_market_evidence"] = {

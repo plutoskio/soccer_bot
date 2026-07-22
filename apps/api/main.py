@@ -20,6 +20,13 @@ from apps.api.platform_store import (
     PlatformSnapshotValidationError,
     S3PlatformSnapshotStore,
 )
+from apps.api.history_store import (
+    DEFAULT_HISTORY_PATH,
+    HistoryStore,
+    HistoryUnavailableError,
+    HistoryValidationError,
+    S3HistoryStore,
+)
 
 
 InformationState = Literal["pre_lineup_72h_clean_v1", "pre_lineup_24h_v1"]
@@ -59,9 +66,11 @@ class PlatformPriceRequest(BaseModel):
 def create_app(
     store: SnapshotStore | None = None,
     platform_store: PlatformSnapshotStore | S3PlatformSnapshotStore | None = None,
+    history_store: HistoryStore | S3HistoryStore | None = None,
 ) -> FastAPI:
     snapshot_store = store or _store_from_environment()
     specialized_store = platform_store or _platform_store_from_environment()
+    published_history_store = history_store or _history_store_from_environment()
 
     app = FastAPI(
         title="Soccer Bot Prediction API",
@@ -73,6 +82,7 @@ def create_app(
     )
     app.state.snapshot_store = snapshot_store
     app.state.platform_store = specialized_store
+    app.state.history_store = published_history_store
 
     @app.exception_handler(SnapshotUnavailableError)
     async def unavailable_handler(
@@ -98,6 +108,14 @@ def create_app(
     ) -> Any:
         return _error_response(503, "platform_snapshot_invalid", str(exc))
 
+    @app.exception_handler(HistoryUnavailableError)
+    async def history_unavailable_handler(_request: Request, exc: HistoryUnavailableError) -> Any:
+        return _error_response(503, "history_unavailable", str(exc))
+
+    @app.exception_handler(HistoryValidationError)
+    async def history_invalid_handler(_request: Request, exc: HistoryValidationError) -> Any:
+        return _error_response(503, "history_invalid", str(exc))
+
     def get_store(request: Request) -> SnapshotStore:
         return request.app.state.snapshot_store
 
@@ -110,6 +128,11 @@ def create_app(
         PlatformSnapshotStore | S3PlatformSnapshotStore,
         Depends(get_platform_store),
     ]
+
+    def get_history_store(request: Request):
+        return request.app.state.history_store
+
+    HistoryStoreDependency = Annotated[HistoryStore | S3HistoryStore, Depends(get_history_store)]
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -263,6 +286,38 @@ def create_app(
             "snapshot_as_of": snapshot["as_of"],
         }
 
+    @app.get("/v2/history")
+    def get_history(
+        store: HistoryStoreDependency,
+        limit: Annotated[int, Query(ge=1, le=100)] = 50,
+        offset: Annotated[int, Query(ge=0)] = 0,
+    ) -> dict[str, Any]:
+        history = store.load()
+        fixtures = history["fixtures"][offset : offset + limit]
+        return {
+            key: value
+            for key, value in history.items()
+            if key != "fixtures"
+        } | {
+            "returned_fixture_count": len(fixtures),
+            "offset": offset,
+            "has_more": offset + len(fixtures) < history["fixture_count"],
+            "fixtures": fixtures,
+        }
+
+    @app.get("/v2/history/{fixture_id}")
+    def get_history_fixture(fixture_id: str, store: HistoryStoreDependency) -> dict[str, Any]:
+        history = store.load()
+        fixture = next((row for row in history["fixtures"] if row["fixture_id"] == fixture_id), None)
+        if fixture is None:
+            raise HTTPException(status_code=404, detail="history_fixture_not_found")
+        return {
+            "history_version": history["history_version"],
+            "as_of": history["as_of"],
+            "history_rows_sha256": history["history_rows_sha256"],
+            "fixture": fixture,
+        }
+
     return app
 
 
@@ -324,6 +379,25 @@ def _platform_store_from_environment():
             "SOCCER_PLATFORM_SNAPSHOT_S3_KEY",
             "specialized_platform_v1/latest.json",
         ),
+        cache_seconds=float(os.environ.get("SOCCER_SNAPSHOT_CACHE_SECONDS", "30")),
+    )
+
+
+def _history_store_from_environment():
+    bucket = os.environ.get("SOCCER_SNAPSHOT_S3_BUCKET")
+    if not bucket:
+        return HistoryStore(Path(os.environ.get("SOCCER_HISTORY_PATH", DEFAULT_HISTORY_PATH)))
+    import boto3
+
+    client = boto3.client(
+        "s3",
+        endpoint_url=os.environ.get("SOCCER_SNAPSHOT_S3_ENDPOINT"),
+        region_name=os.environ.get("AWS_DEFAULT_REGION", "auto"),
+    )
+    return S3HistoryStore(
+        client=client,
+        bucket=bucket,
+        key=os.environ.get("SOCCER_HISTORY_S3_KEY", "published_history_v1/latest.json"),
         cache_seconds=float(os.environ.get("SOCCER_SNAPSHOT_CACHE_SECONDS", "30")),
     )
 

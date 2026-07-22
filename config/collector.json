@@ -64,7 +64,7 @@
     "logical_model_sha256": "8be7ffad15d12e7e603b2d9f3dd8dcd5e742e0f80846bcb6cd45c9ca40d7ef7a",
     "model_path": "artifacts/production/regulation_champion_v1/model.json",
     "model_config_path": "config/models/regulation_champion_v1.json",
-    "reproducibility_sha256": "c6dba892fef6cc7749f14404a2b8dc1aa5ea65f1f6d2c42e7731842fd3f876b1",
+    "reproducibility_sha256": "0f2f0e4c3a25aacbca55cf2b4f3409a83f232b1567a319442ae771b4d620ad3a",
     "output_directory": "data/predictions/regulation_champion_v1",
     "report_directory": "data/reports/predictions",
     "minimum_prediction_rows": 1,
@@ -76,6 +76,13 @@
       "minimum_state_rows": 1,
       "bookmaker_stage_window_minutes": 16,
       "minimum_bookmakers_for_consensus": 3,
+      "timeout_seconds": 240
+    },
+    "published_history": {
+      "enabled": true,
+      "output_directory": "data/predictions/published_history_v1",
+      "platform_snapshot_directory": "data/predictions/specialized_platform_v1",
+      "object_key": "published_history_v1/latest.json",
       "timeout_seconds": 240
     },
     "polymarket_market_evidence": {
